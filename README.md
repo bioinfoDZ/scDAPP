@@ -102,8 +102,6 @@ scDAPP::scRNAseq_pipeline_runner(
 
                species = 'Mus musculus',
 
-               autofilter_mito = T, # set to F for single-nuclei RNA-seq data
-
                workernum = 1,
                input_seurat_obj = F
                )
