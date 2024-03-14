@@ -70,6 +70,8 @@ And make sure to use latest version of scDAPP.
 
 If using RISC 1.6.0, you need to downgrade the version of the C igraph package, version 0.10.7 should work. (Note there are three versions of igraph, including C igraph, R igraph package, and python-igraph, but our testing indicates this error is caused by C igraph version higher than 0.10.8 or 0.10.9 and above)
 
+RISC will be updated with a fix soon.
+
 <br />
 <br />
 
