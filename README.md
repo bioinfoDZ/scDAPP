@@ -7,7 +7,39 @@ This package contains an automated pipeline for scRNA-seq that includes individu
 
 This package relies on key dependencies including R > 4.0, Seurat > 5.0 and RISC > 1.6. If you have those packages working then you should be able to install with minimal difficulty.
 
-You can install from Github with:
+
+Known dependency issues:
+1. Matrix and irlba issue: `function 'as_cholmod_sparse' not provided by package 'Matrix'`
+
+Fix: make sure irlba is installed AFTER matrix
+```
+# In R (open R in the conda enviromment if applicable)
+
+#doing just this first line below may fix this:
+install.packages("irlba", type = "source")
+
+#if still get the error, can try below:
+remove.packages('Matrix')
+remove.packages('irlba')
+install.packages("Matrix", type = "source")
+install.packages("irlba", type = "source")
+```
+
+2. RISC and igraph version incompatibility: `Weight vector length must agree with number of edges. Invalid value`
+
+Fix: RISC will be updated to fix soon, but for now, make sure to run with with following versions of igraph, which can be specifically installed in conda / mamba from the command line terminal
+
+```
+# In bash run below (replace "mamba" with "conda" if you do not use mamba)
+
+mamba install -c conda-forge igraph=0.10.7 r-igraph=1.6.0
+```
+
+Unfortunately, this bug means that installing and running on Mac may be difficult or not possible currently until RISC is updated.
+
+
+
+You can then install from Github with:
 
 ``` r
 # install.packages("devtools")
