@@ -57,7 +57,7 @@ For more details including installing on HPC and installing within a conda envir
 For detailled input and usage instructions, please see the [usage instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md).
 
 
-<img src="images/scDAPP_F1_overview.png" width="100" height="100">
+<img src="images/scDAPP_F1_overview.png" width="500" height="500">
 
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
@@ -197,7 +197,7 @@ nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 
 The outputs are shown below:
 
-![](images/scDAPP_F3_outputs.png)
+<img src="images/scDAPP_F3_outputs.png" width="100" height="200">
 
 
 For downstream anaysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
