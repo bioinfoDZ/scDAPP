@@ -232,14 +232,16 @@ For downstream analysis tips including using aPEAR for network enrichment analys
 
 Please see [here](https://github.com/bioinfoDZ/scDAPP/tree/main/ExampleData) for an example / test dataset.
 
-
-## Changelog
-
-Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Changelog.md).
-
+<br />
 
 ## Common bugs and fixes
 
 Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md).
+
+<br />
+
+## Changelog
+
+Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Changelog.md).
 
 
