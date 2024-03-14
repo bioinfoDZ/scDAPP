@@ -124,7 +124,3 @@ aPEAR_output_dir/
 2. The current version of aPEAR on GitHub lacks the findPathCluster function. It is recommended to install the CRAN version of aPEAR (v1.0.0) to access this functionality.
 3. Occasionally, labels in the final outputs may be missing or placed suboptimally. To enhance the reliability of the final visualizations, it is advised to execute and save the outcomes of the step 5 (Plot aPEAR Clusters) multiple times.
 4. For step 3, "Select Pathways and Calculate aPEAR Clusters," setting the max_sign_pathway parameter to a threshold greater than 1000 may significantly slow down the calculation and result in an overcrowded final network. We recommend using a threshold of 500 or less for the max_sign_pathway parameter. Similarly, we advise setting the min_leading_edge_threshold parameter to 2 or higher. Using a lower min_leading_edge_threshold may prevent the Markov cluster algorithm from being able to perform calculations.
-
-
-
-
