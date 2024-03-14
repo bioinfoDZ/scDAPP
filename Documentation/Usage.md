@@ -107,13 +107,13 @@ We will invoke the pipeline from the unix terminal as below.
 
 ```
 #test packages
-SDAP::r_package_test()
+scDAPP::r_package_test()
 
 
 #run pipeline with options
 
 #run pipeline with options
-SDAP::scRNAseq_pipeline_runner(
+scDAPP::scRNAseq_pipeline_runner(
                datadir = 'path/to/cellranger/outputs',
                outdir = 'path/to/output/folder',
                sample_metadata = 'path/to/sample_metadata.csv'
@@ -125,8 +125,6 @@ SDAP::scRNAseq_pipeline_runner(
                m_reference = 'path/to/reference/reference_FindAllMarkers.rds',
 
                species = 'Mus musculus',
-
-               autofilter_mito = T, # set to F for single-nuclei RNA-seq data
 
                workernum = 1,
                input_seurat_obj = F
@@ -265,7 +263,7 @@ These parameters allow for control of sophisticated analysis methods.
 
 - `risc_reference` - string, name of sample to use as RISC reference sample, if not provided will automate the choice
 
-- Pseudobulk_mode - T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the `prop.test()` function for compositional analysis
+- `Pseudobulk_mode` - T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the `prop.test()` function for compositional analysis
 
 
 - `species` string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see `msigdbr::msigdbr_species()`
