@@ -105,8 +105,7 @@ R
 Then, in R, you can then install the package with:
 
 ```
-devtools::install_github("FerrenaAlexander/scDAPP",
-auth_token = "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")
+devtools::install_github("FerrenaAlexander/scDAPP")
 ```
 
 It will ask your permissions, just say yes.
@@ -174,8 +173,7 @@ These steps will install key compiler tools that are not easy to install any oth
 Then, in R, you can then install scDAPP with:
 
 ```
-devtools::install_github("FerrenaAlexander/scDAPP",
-auth_token = "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")
+devtools::install_github("FerrenaAlexander/scDAPP")
 ```
 
 
