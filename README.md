@@ -221,6 +221,6 @@ Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Co
 
 scDAPP will soon be posted to bioRxiv and submitted. For now, please cite:
 
-scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized for cross-group comparisons. Manuscript in Preparation. Ferrena A, Zheng XY, Jackson K, Hoang B, ZHeng D.
+scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized for cross-group comparisons. Manuscript in Preparation. Ferrena A, Zheng XY, Jackson K, Hoang B, Zheng D.
 
 
