@@ -3,6 +3,8 @@
 
 We provide a wrapper function for running aPEAR for network-based analysis enrichment analysis. This can be used after the pipeline is run.
 
+Network based enrichment analysis can be useful because pathways can often be quite redundant and overlap quite a bit in the genes making up the gene set. Network methods like aPEAR allow classification of enriched pathways into functional modules, allowing a more comprehensive and less redundant approach to pathway enrichment analysis.
+
 
 Steps:
 1. Run pipeline
