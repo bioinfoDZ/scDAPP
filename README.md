@@ -159,10 +159,10 @@ nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 ## Changelog
 
 Please see:
-https://github.com/FerrenaAlexander/scDAPP/blob/main/Documentation/Changelog.md
+https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Changelog.md
 
 
 ## Common bugs and fixes
 
 Please see:
-https://github.com/FerrenaAlexander/scDAPP/blob/main/Documentation/CommonBugs.md
+https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md
