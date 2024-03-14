@@ -14,7 +14,7 @@ You can install from Github with:
 devtools::install_github("bioinfoDZ/scDAPP")
 ```
 
-For more details including installing on HPC and installing within a conda environment, see: https://github.com/FerrenaAlexander/scDAPP/blob/main/Documentation/Installation.md
+For more details including installing on HPC and installing within a conda environment, see the [installation instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Installation.md).
 
 
 <br />
@@ -23,7 +23,7 @@ For more details including installing on HPC and installing within a conda envir
 ## scRNA-seq pipeline quickstart usage
 
 For detailled input and usage instructions, please see:
-https://github.com/FerrenaAlexander/scDAPP/blob/main/Documentation/Usage.md
+https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
 
