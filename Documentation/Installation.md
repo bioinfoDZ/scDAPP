@@ -63,7 +63,7 @@ Without mamba, just use "conda" instead of "mamba" below.
 <br />
 
 ### 3. Create conda environment using yaml file:
-Navigate to yaml file: https://github.com/FerrenaAlexander/scDAPP/blob/main/conda_env/r_env.yml
+Navigate to yaml file: https://github.com/bioinfoDZ/scDAPP/blob/main/conda_env/r_env.yml
 
 Then download or copy and paste it into a file on the server / HPC. You can click file and click on the "overlapping boxes" to copy raw file contents then paste it as a file in your location.
 
@@ -100,12 +100,42 @@ R
 ```
 
 
+###  Known dependency issues:
+1. Matrix and irlba issue: `function 'as_cholmod_sparse' not provided by package 'Matrix'`
+
+Fix: make sure irlba is installed AFTER matrix
+```
+# In R (open R in the conda enviromment if applicable)
+
+#doing just this first line below may fix this:
+install.packages("irlba", type = "source")
+
+#if still get the error, can try below:
+remove.packages('Matrix')
+remove.packages('irlba')
+install.packages("Matrix", type = "source")
+install.packages("irlba", type = "source")
+```
+
+2. RISC and igraph version incompatibility: `Weight vector length must agree with number of edges. Invalid value`
+
+Fix: RISC will be updated to fix soon, but for now, make sure to run with with following versions of igraph, which can be specifically installed in conda / mamba from the command line terminal
+
+```
+# In bash run below (replace "mamba" with "conda" if you do not use mamba)
+
+mamba install -c conda-forge igraph=0.10.7 r-igraph=1.6.0
+```
+
+Unfortunately, this bug means that installing and running on Mac may be difficult or not possible currently until RISC is updated.
+
+
 
 
 Then, in R, you can then install the package with:
 
 ```
-devtools::install_github("FerrenaAlexander/scDAPP")
+devtools::install_github("bioinfoDZ/scDAPP")
 ```
 
 It will ask your permissions, just say yes.
@@ -173,7 +203,7 @@ These steps will install key compiler tools that are not easy to install any oth
 Then, in R, you can then install scDAPP with:
 
 ```
-devtools::install_github("FerrenaAlexander/scDAPP")
+devtools::install_github("bioinfoDZ/scDAPP")
 ```
 
 
