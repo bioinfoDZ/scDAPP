@@ -285,8 +285,6 @@ By default, this will perform some baseline filtering removing cells with lower 
 Finally, we use [DoubletFinder](https://github.com/chris-mcginnis-ucsf/DoubletFinder) to remove doublets.
 
 
-**If using single-nuclei RNA-seq, turn off `autofilter_mito`**. Usually the mito disribution will be so low that it may cause the filtering to select an extremely low cutoff and throw out nuclei unecessarily.
-
 - `min_num_UMI` - numeric, default is 500, if no filter is desired set to -Inf
 - `min_num_Feature` - numeric, default is 200, if no filter is desired set to -Inf
 - `max_perc_mito` - numeric, default is 25, if no filter is desired set to Inf
