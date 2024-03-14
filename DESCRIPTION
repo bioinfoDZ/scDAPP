@@ -20,8 +20,7 @@ biocViews:
 Remotes:
     chris-mcginnis-ucsf/DoubletFinder,
     bioinfoDZ/RISC,
-    phipsonlab/speckle,
-    FerrenaAlexander/Matrix.utils
+    phipsonlab/speckle
 Imports: 
     tidyverse,
     Matrix,
