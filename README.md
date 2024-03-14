@@ -6,6 +6,15 @@ This package contains an automated pipeline for scRNA-seq that includes individu
 ![](images/scDAPP_F1_overview.png)
 
 
+## Citing scDAPP
+
+scDAPP will soon be posted to bioRxiv and submitted. For now, please cite:
+
+scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized for cross-group comparisons. Manuscript in Preparation. Ferrena A, Zheng XY, Jackson K, Hoang B, Zheng D.
+
+<br />
+<br />
+
 
 ## Installation
 
@@ -54,6 +63,7 @@ For more details including installing on HPC and installing within a conda envir
 
 
 <br />
+<br />
 
 
 ## scRNA-seq pipeline quickstart usage
@@ -64,12 +74,12 @@ For detailled input and usage instructions, please see the [usage instructions](
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
 
+![](images/scDAPP_F2_inputs.png)
+
 
 <br />
 
-#### 1. Prepare inputs:
-
-![](images/scDAPP_F2_inputs.png)
+#### 1. Prepare inputs
 
 
 ##### Make a file called pipeline_runner.R containing the following:
@@ -226,12 +236,5 @@ Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Ch
 ## Common bugs and fixes
 
 Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md).
-
-
-## Citing scDAPP
-
-scDAPP will soon be posted to bioRxiv and submitted. For now, please cite:
-
-scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized for cross-group comparisons. Manuscript in Preparation. Ferrena A, Zheng XY, Jackson K, Hoang B, Zheng D.
 
 
