@@ -67,7 +67,7 @@ Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 file
 
 #### 1. Prepare inputs:
 
-![](images/scDAPP_F2_inputs.png)
+<img src="images/scDAPP_F2_inputs.png" width="500" height="500">
 
 
 ##### Make a file called pipeline_runner.R containing the following:
@@ -197,7 +197,7 @@ nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 
 The outputs are shown below:
 
-<img src="images/scDAPP_F3_outputs.png" width="100" height="200">
+<img src="images/scDAPP_F3_outputs.png" width="300" height="300">
 
 
 For downstream anaysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
