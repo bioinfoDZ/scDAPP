@@ -18,7 +18,7 @@ scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized 
 
 ## Installation
 
-This package relies on key dependencies including R > 4.0, Seurat > 5.0 and RISC > 1.6. If you have those packages working then you should be able to install with minimal difficulty.
+This package relies on key dependencies including R > 4.0, Seurat > 5.0, and RISC > 1.6. If you have those packages working then you should be able to install with minimal difficulty.
 
 
 Known dependency issues:
@@ -40,7 +40,7 @@ install.packages("irlba", type = "source")
 
 2. RISC and igraph version incompatibility: `Weight vector length must agree with number of edges. Invalid value`
 
-Fix: RISC will be updated to fix soon, but for now, make sure to run with with following versions of igraph, which can be specifically installed in conda / mamba from the command line terminal
+Fix: RISC will be updated to fix soon, but for now, make sure to run with the following versions of igraph, which can be specifically installed in conda / mamba from the command line terminal.
 
 ```
 # In bash run below (replace "mamba" with "conda" if you do not use mamba)
@@ -52,7 +52,7 @@ Unfortunately, this bug means that installing and running on Mac may be difficul
 
 
 
-You can then install from Github with:
+You can then install this package from Github with:
 
 ``` r
 # install.packages("devtools")
@@ -68,7 +68,7 @@ For more details including installing on HPC and installing within a conda envir
 
 ## scRNA-seq pipeline quickstart usage
 
-For detailled input and usage instructions, please see the [usage instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md).
+For detailed input and usage instructions, please see the [usage instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md).
 
 
 
@@ -114,13 +114,13 @@ scDAPP::scRNAseq_pipeline_runner(
 ##### Input 1: Prep the input gene expression data samples
 The main input is raw counts, either in the form of .h5 files or Seurat objects.
 
-If you want to input .h5 files (ie from Cellranger), Datadir should have sub-folders, one per sample. They should match the "Sample" column in `sample_metadata.csv`. Minimally, each sub-folder should contain a file called "filtered_feature_bc_matrix.h5" somewhere in the sub-folder, the pipeline will search for it.
+If you want to input .h5 files (ie from Cellranger), datadir should have sub-folders, one per sample. They should match the "Sample" column in `sample_metadata.csv`. Minimally, each sub-folder should contain a file called "filtered_feature_bc_matrix.h5" somewhere in the sub-folder, the pipeline will search for it.
 
-Or, if you want to input Seurat objects, datadir should be a folder with Seurat objects saved as .RDS files, one per sample. The names should match the pseudobulk metadata Sample column, ie "SampleXYZ1.rds", "SampleXYZ2.rds". Then you can set `input_seurat_obj` to TRUE. Note that this option provides flexibility and can be used to process pre-filtered samples, hashed/demultiplexed samples, published data not in h5 format, etc- as long as you can get it into a Seurat object. Also note that assay should be called "RNA" and the layer should be set to "counts".
+Or, if you want to input Seurat objects, datadir should be a folder with Seurat objects saved as .RDS files, one per sample. The names should match the pseudobulk metadata Sample column, ie "SampleXYZ1.rds", "SampleXYZ2.rds". Then you can set `input_seurat_obj` to TRUE. Note that this option provides flexibility and can be used to process pre-filtered samples, hashed/demultiplexed samples, published data not in h5 format, etc- as long as you can get it into a Seurat object. Also, note that assay should be called "RNA" and the layer should be set to "counts".
 
 ##### Input 2: `sample_metadata` - tell the pipeline what your samples are
 
-`sample_metadata.csv` tells the pipeline what the samples are, which condition (genotype or experimental state) they are. It should be a csv file that looks like this:
+`sample_metadata.csv` tells the pipeline what the samples are, and which condition (genotype or experimental state) they are. It should be a csv file that looks like this:
 
 ```
 Sample,Condition,Code
@@ -131,7 +131,7 @@ SampleABC2,KO1,KO1_2
 SampleJKL1,KO2,KO2_1
 SampleJKL2,KO2,KO2_1
 ```
-Minmally you just need Sample and Condition. Sample should match the folders containing h5 files (ie, cellranger output folders), or Seurat objects if `input_seurat_obj` is set to TRUE (ie SampleXYZ1.rds). The Code column is optional and allows you to give nicknames to the samples.
+Minimally, you just need Sample and Condition. Sample should match the folders containing h5 files (ie, cellranger output folders), or Seurat objects if `input_seurat_obj` is set to TRUE (ie SampleXYZ1.rds). The Code column is optional and allows you to give nicknames to the samples.
 
 ##### Input 3: comps - tell the pipeline what comparisons to perform
 
@@ -148,7 +148,7 @@ KO1,KO2
 
 ### 2. Execute pipeline_runner.R from unix shell command line
 
-The pipeline will take a fair amount of time and memory. A run with 11 samples took around 24 hours and ran successfully with allocation of 150GB of memory.
+The pipeline will take a fair amount of time and memory. A run with 11 samples took around 24 hours and ran successfully with an allocation of 150GB of memory.
 
 
 You can submit a Slurm HPC job to run it. One example might look something like below.
@@ -172,7 +172,7 @@ You can submit a Slurm HPC job to run it. One example might look something like 
 source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/conda.sh
 
 #activate r_env
-# see detailled install instructions for this conda env
+# see detailed install instructions for this conda env
 conda activate r_env
 
 #run R file 
@@ -196,7 +196,7 @@ echo $SLURM_JOB_ID
 If you put the script above in a file called submit_scDAPP.sh, you can run it via: `sbatch submit_scDAPP.sh`
 
 
-Alternatively, if your computer has high memory and can keep running for hours, you can execute from Unix command line (bash, zsh) like so:
+Alternatively, if your computer has high memory and can keep running for hours, you can execute from the Unix command line (bash, zsh) like so:
 
 ```
 nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
