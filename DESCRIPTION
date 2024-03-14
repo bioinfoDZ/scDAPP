@@ -25,7 +25,7 @@ Imports:
     tidyverse,
     Matrix,
     irlba,
-    Seurat( >= 5.0),
+    Seurat (>= 5.0),
     patchwork,
     ggdendro,
     foreach,
@@ -50,7 +50,7 @@ Imports:
     igraph,
     FNN,
     sparseMatrixStats,
-    RISC (>= 1.7.0),
+    RISC (>= 1.6.0),
     viridis,
     aPEAR
 LazyData: true
