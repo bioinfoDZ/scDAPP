@@ -208,11 +208,19 @@ For downstream anaysis tips including using aPEAR for network enrichment analysi
 
 ## Changelog
 
-Please see:
-https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Changelog.md
+Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Changelog.md).
+
 
 
 ## Common bugs and fixes
 
-Please see:
-https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md
+Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md).
+
+
+## Citing scDAPP
+
+scDAPP will soon be posted to bioRxiv and submitted. For now, please cite:
+
+scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized for cross-group comparisons. Manuscript in Preparation. Ferrena A, Zheng XY, Jackson K, Hoang B, ZHeng D.
+
+
