@@ -1,0 +1,20 @@
+name: r_env
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - cxx-compiler
+  - r
+  - r-devtools
+  - ca-certificates
+  - openssl
+  - r-hdf5r
+  - pip
+  - r-units
+  - r-sf
+  - jags
+  - numpy
+  - leidenalg
+  - pandas
+  - r-matrix.utils
+  - bioconductor-sparsematrixstats

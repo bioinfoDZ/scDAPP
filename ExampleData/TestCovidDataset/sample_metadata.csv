@@ -1,0 +1,7 @@
+Sample,Condition,Code
+H00049,Healthy,Healthy_1
+H00053,Healthy,Healthy_2
+S00006,Covid_Mild,Covid_Mild_1
+S00016,Covid_Mild,Covid_Mild_2
+S00040,Covid_Critical,Covid_Critical_1
+S00043,Covid_Critical,Covid_Critical_2

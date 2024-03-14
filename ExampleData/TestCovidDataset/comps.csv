@@ -1,0 +1,4 @@
+c1,c2
+Covid_Critical,Healthy
+Covid_Mild,Healthy
+Covid_Critical,Covid_Mild

@@ -1,0 +1,59 @@
+Package: scDAPP
+Title: single-cell Differential Analysis and Processing Pipeline
+Version: 1.0.0
+Authors@R: 
+    person("Alexander", "Ferrena", , "alexander.ferrena@einsteinmed.edu", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-9578-8683"))
+Description: Analysis of sequencing data, especially single-cell RNA-seq.
+License: GPL (>= 3)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+Depends: 
+    R (>= 4.0)
+biocViews:
+    edgeR,
+    glmGamPoi,
+    fgsea,
+    ComplexHeatmap,
+    sparseMatrixStats
+Remotes:
+    chris-mcginnis-ucsf/DoubletFinder,
+    bioinfoDZ/RISC,
+    phipsonlab/speckle,
+    FerrenaAlexander/Matrix.utils
+Imports: 
+    tidyverse,
+    Matrix,
+    irlba,
+    Seurat,
+    patchwork,
+    ggdendro,
+    foreach,
+    doParallel,
+    ggalluvial,
+    ggfittext,
+    ggrepel,
+    msigdbr,
+    hdf5r,
+    edgeR,
+    glmGamPoi,
+    fgsea,
+    ComplexHeatmap,
+    DoubletFinder,
+    ggplot2,
+    outliers,
+    patchwork,
+    Seurat,
+    stringr,
+    dplyr,
+    speckle,
+    statmod,
+    igraph,
+    FNN,
+    sparseMatrixStats,
+    Matrix.utils,
+    RISC (>= 1.6.0),
+    viridis,
+    aPEAR
+LazyData: true
