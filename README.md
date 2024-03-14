@@ -11,8 +11,7 @@ You can install from Github with:
 
 ``` r
 # install.packages("devtools")
-devtools::install_github("FerrenaAlexander/scDAPP",
-auth_token = "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")
+devtools::install_github("bioinfoDZ/scDAPP")
 ```
 
 For more details including installing on HPC and installing within a conda environment, see: https://github.com/FerrenaAlexander/scDAPP/blob/main/Documentation/Installation.md
