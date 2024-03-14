@@ -221,7 +221,7 @@ Assays and layers / slots of the integrated Seurat object found at `multisample_
 - Predictions assay: [label transfer](https://satijalab.org/seurat/articles/integration_mapping) scores from Seurat.
 
 
-For downstream anaysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
+For downstream analysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
 
 
 <br />
