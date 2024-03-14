@@ -58,8 +58,6 @@ For detailled input and usage instructions, please see the [usage instructions](
 
 
 
-![](images/scDAPP_F1_overview.pdf)
-
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
 
