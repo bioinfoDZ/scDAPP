@@ -1,6 +1,7 @@
 # scDAPP single-cell RNA-seq analysis pipeline usage
 
 This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), integration with RISC, and cross-condition compositional (cell proportion) analysis and differetential experession (DE) analysis. Multi-condition comparison (condition A vs B vs C, ie WT vs KO vs Drug) are supported. 
+
 If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis (Propeller) and DE (EdgeR-LRT). If no replicates are present, will use chi-square test of proportions (R proportion.test) for compositional analysis and Wilcoxon test for DE.
 
 <br />
@@ -11,6 +12,10 @@ If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeli
 If you have any issues, please email BOTH alexander.ferrena@einsteinmed.edu and alexanderferrena@gmail.com
 
 Or open an issue in this github repo.
+
+
+Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
+
 
 <br />
 
