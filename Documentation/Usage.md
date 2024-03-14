@@ -4,6 +4,11 @@ This pipeline will perform individual QC and clustering, label transfer from a r
 
 If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis (Propeller) and DE (EdgeR-LRT). If no replicates are present, will use chi-square test of proportions (R proportion.test) for compositional analysis and Wilcoxon test for DE.
 
+
+
+
+
+
 <br />
 
 # Usage
@@ -15,6 +20,9 @@ Or open an issue in this github repo.
 
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
+
+
+![](images/scDAPP_F2_inputs.png)
 
 
 <br />
