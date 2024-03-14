@@ -357,3 +357,28 @@ For 150 over 11 CPUs, ask for 13.64 GB for each CPU.
 ```
 #$ -l h_vmem=13.645g
 ```
+
+
+
+
+
+<br />
+<br />
+
+## Outputs and downstream
+
+The outputs are shown below:
+
+<img src="images/scDAPP_F3_outputs.png" width="300" height="300">
+
+
+
+THe .HTML file contains a report summarizing all steps and results of the analysis. The folders contain information including plots, marker .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
+
+Assays and layers / slots of the integrated Seurat object found at `multisample_integration/data_objects/Seurat-object_integrated.rds` are as follows:
+- RISC assay: "data" layer contains batch-corrected matrix direct and unmodified from RISC, which is in natural log space (log1p). "counts" layer contains antilog to "count" space, "batch corrected counts". Data layer is most useful.
+- RNA assay: "counts" layer contains a concatenated matrix of raw UMI counts (non-normalized, non-batch corrected) from all samples. "dat"a layer contains something similar to Log1p counts (the output of `Seurat::NormalizeData()`).
+- Predictions assay: [label transfer](https://satijalab.org/seurat/articles/integration_mapping) scores from Seurat.
+
+
+For downstream anaysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
