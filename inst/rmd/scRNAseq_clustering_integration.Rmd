@@ -3565,37 +3565,41 @@ invisible(gc(full = T, reset = F, verbose = F))
 # integrated UMAP
 data0 = scUMAP(data0, npc = eigens, use = "PLS")
 
-#### integrated clustering ####
-### AS OF JUL 5 2023 USE scDAPP::scCluster_louvain_res()
-# # integrated clustering
-# # neighbor = 10 is default... maybe make it a variable too...?
-# data0 <- scCluster(data0, 
-#                    slot = "cell.pls",
-#                    method = 'louvain',
-#                    npc = eigens, 
-#                    neighbor = 10
-# )
-# 
-# ### remap clust, biggest to smallest...
-# #get risc clust
-# rc <- data0@coldata$Cluster
-# 
-# #sort by biggest to smallest
-# bs <- sort(table(rc), decreasing = T)
-# rc <- plyr::mapvalues(rc, from = names(bs), to = c(1:length(bs)) )
-# rc <- factor(rc, levels = 1:length(bs))
-# 
-# #set to object
-# data0@coldata$Cluster <- rc
-# rm(rc,bs)
-
-data0 = scDAPP::scCluster_louvain_res(object = data0,
-                                      slot = "cell.pls",
-                                      # method = 'louvain',
-                                      npc = eigens,
-                                      resolution = res_int,
-                                      neighbor = RISC_louvain_neighbors,
+### integrated clustering ####
+## AS OF JUL 5 2023 USE scDAPP::scCluster_louvain_res()
+# UPDATE MAR 14 2024 - RISC 1.7 NOW USES RESOLUTION PARAMETER
+# ALSO RISC AND MY SCDAPP FUNCTION BROKE WITH IGRAPH UPDATE, FIXED IN 1.7
+# integrated clustering
+# neighbor = 10 is default... maybe make it a variable too...?
+data0 <- scCluster(data0,
+                   slot = "cell.pls",
+                   method = 'louvain',
+                   npc = eigens,
+                   res = res_int,
+                   neighbor = RISC_louvain_neighbors
 )
+
+### remap clust, biggest to smallest...
+#get risc clust
+rc <- data0@coldata$Cluster
+
+#sort by biggest to smallest
+bs <- sort(table(rc), decreasing = T)
+rc <- plyr::mapvalues(rc, from = names(bs), to = c(1:length(bs)) )
+rc <- factor(rc, levels = 1:length(bs))
+
+#set to object
+data0@coldata$Cluster <- rc
+rm(rc,bs)
+
+# data0 = scDAPP::scCluster_louvain_res(object = data0,
+#                                       slot = "cell.pls",
+#                                       # method = 'louvain',
+#                                       npc = eigens,
+#                                       resolution = res_int,
+#                                       neighbor = RISC_louvain_neighbors,
+# )
+
 
 
 

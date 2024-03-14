@@ -4,7 +4,7 @@ Version: 1.0.0
 Authors@R: 
     person("Alexander", "Ferrena", , "alexander.ferrena@einsteinmed.edu", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-9578-8683"))
-Description: Analysis of sequencing data, especially single-cell RNA-seq.
+Description: End to end pipeline for cross-group analysis of single cell transcriptomic data.
 License: GPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -25,7 +25,7 @@ Imports:
     tidyverse,
     Matrix,
     irlba,
-    Seurat,
+    Seurat( >= 5.0),
     patchwork,
     ggdendro,
     foreach,
@@ -43,7 +43,6 @@ Imports:
     ggplot2,
     outliers,
     patchwork,
-    Seurat,
     stringr,
     dplyr,
     speckle,
@@ -51,8 +50,7 @@ Imports:
     igraph,
     FNN,
     sparseMatrixStats,
-    Matrix.utils,
-    RISC (>= 1.6.0),
+    RISC (>= 1.7.0),
     viridis,
     aPEAR
 LazyData: true
