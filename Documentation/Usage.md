@@ -369,7 +369,7 @@ For 150 over 11 CPUs, ask for 13.64 GB for each CPU.
 
 The outputs are shown below:
 
-<img src="images/scDAPP_F3_outputs.png" width="300" height="300">
+<img src="../images/scDAPP_F3_outputs.png" width="300" height="300">
 
 
 
