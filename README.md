@@ -20,13 +20,14 @@ scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized 
 
 This package relies on key dependencies including R > 4.0, Seurat > 5.0, and RISC > 1.7. If you have those packages working then you should be able to install with minimal difficulty.
 
-First install Matrix and irlba from source. Installing irlba from source after Matrix will prevent [this common error](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md#1-function-as_cholmod_sparse-not-provided-by-package-matrix).
+1. First **install Matrix and irlba** from source. Installing irlba from source after Matrix will prevent [this common error](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md#1-function-as_cholmod_sparse-not-provided-by-package-matrix).
 ```
 install.packages("Matrix", type = "source")
 install.packages("irlba", type = "source")
 ```
+2. Next, **install RISC v1.7**. For now, this can be done by following [these instructions](https://github.com/bioinfoDZ/scDAPP/tree/main/deps).
 
-You can then install this package from Github with:
+3. You can then install this package from Github with:
 
 ``` r
 # install.packages("devtools")
