@@ -18,39 +18,13 @@ scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized 
 
 ## Installation
 
-This package relies on key dependencies including R > 4.0, Seurat > 5.0, and RISC > 1.6. If you have those packages working then you should be able to install with minimal difficulty.
+This package relies on key dependencies including R > 4.0, Seurat > 5.0, and RISC > 1.7. If you have those packages working then you should be able to install with minimal difficulty.
 
-
-Known dependency issues:
-1. Matrix and irlba issue: `function 'as_cholmod_sparse' not provided by package 'Matrix'`
-
-Fix: make sure irlba is installed AFTER matrix
+First install Matrix and irlba from source. Installing irlba from source after Matrix will prevent [this common error](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md#1-function-as_cholmod_sparse-not-provided-by-package-matrix).
 ```
-# In R (open R in the conda enviromment if applicable)
-
-#doing just this first line below may fix this:
-install.packages("irlba", type = "source")
-
-#if still get the error, can try below:
-remove.packages('Matrix')
-remove.packages('irlba')
 install.packages("Matrix", type = "source")
 install.packages("irlba", type = "source")
 ```
-
-2. RISC and igraph version incompatibility: `Weight vector length must agree with number of edges. Invalid value`
-
-Fix: RISC will be updated to fix soon, but for now, make sure to run with the following versions of igraph, which can be specifically installed in conda / mamba from the command line terminal.
-
-```
-# In bash run below (replace "mamba" with "conda" if you do not use mamba)
-
-mamba install -c conda-forge igraph=0.10.7 r-igraph=1.6.0
-```
-
-Unfortunately, this bug means that installing and running on Mac may be difficult or not possible currently until RISC is updated.
-
-
 
 You can then install this package from Github with:
 
