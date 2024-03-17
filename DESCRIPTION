@@ -19,7 +19,6 @@ biocViews:
     sparseMatrixStats
 Remotes:
     chris-mcginnis-ucsf/DoubletFinder,
-    bioinfoDZ/RISC,
     phipsonlab/speckle
 Imports: 
     tidyverse,
