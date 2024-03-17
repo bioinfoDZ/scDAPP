@@ -80,7 +80,7 @@ RISC will be updated with a fix soon.
 
 
 
-## 5 RISC install error with matrix.utils --> no longer a dependency of RISC 1.7
+## 5 RISC install error with matrix.utils --> no longer a dependency of RISC 1.7 (as of 03/17/2024)
 
 The dependency was removed from CRAN, so we install from an archive. Try using one of following:
 ```
