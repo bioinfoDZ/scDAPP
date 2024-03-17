@@ -50,7 +50,7 @@ Imports:
     igraph,
     FNN,
     sparseMatrixStats,
-    RISC (>= 1.6.0),
+    RISC (>= 1.7.0),
     viridis,
     aPEAR
 LazyData: true
