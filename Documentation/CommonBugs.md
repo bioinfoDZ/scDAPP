@@ -66,6 +66,8 @@ And make sure to use latest version of scDAPP.
 
 ## 4 Error: At vendor/cigraph/src/community/louvain.c:601 : Weight vector length must agree with number of edges. Invalid value
 
+2024.03.17: install RISC 1.7.
+
 2024.02.21
 
 If using RISC 1.6.0, you need to downgrade the version of the C igraph package, version 0.10.7 should work. (Note there are three versions of igraph, including C igraph, R igraph package, and python-igraph, but our testing indicates this error is caused by C igraph version higher than 0.10.8 or 0.10.9 and above)
@@ -78,7 +80,7 @@ RISC will be updated with a fix soon.
 
 
 
-## 5 RISC install error with matrix.utils 
+## 5 RISC install error with matrix.utils --> no longer a dependency of RISC 1.7
 
 The dependency was removed from CRAN, so we install from an archive. Try using one of following:
 ```
