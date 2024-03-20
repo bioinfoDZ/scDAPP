@@ -100,39 +100,16 @@ R
 ```
 
 
-###  Known dependency issues:
-1. Matrix and irlba issue: `function 'as_cholmod_sparse' not provided by package 'Matrix'`
+###  In R, install some key dependencies manually to prevent known dependency issues:
 
-Fix: make sure irlba is installed AFTER matrix
+1. First **install Matrix and irlba** from source. Installing irlba from source after Matrix will prevent [this common error](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md#1-function-as_cholmod_sparse-not-provided-by-package-matrix).
 ```
-# In R (open R in the conda enviromment if applicable)
-
-#doing just this first line below may fix this:
-install.packages("irlba", type = "source")
-
-#if still get the error, can try below:
-remove.packages('Matrix')
-remove.packages('irlba')
 install.packages("Matrix", type = "source")
 install.packages("irlba", type = "source")
 ```
+2. Next, **install RISC v1.7**. For now, this can be done by following [these instructions](https://github.com/bioinfoDZ/scDAPP/tree/main/deps).
 
-2. RISC and igraph version incompatibility: `Weight vector length must agree with number of edges. Invalid value`
-
-Fix: RISC will be updated to fix soon, but for now, make sure to run with with following versions of igraph, which can be specifically installed in conda / mamba from the command line terminal
-
-```
-# In bash run below (replace "mamba" with "conda" if you do not use mamba)
-
-mamba install -c conda-forge igraph=0.10.7 r-igraph=1.6.0
-```
-
-Unfortunately, this bug means that installing and running on Mac may be difficult or not possible currently until RISC is updated.
-
-
-
-
-Then, in R, you can then install the package with:
+3. You can then install this package from Github with:
 
 ```
 devtools::install_github("bioinfoDZ/scDAPP")
@@ -174,7 +151,7 @@ You should see messages about packages being activated followed by a data.frame 
 13          fgsea 1.28.0
 14 ComplexHeatmap 2.18.0
 15  DoubletFinder  2.0.4
-16           RISC  1.6.0
+16           RISC  1.7.0
 17         scDAPP  1.0.0
 ```
 
