@@ -8,7 +8,7 @@ projdir = 'path/to/TestCovidDataset/'
 #run pipeline with options
 scDAPP::scRNAseq_pipeline_runner(
 	       datadir = paste0(projdir, '/datadir/'),
-	       outdir = paste0(projdir, '/outs/TESTUN/'),
+	       outdir = paste0(projdir, '/outs/TESTRUN/'),
                sample_metadata = paste0(projdir, '/sample_metadata.csv'),
                comps = paste0(projdir, '/comps.csv'),
                Pseudobulk_mode = T, #set to F if no replicates
