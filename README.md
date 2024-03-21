@@ -20,7 +20,7 @@ scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized 
 
 This package relies on key dependencies including R > 4.0, Seurat > 5.0, and RISC > 1.7. If you have those packages working then you should be able to install with minimal difficulty.
 
-For more details including installing on HPC and installing within a conda environment, see the [installation instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Installation.md).
+For more details including installing on HPC and installing within a conda environment, see the [detailed installation instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Installation.md).
 
 **Avoiding common dependency issues:**
 
