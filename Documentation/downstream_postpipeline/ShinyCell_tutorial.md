@@ -53,7 +53,6 @@ Often there can be extraneous metadata variables that are not important to share
 
 As an example, below we access the metadata as a data.frame called `md`, remove some columns, rename some columns, and reorder some columns. Then, we overwrite `seu@meta.data` with the updated `md` data.frame.
 
-The order of the columns usually determines the default metadata variable shown by ShinyCell (although this does not work 100% of the time - any suggestions, let us know).
 
 ```
 library(tidyverse)
@@ -98,13 +97,17 @@ scConf = createConfig(seu)
 
 
 
-## 4. optionally, control colors of ShinyCell by modifying configuration object.
+## 4. optionally, control default metadata variables and colors of ShinyCell by modifying configuration object.
 
 ShinyCell will give random default colors to all metadata object levels (such as clusters or conditions). However, if you want to change the default colors, that can be done also. 
 
 For example, if we have three levels of the Condition column such as Healthy, Mild Disease, or Severe Disease, and we want them to be colored blue, orange, and red, we can do that like so:
 
 ```
+#set default metadata columns to show. Below will show Clusters first.
+scConf <- modDefault(scConf, 'seurat_clusters', 'Condition')
+
+
 #check configuration object to find out which row corresponds to Condition:
 scConf[,1]
 
