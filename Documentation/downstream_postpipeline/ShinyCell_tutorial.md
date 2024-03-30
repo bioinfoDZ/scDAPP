@@ -1,7 +1,7 @@
 # scDAPP downstream: Make an app with ShinyCell for exploratory data analysis
 
 
-It can often be useful to create an app for exploratory data analysis, for example to quickly check gene expression patterns. ShinyCell [(Ouyang et al Bioinformatics 2021)](https://academic.oup.com/bioinformatics/article/37/19/3374/6198103) makes this quite easy. We provide below a short vignette for using scDAPP output files with ShinyCell and uploading to the web and hosting it on [shinyapps.io](https://www.shinyapps.io/).
+It can often be useful to create an app for exploratory data analysis, for example, to quickly check gene expression patterns. ShinyCell [(Ouyang et al Bioinformatics 2021)](https://academic.oup.com/bioinformatics/article/37/19/3374/6198103) makes this quite easy. We provide below a short vignette for using scDAPP output files with ShinyCell and uploading to the web and hosting it on [shinyapps.io](https://www.shinyapps.io/).
 
 
 Steps:
@@ -15,7 +15,7 @@ Steps:
 
 
 
-## 1. Inputs from pipeline: 
+## 1. Inputs from the pipeline: 
 
 From the pipeline, you will need the file `Seurat-object_integrated.rds`, which can be found below:
 
@@ -40,7 +40,7 @@ seu <- readRDS("multisample_integration/data_objects/Seurat-object_integrated.rd
 
 
 
-## 2. optionally, rename, subset, or reorder the metadata
+## 2. Optionally, rename, subset, or reorder the metadata
 
 Shinycell uses the the information in `seu@meta.data`. You should inspect it:
 
@@ -85,7 +85,7 @@ seu@meta.data <- md
 
 
 
-## 3. create ShinyCell configuration object
+## 3. Create ShinyCell configuration object
 
 
 Then, create the ShinyCell configuration object. This essentially stores information about the information in `seu@meta.data`
@@ -97,7 +97,7 @@ scConf = createConfig(seu)
 
 
 
-## 4. optionally, control default metadata variables and colors of ShinyCell by modifying configuration object.
+## 4. Optionally, control default metadata variables and colors of ShinyCell by modifying configuration object.
 
 ShinyCell will give random default colors to all metadata object levels (such as clusters or conditions). However, if you want to change the default colors, that can be done also. 
 
@@ -157,7 +157,7 @@ You can "deploy" (upload) the app to [shinyapps.io](https://www.shinyapps.io/) w
 ```
 library(rsconnect)
 
-#modify below code to conect your account
+#modify below code to connect your account
 rsconnect::setAccountInfo(name='InputYourUsername',
                           token='InputYourToken',
                           secret='InputYourPassword')
