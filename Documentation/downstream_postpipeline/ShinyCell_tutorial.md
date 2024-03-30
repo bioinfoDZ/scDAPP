@@ -15,7 +15,7 @@ Steps:
 
 
 
-## 1. Inputs from the pipeline: 
+## 1. Inputs from pipeline: 
 
 From the pipeline, you will need the file `Seurat-object_integrated.rds`, which can be found below:
 
