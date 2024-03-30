@@ -1,8 +1,8 @@
 # scDAPP single-cell RNA-seq analysis pipeline usage
 
-This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), integration with RISC, and cross-condition compositional (cell proportion) analysis and differetential experession (DE) analysis. Multi-condition comparison (condition A vs B vs C, ie WT vs KO vs Drug) are supported. 
+This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), integration with RISC, and cross-condition compositional (cell proportion) analysis and differential expression (DE) analysis. Multi-condition comparisons (condition A vs B vs C, ie WT vs KO vs Drug) are supported. 
 
-If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis (Propeller) and DE (EdgeR-LRT). If no replicates are present, will use chi-square test of proportions (R proportion.test) for compositional analysis and Wilcoxon test for DE.
+If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis (Propeller) and DE (EdgeR-LRT). If no replicates are present, will use the chi-square test of proportions (R proportion.test) for compositional analysis and the Wilcoxon test for DE.
 
 
 
@@ -42,11 +42,11 @@ Cellranger produces many output files for each sample. Minimally, the folders in
 
 #### Option 2: Inputting Seurat Objects: `input_seurat_obj` = T
 
-Alternatively the pipeline accepts Seurat objects if `input_seurat_obj` is set to TRUE. This can be useful for hashed / multiplexed samples, pre-filtered samples, or published data for which .h5 files are not easily available.
+Alternatively, the pipeline accepts Seurat objects if `input_seurat_obj` is set to TRUE. This can be useful for hashed/multiplexed samples, pre-filtered samples, or published data for which .h5 files are not easily available.
 
 Save each Seurat object as individual .rds files using the `saveRDS()` R command. Each sample should be named "SampleXYZ1.rds" and so on. The sample names should match the "Sample" column of the `sample_metadata.csv` file as explained below. The pipeline will use the "RNA" assay and the 
 
-For [hashed](https://cite-seq.com/cell-hashing/) or [multiplexed](https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/running-pipelines/cr-3p-multi) inputs, this option can also be used. We recommended to split all of the samples apart into separate Seurat objects even if they are from the same hash / CMO pool.
+For [hashed](https://cite-seq.com/cell-hashing/) or [multiplexed](https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/running-pipelines/cr-3p-multi) inputs, this option can also be used. We recommended splitting all of the samples apart into separate Seurat objects even if they are from the same hash / CMO pool.
 
 
 <br />
@@ -93,7 +93,7 @@ KO1,KO2
 This is used to tell the pipeline which conditions to compare. It also allows multiple cross-condition comparisons to be tested. Each row sets up an "A vs B" comparison, with A on the left (c1 column) and B on the right (c2 column). 
 In the differential expression results, genes overexpressed in the A condition will have a positive log fold change, while genes in the B direction will have a negative log fold change and are said to be "underexpressed in A" by convention. Additionally, in the gene set enrichment analysis results, pathways enriched in A will have a positive normalized enrichment score and vice versa.
 
-If comparing, for example, Disease vs Healthy, or KO vs WT, or Treated vs Untreated, it is convention to set the experiment group as A (Disease, or KO, or Treated) and the control as B (Healthy, WT, Untreated). In other words, the group of interest is denoted with positive fold changes, while the control group is denoted with negative fold changes.
+If comparing, for example, Disease vs Healthy, KO vs WT, or Treated vs Untreated, it is a convention to set the experiment group as A (Disease, or KO, or Treated) and the control as B (Healthy, WT, Untreated). In other words, the group of interest is denoted with positive fold changes, while the control group is denoted with negative fold changes.
 
 
 
@@ -178,7 +178,7 @@ Here is an example HPC submission script:
 source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/conda.sh
 
 #activate r_env
-# see detailled install instructions for this conda env
+# see detailed install instructions for this conda env
 conda activate r_env
 
 #run R file 
@@ -223,16 +223,16 @@ Label transfer from a single-cell RNA-seq dataset to guess the cell types detect
 
 Once you have these, set `use_labeltransfer = T` and provide the paths with the parameters above.
 
-To select a label transfer reference, it is recommended to use a tissue as similar as possible, from the same species. There are "atlas" databases such as Tabula Muris or Human Cell Atlas that may have the tissue you need. Alternatively, you can search for published datasets from papers, but you need to make sure these provide information about celltype in their metadata, or else you need to redefine it yourself using the paper's markers. **Make sure to carefully interrogate all label transfer results, you should view them as data-driven suggestions rather than definitive cell type annotations.**
+To select a label transfer reference, it is recommended to use a tissue as similar as possible, from the same species. There are "atlas" databases such as Tabula Muris or Human Cell Atlas that may have the tissue you need. Alternatively, you can search for published datasets from papers, but you need to make sure these provide information about cell type in their metadata, or else you need to redefine it yourself using the paper's markers. **Make sure to carefully interrogate all label transfer results, you should view them as data-driven suggestions rather than definitive cell type annotations.**
 
 
 ### 2. RISC reference manual selection
 
-For sample integration we use the ["Robust Integration of Single Cell RNA-seq" (RISC)](https://www.nature.com/articles/s41587-021-00859-x) workflow, as implemented in the [RISC R package](https://github.com/bioinfoDZ/RISC).
+For sample integration, we use the ["Robust Integration of Single Cell RNA-seq" (RISC)](https://www.nature.com/articles/s41587-021-00859-x) workflow, as implemented in the [RISC R package](https://github.com/bioinfoDZ/RISC).
 
-RISC requires selection of a reference sample. We provisionally developed an automated method for selection of the reference to ease application of this pipeline. However, the recommended approach by RISC is to inspect the "InPlot" figure.
+RISC requires selection of a reference sample. We provisionally developed an automated method for selection of the reference to ease the application of this pipeline. However, the recommended approach by RISC is to inspect the "InPlot" figure.
 
-Optionally, users can provide the reference sample they prefer rather than use auto-selection in the pipeline, for example if the auto selected sample strongly deviates from the reference you would have selected by inspection of "InPlot".
+Optionally, users can provide the reference sample they prefer rather than use auto-selection in the pipeline, for example, if the auto-selected sample strongly deviates from the reference you would have selected by inspection of "InPlot".
 
 
 
@@ -379,4 +379,4 @@ Assays and layers / slots of the integrated Seurat object found at `multisample_
 - Predictions assay: [label transfer](https://satijalab.org/seurat/articles/integration_mapping) scores from Seurat.
 
 
-For downstream anaysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
+For downstream analysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
