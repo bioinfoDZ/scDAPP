@@ -3473,7 +3473,7 @@ pbvar <- sapply(risclist, function(dat0){
   md <- dat0@coldata
   
   #pseudobulk
-  pb <- pseudobulk(obj = mat, metadata = md, grouping_colname_in_md = 'seurat_clusters')
+  pb <- scDAPP::pseudobulk(obj = mat, metadata = md, grouping_colname_in_md = 'seurat_clusters')
   
   #average: divide pseudobulk columns by num cells
   numcells <- table(md$seurat_clusters)
@@ -3532,7 +3532,7 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 ```{r integration_multiint, message=F, results='hide', warning=F}
 
-
+beepr::beep()
 
 ### actual integration ###
 #set "eigens", num PCs to use for integration
