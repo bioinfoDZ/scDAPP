@@ -3532,7 +3532,7 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 ```{r integration_multiint, message=F, results='hide', warning=F}
 
-beepr::beep()
+
 
 ### actual integration ###
 #set "eigens", num PCs to use for integration
