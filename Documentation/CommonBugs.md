@@ -82,7 +82,7 @@ RISC will be updated with a fix soon.
 
 ## 5 RISC install error with matrix.utils --> no longer a dependency of RISC 1.7 (as of 03/17/2024)
 
-The dependency was removed from CRAN, so we install from an archive. Try using one of following:
+The dependency was removed from CRAN, so we installed it from an archive. Try using one of the following:
 ```
 install.packages("https://cran.r-project.org/src/contrib/Archive/Matrix.utils/Matrix.utils_0.9.8.tar.gz", type = "source", repos = NULL)
 ```
@@ -105,7 +105,7 @@ ERROR: configuration failed for package ‘rgeos’
 * restoring previous ‘/Library/Frameworks/R.framework/Versions/4.2-arm64/Resources/library/rgeos’
 
 
-Fix: In Mac terminal, use brew to install
+Fix: In the Mac terminal, use brew to install
 
 ```
 brew install geos gdal

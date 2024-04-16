@@ -9,13 +9,13 @@ Or open an issue in this github repo.
 
 ### This guide
 
-The general steps for installing described by this guide are:
- 1. install R and non-R dependencies within a conda virtual environment (steps 1-3, for linux systems)
+The general steps for installation described by this guide are:
+ 1. install R and non-R dependencies within a conda virtual environment (steps 1-3, for Linux systems)
  2. install R dependencies and the pipeline itself in R (step 4)
 
 
 
-If using a linux server / HPC, please use the steps below.
+If using a Linux server / HPC, please use the steps below.
 If installing on Mac, please see the bottom.
 
 
@@ -27,12 +27,12 @@ If installing on Mac, please see the bottom.
 
 https://docs.conda.io/en/latest/miniconda.html
 
-You will likely need to restart the terminal for the install to finish.
+You will likely need to restart the terminal for the installation to finish.
 
 
 #### Note for Einstein HPC users:
 
-On Einstein HPC, I source my local installed Conda this like this. It will change for you depending on which folder you install Conda in:
+On Einstein HPC, I source my locally installed Conda like this. It will change for you depending on which folder you install Conda in:
 ```source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/conda.sh```
 
 
@@ -62,10 +62,10 @@ Without mamba, just use "conda" instead of "mamba" below.
 
 <br />
 
-### 3. Create conda environment using yaml file:
+### 3. Create a conda environment using yaml file:
 Navigate to yaml file: https://github.com/bioinfoDZ/scDAPP/blob/main/conda_env/r_env.yml
 
-Then download or copy and paste it into a file on the server / HPC. You can click file and click on the "overlapping boxes" to copy raw file contents then paste it as a file in your location.
+Then download or copy and paste it into a file on the server / HPC. You can click the file and click on the "overlapping boxes" to copy raw file contents then paste it as a file in your location.
 
 
 Create the environment using the .yml file:
@@ -100,18 +100,18 @@ R
 ```
 
 
-###  In R, install some key dependencies manually to prevent known dependency issues:
+###  In R, install some dependencies, then scDAPP:
 
 1. First **install Matrix and irlba** from source. Installing irlba from source after Matrix will prevent [this common error](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md#1-function-as_cholmod_sparse-not-provided-by-package-matrix).
 ```
 install.packages("Matrix", type = "source")
 install.packages("irlba", type = "source")
 ```
-2. Next, **install RISC v1.7**. For now, this can be done by following [these instructions](https://github.com/bioinfoDZ/scDAPP/tree/main/deps).
 
-3. You can then install this package from Github with:
+2. You can then install this package and its dependencies from Github with:
 
-```
+``` r
+# install.packages("devtools")
 devtools::install_github("bioinfoDZ/scDAPP")
 ```
 
@@ -127,7 +127,7 @@ If you run into any issues, please open an issue in the github issues page for t
 
 
 
-Finally, if you did not get any errors during the package installation steps, you can test the install by running:
+Finally, if you did not get any errors during the package installation steps, you can test the installation by running:
 
 ```
 scDAPP::r_package_test()
@@ -165,7 +165,7 @@ You may need to exit R (via `q('no')`) and reload and rerun this if it does not 
 
 # If using Mac, start from here
 
-If using Mac, the conda virtual environment steps will likely not work. Instead, just skip the conda virtual environment steps and go directly to R. As long as you can get R > v4.0, Seurat > v4.0 or v5.0, and RISC > v1.6 working, you should not have problems running the pipeline.
+If using Mac, the conda virtual environment steps will likely not work. Instead, just skip the conda virtual environment steps and go directly to R. As long as you can get R >= v4.0, Seurat >= v4.0 or v5.0, and RISC >= v1.6 working, you should not have problems running the pipeline.
 
 If on Mac then very likely, what you will need to do is install Apple Xcode from the app store, then open a terminal and run the following:
 - `xcode-select --install `
@@ -174,7 +174,7 @@ If on Mac then very likely, what you will need to do is install Apple Xcode from
 You may also need to download the GNU Fortan compiler, accessible from this website: 
 - https://mac.r-project.org/tools/
 
-These steps will install key compiler tools that are not easy to install any other way. Then, you should be able to install R > 4.0 for your system [from Cran](https://cran.r-project.org/), and finally within R install [Seurat using its instructions](https://satijalab.org/seurat/articles/install.html) and [RISC from github](https://github.com/bioinfoDZ/RISC).
+These steps will install key compiler tools that are not easy to install any other way. Then, you should be able to install R >= 4.0 for your system [from Cran](https://cran.r-project.org/), and finally within R install [Seurat using its instructions](https://satijalab.org/seurat/articles/install.html) and [RISC from github](https://github.com/bioinfoDZ/RISC).
 
 
 Then, in R, you can then install scDAPP with:

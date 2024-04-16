@@ -22,16 +22,13 @@ This package relies on key dependencies including R >= 4.0, Seurat >= 5.0, and R
 
 For more details including installing on HPC and installing within a conda environment, see the [detailed installation instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Installation.md).
 
-**Avoiding common dependency issues:**
-
 1. First **install Matrix and irlba** from source. Installing irlba from source after Matrix will prevent [this common error](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md#1-function-as_cholmod_sparse-not-provided-by-package-matrix).
 ```
 install.packages("Matrix", type = "source")
 install.packages("irlba", type = "source")
 ```
-2. Next, **install RISC v1.7**. For now, this can be done by following [these instructions](https://github.com/bioinfoDZ/scDAPP/tree/main/deps).
 
-3. You can then install this package from Github with:
+2. You can then install this package and its dependencies from Github with:
 
 ``` r
 # install.packages("devtools")
