@@ -258,6 +258,9 @@ pwaycats <- c("HALLMARK", "GO_BP", "GO_MF", "GO_CC", "CP_REACTOME", "CP_KEGG")
 #get risc reference
 risc_reference <- params$risc_reference
 
+# code for risc_reference works best if its set to NULL rather than "auto" string
+if(risc_reference == 'auto'){ risc_reference <- NULL }
+
 
 #autofilter parameters
 min_num_UMI = params$min_num_UMI
