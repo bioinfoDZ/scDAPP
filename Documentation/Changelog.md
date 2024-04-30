@@ -3,17 +3,17 @@
 For all changes, please update changelog and use Year-Month-Day
 
 
-## 1.0.1
+## 1.0.2
 
 2024.04.30
-- 
+- fix typos in report
+- update default title and author fields
 
 
 ## 1.0.1
 
 2024.04.19
-- fix typos in report
-- update default title and author fields
+- fix issue with risc_reference when set as auto instead of NULL or left empty
 
 
 ## 1.0.0
