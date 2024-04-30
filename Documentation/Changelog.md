@@ -5,8 +5,15 @@ For all changes, please update changelog and use Year-Month-Day
 
 ## 1.0.1
 
+2024.04.30
+- 
+
+
+## 1.0.1
+
 2024.04.19
-- fix issue with risc_reference when set as auto instead of NULL or left empty
+- fix typos in report
+- update default title and author fields
 
 
 ## 1.0.0
