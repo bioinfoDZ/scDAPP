@@ -39,8 +39,8 @@ params:
   species: 'Homo sapiens'
   workernum: 1
   input_seurat_obj: FALSE
-  title: 10X analysis - clustering and integration
-  author: Alexander Ferrena, Deyou Zheng
+  title: scDAPP Report
+  author: Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues
   force_redo: FALSE  
 title: "`r params$title`"
 date: "`r Sys.Date()`"
@@ -481,16 +481,16 @@ write.csv(pldf, paste0(outdir, '/pipeline_parameters.csv'), quote = F, row.names
 
 This report summarizes analysis of single-cell RNA-sequencing (scRNA-seq) data including single sample analysis, label transfer from a cell-type annotated reference (optional), integration with batch correction, differential expression with support for pseudobulk and multi-condition comparisons, and pathway analysis. All plots, tables, markers, Seurat objects, RISC object, DE results, and pathway analysis results are stored in the output folder.
 
-The analysis pipelines in this report were developed by the lab of Dr. Deyou Zheng in the Department of Genetics and Department of Neuroscience at Albert Einstein College of Medicine. The pipeline was assembled primarily by PhD candidate Alexander Ferrena with additional input from all lab members.
+This analysis used the [single cell Differential Analysis and Processing Pipeline (scDAPP)](https://github.com/bioinfoDZ/scDAPP), developed by Alexander Ferrena and colleagues in the lab of Dr. Deyou Zheng at Albert Einstein College of Medicine.
 
 ## Description of methods
 
-Below is a short methods-section style description of the pipeline. More detailed information on can be found in each sub-section. If required, software versions of all R packages can be found at the bottom of the document in the SessionInfo section. The version of Cellranger can be found in the web_summary.html files provided with the data release. Please read carefully and adjust accordingly before using for manuscripts or applications.
+Below is a short methods-section style description of the pipeline. More detailed information can be found in each sub-section. If required, software versions of all R packages can be found at the bottom of the document in the SessionInfo section. The version of Cellranger can be found in the web_summary.html files provided with the data release. Please read carefully and adjust accordingly before using for manuscripts or applications.
 
 ```{r methods_intro, results='asis'}
 text1 <- 
   '
-Sequencing data from the 10x Chromium samples were first analyzed with Cellranger to generate cell level gene expression data [(10X Genomics)](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger). Cells with fewer than 500 Unique Molecular Identifiers (UMIs) detected, fewer than 200 unique genes detected, more than 25% mitochondrial content, or more than 25% hemoglobin gene expression were filtered out (unless otherwise specified). An automated filtering approach to detect outliers of these variables based on median absolute deviation above 3 was also applied. Furthermore, complexity analysis based on the expected number of genes given number of UMIs per cell was also used to filter out poor quality cells. Samples were analyzed using the Seurat workflow [(Hao et al 2021)](https://doi.org/10.1016/j.cell.2021.04.048). Each sample was normalized using the SingleCellTransform pipeline [(Hafemeister & Satija 2019)](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1874-1) with method set to "glmGamPoi" [(Ahlmann-Eltze & Huber 2020)](https://academic.oup.com/bioinformatics/article/36/24/5701/6028985). 30 principal components were used for graph construction and resolution was set to 0.5 for Louvain clustering (unless otherwise specified). Marker analysis was performed using the Wilcoxon Rank Sum Test as implemented in the Seurat FindAllMarkers() function with "only.pos" set to True. To identify cell types present in each sample, the Seurat anchor-based Label Transfer method was used, based on a single-cell RNA-seq dataset from similar tissue (unless otherwise specified).
+Sequencing data from the 10x Chromium samples were first analyzed with Cellranger to generate cell-level gene expression data [(10X Genomics)](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger). Data was analyzed using the Single cell Differential Analysis and Processing Pipeline (scDAPP) [(Ferrena et al 2024)](https://github.com/bioinfoDZ/scDAPP) including the following steps. Cells with fewer than 500 Unique Molecular Identifiers (UMIs) detected, fewer than 200 unique genes detected, more than 25% mitochondrial content, or more than 25% hemoglobin gene expression were filtered out (unless otherwise specified). An automated filtering approach to detect outliers of these variables based on median absolute deviation above 3 was also applied. Furthermore, complexity analysis based on the expected number of genes given the number of UMIs per cell was also used to filter out poor quality cells. Samples were analyzed using the Seurat workflow [(Hao et al 2021)](https://doi.org/10.1016/j.cell.2021.04.048). Each sample was normalized using the SingleCellTransform pipeline [(Hafemeister & Satija 2019)](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1874-1) with method set to "glmGamPoi" [(Ahlmann-Eltze & Huber 2020)](https://academic.oup.com/bioinformatics/article/36/24/5701/6028985). 30 principal components were used for graph construction and resolution was set to 0.5 for Louvain clustering (unless otherwise specified). Marker analysis was performed using the Wilcoxon Rank Sum Test as implemented in the Seurat FindAllMarkers() function with "only.pos" set to True. To identify cell types present in each sample, the Seurat anchor-based Label Transfer method was used, based on a single-cell RNA-seq dataset from similar tissue (unless otherwise specified).
 
 
 '
@@ -498,7 +498,7 @@ Sequencing data from the 10x Chromium samples were first analyzed with Cellrange
 
 if(Pseudobulk_mode == T){
   
-  text2 <- 'Samples were integrated using the RISC package [(Liu, Zheng et al Nat Biotech 2021)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8456427/). 30 PCs were used for integration as well as for post-clustering analysis including Louvain clustering, unless otherwise specified. Compositional analysis to compare proprotional abundance of clusters between conditions was performed via the Propeller test as implemented in the speckle package [(Phipson et al 2022)](https://academic.oup.com/bioinformatics/article/38/20/4720/6675456). Differential expression analysis across conditions followed a pseudobulking approach based on the EdgeR-Likelihood Ratio Test (LRT) method for each cluster [(Robinson et al 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2796818/). Pathway analysis on the differentially expressed genes was performed using Gene Set Enrichment Analysis (GSEA) as implemented in the FGSEA package [(Subramanian et al 2005)](https://www.pnas.org/doi/10.1073/pnas.0506580102), [(Korotkevich et al 2021)](https://www.biorxiv.org/content/10.1101/060012v3). Pathways were downloaded from the Molecular Signatures Database using the R package msigdbr [(Liberzon et al 2015)](https://academic.oup.com/bioinformatics/article/27/12/1739/257711), [(Dolgalev 2022)](https://github.com/igordot/msigdbr).
+  text2 <- 'Samples were integrated using the RISC package [(Liu, Zheng et al Nat Biotech 2021)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8456427/). 30 PCs were used for integration as well as for post-clustering analysis including Louvain clustering, unless otherwise specified. Compositional analysis to compare proportional abundance of clusters between conditions was performed via the Propeller test as implemented in the speckle package [(Phipson et al 2022)](https://academic.oup.com/bioinformatics/article/38/20/4720/6675456). Differential expression analysis across conditions followed a pseudobulking approach based on the EdgeR-Likelihood Ratio Test (LRT) method for each cluster [(Robinson et al 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2796818/). Pathway analysis on the differentially expressed genes was performed using Gene Set Enrichment Analysis (GSEA) as implemented in the FGSEA package [(Subramanian et al 2005)](https://www.pnas.org/doi/10.1073/pnas.0506580102), [(Korotkevich et al 2021)](https://www.biorxiv.org/content/10.1101/060012v3). Pathways were downloaded from the Molecular Signatures Database using the R package msigdbr [(Liberzon et al 2015)](https://academic.oup.com/bioinformatics/article/27/12/1739/257711), [(Dolgalev 2022)](https://github.com/igordot/msigdbr).
 '
   
 }
@@ -659,9 +659,9 @@ These preprocessing steps are performed by the 10x Genomics software called Cell
 
 
 
-Downstream analysis, includng clustering and label transfer, works with the output of Cellranger Count. This includes a gene by cell matrix. Each row is a gene, each column is a cell and each value is the number of UMIs for each gene from each cell; typically, this is ~20K genes (rows) x ~8K cells (columns). Once that is all complete, we are ready for the analysis performed in this document. We use the Seurat pipeline in R to analyze this data, which involves the steps detailed in section 1.
+Downstream analysis, including clustering and label transfer, works with the output of Cellranger Count. This includes a gene by cell matrix. Each row is a gene, each column is a cell and each value is the number of UMIs for each gene from each cell; typically, this is ~20K genes (rows) x ~8K cells (columns). Once that is all complete, we are ready for the analysis performed in this document. We use the Seurat pipeline in R to analyze this data, which involves the steps detailed in section 1.
 
-Flawed datapoints can include poor quality cells and multiplets. Poor quality cells can include cells which have sustained membrane damage and leakage of their RNA, a process which typically results the observed transcriptomic profile of that cell displaying a high proportion of mitochondrial RNA, or low numbers of UMIs or unique genes. Multiplets can be caused by random error of poisson loading of single-cells in the 10X microfluidics chamber. These can influence and bias downstream analysis. Occasionally, we also sometimes observe red blood cells despite usage of RBC lysis buffer. These should not be in the data and so we remove them as well.
+Flawed data points can include poor quality cells and multiplets. Poor quality cells can include cells that have sustained membrane damage and leakage of their RNA, a process which typically results the observed transcriptomic profile of that cell displaying a high proportion of mitochondrial RNA, or low numbers of UMIs or unique genes. Multiplets can be caused by random error of Poisson loading of single-cells in the 10X microfluidics chamber. These can influence and bias downstream analysis. Occasionally, sometimes red blood cells are observed despite usage of RBC lysis buffer. These should not be in the data and so we remove them as well.
 
 
 
@@ -1530,9 +1530,9 @@ cat("\n\n
 
 Below we show the number of cells removed with filtering. BasicFilter refers to cells failing a minimum threshold: by default, cells must have >= 500 UMIs, 200 unique genes, and <= 25% mitochondria and hemoglobin content.
 
-Auto.complexity refers to outliers from a regression analysis modelling number of genes by number of UMIs, or the 'complexity' of the cell. Specifically we model the log of each of these, where the relationship is very close to linear. We use a double-regression strategy of both linear and loess regression, and outlier cells must have both a high linear regression Cook's distance and very low Loess negative residuals. This means that cells with a lower than expected number of genes given the number of UMIs are filtered out. Typically, this captures poor quaity cells of extreme low-complexity realy cells such as RBCs.
+Auto.complexity refers to outliers from a regression analysis modelling the number of genes by the number of UMIs, or the 'complexity' of the cell. Specifically we model the log of each of these, where the relationship is close to linear. We use a double-regression strategy of both linear and loess regression, and outlier cells must have both high linear regression Cook's distance value, and very low Loess negative residuals. This means that cells with a lower than expected number of genes given the number of UMIs are filtered out. Typically, this captures poor quality cells of extreme low-complexity realy cells such as red blood cells.
 
-Auto.libsize refers to cells identified as very low outliers based on median absolute deviation from the general distribtuion of UMIs. Auto.mito refers to cells identified as high outliers based on median absolute deviation from the general distribtuion of mitochondrial content.")
+Auto.libsize refers to cells identified as very low outliers based on median absolute deviation from the general distribution of UMIs. Auto.mito refers to cells identified as high outliers based on median absolute deviation from the general distribtuion of mitochondrial content.")
 
 knitr::kable(fs)
 
@@ -1587,7 +1587,7 @@ print(post_dens_UMI)
 ```{r filtprint_feature, results='asis'}
 
 
-cat('Here we show the summary statistics for the distributions of genes (or "features", as they are reffered to in Seurat and machine learning jargon) in each sample before filtering.')
+cat('Here we show the summary statistics for the distributions of genes (or "features", as they are referred to in Seurat and machine learning jargon) in each sample before filtering.')
 
 knitr::kable(bsl$nFeature_RNA)
 
@@ -1636,7 +1636,7 @@ print(post_dens_mito)
 
 ### Hemoglobin content level filtering
 
-Hemoglobin is expressed strongly but not exclusively by red blood cells (RBCs), which are typically removed during data generation by RBC lysis buffer, because they are extremely numerous and can overwhelm the tissue cells of interest. However, many samples will often still contain some RBCs (or many, if sample quality is poor). Removing them allows focusing in on the cells of interest.
+Hemoglobin is expressed strongly but not exclusively by red blood cells (RBCs), which are typically removed during data generation by RBC lysis buffer, because they are extremely numerous and can overwhelm the tissue cells of interest. However, many samples will often still contain some RBCs (or many, if sample quality is poor). Removing them allows us to focus on the cells of interest.
 
 
 ```{r filtprint_hemo, results='asis'}
@@ -1688,7 +1688,7 @@ As stated above, below we detail the analysis for each sample, which includes:
 
 Principal Component Analysis (PCA) is important for downstream analysis including clustering and visualization with non-linear dimension reduction such as UMAP.
 
-PCA finds high-dimensional planes which vary strongly across the cells. Essentially, each PC consists of very highly correlated genes. The first PC specifically can be thought of as a list of genes that drive together drive the most variance across cells. Each following PC has less variance.
+PCA finds high-dimensional planes which vary strongly across the cells. Essentially, each PC consists of very highly correlated genes. The first PC specifically can be thought of as a list of genes that together drive the most variance across cells. Each following PC has less variance.
 
 PCA is used to help de-noising the data for downstream tasks like clustering. Individual genes can be noisy, but groups of correlated genes are less noisy.
 
@@ -1696,7 +1696,7 @@ An important caveat of PCA is that it is a linear method, in that the PC axes it
 
 One important parameter for downstream analysis is the selection of how many PCs to use. We want to select the PCs that explain a sufficient amount of variance in the data. One way to do that is via “elbow plots” of each PC versus the standard deviation. The cutoff is made at the PC at which the SD stabilizes and becomes horizontal.
 
-Including too few PCs can mean missing important sources of variations downstream and may result in for example, cell types being merged together in a single cluster. Conversely, including too many PCs can introduce noise into the data and result in clusters not easily explained by biology.
+Including too few PCs can mean missing important sources of variations downstream and may result in, for example, cell types being merged together in a single cluster. Conversely, including too many PCs can introduce noise into the data and result in clusters not easily explained by biology.
 
 By default, we set the number of PCs to use as 30, which will be appropriate for most samples and is recommended as a default by the developers of SingleCellTransform. If the “Elbow” in the elbow plots strongly deviates from this, a different value may be selected and the analysis can be rerun later.
 
@@ -2776,7 +2776,7 @@ Here we plot a UMAP of the Louvain clusters for this sample.
 
 ### Heatmap of cluster markers
 
-Here we plot the top 5 marker genes of each cluster as identified by wilcoxon test. Sometimes, clusters may share the same markers, which may indicate the clusters are similar, such as subtypes of the same cell type (for example, CD4 vs CD8 T cells).
+Here we plot the top 5 marker genes of each cluster as identified by Wilcoxon test. Sometimes, clusters may share the same markers, which may indicate the clusters are similar, such as subtypes of the same cell type (for example, CD4 vs CD8 T cells).
 
 
 "
@@ -3022,7 +3022,7 @@ The top-scoring cell type is plotted, but some cells and clusters may contain a 
 We apply an ad-hoc method to extend the label transfer from individual cells (default) across entire clusters. We do this by taking the average score of each cell type score in the cluster and choosing the max. This can help simplify the analysis and can be less noisy by sharing information across cells, but may also hide intra-cluster variability, such as particular sub-clusters which may correspond to distinct cell sub-types.
 
 We also apply a thresholding approach such that clusters with a max score of less than 0.3 are considered non-transferrable and marked as NA (not applicable). These may reflect clusters of cells which are not in the reference dataset.
-Additionally, clusters with a score between 0.3 - 0.5 are marked with the suffix "_putative" to indicate the somewhat uncertain status. All cluster markers should be carefully inspected and checked for cell type, independnetly of the label transfer results.
+Additionally, clusters with a score between 0.3 - 0.5 are marked with the suffix "_putative" to indicate the somewhat uncertain status. All cluster markers should be carefully inspected and checked for cell type, independently of the label transfer results.
 
 '
     
@@ -3948,7 +3948,7 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 ## Selection of reference sample for integration
 
-RISC requires the selection of a reference sample from among the dataset. The optimal reference sample is one that has the most diversity of celltypes.
+RISC requires the selection of a reference sample from among the input datasets. The optimal reference sample is one that has the most diversity of celltypes.
 
 
 ```{r integration_riscref_ip, results='asis', fig.height=10, fig.width=10}
@@ -3956,7 +3956,7 @@ RISC requires the selection of a reference sample from among the dataset. The op
 
 
 plotlab <- '
-One way to select the reference sample is manual inspection of the "InPlot". This plot consists of three panels. The top panel is the most important, and shows the number of clusters detected in each sample across a range of different PC values. Essentially, this is a proxy of the number of cell types detected in the dataset, and the sample with most clusters should be selected as the reference. The second panel allows selection of the optimal PC value to use and the amount of variance each PC has for each sample, with good samples having a higher score (indicating more diversity). The third panel indicates bias of the gene signatures, samples with high scores here should not be selected as the reference.
+One way to select the reference sample is manual inspection of the "InPlot". This plot consists of three panels. The top panel is the most important and shows the number of clusters detected in each sample across a range of different PC values. Essentially, this is a proxy of the number of cell types detected in the dataset, and the sample with most clusters should be selected as the reference. The second panel allows selection of the optimal PC value to use and the amount of variance each PC has for each sample, with good samples having a higher score (indicating more diversity). The third panel shows distributional divergence of the samples, where a high score is "bad" and indicates that the sample is potentially composed of quite different celltypes from the rest of the dataset, and can potentially indicate some issue in data generation, for example that some incorrect tissue was sampled during data generation.
 
 
 
@@ -3978,7 +3978,7 @@ It is not enough to pick the sample with the most clusters, because sometimes sa
 
 The cluster-moderated sample variance is calculated first by clustering each sample (ie, using the Seurat Louvain clusters described above), then averaging the sample at the cluster level. Then, the variance of each cluster is calculated, and finally, the mean of the cluster-wise variance is taken. 
 
-Then, to calculate the reference selection score, we multiply the number of clusters per sample, times a relative weighing metric based on the number of cells in each sample relative to the sample with the most cells in the dataset (biggest gets a one, sampe with half cells of biggest gets a 0.5); then we multiply this value by the cluster-moderated variance described above.
+Then, to calculate the reference selection score, we multiply the number of clusters per sample, times a relative weighting metric based on the number of cells in each sample relative to the sample with the most cells in the dataset (where the biggest gets a one, sample with half cells of biggest gets a 0.5); then we multiply this value by the cluster-moderated variance described above.
 
 
 We show here the resulting reference scores. The top score is selected as the reference. Please note that the autoselection is experimental, so if the score and selected reference deviates from InPlot, we recommend re-running the pipeline and manually selecting the optimal reference.
@@ -4711,7 +4711,7 @@ plotlab <- "
 
 ## UMAP split by condition and colored by sample
 
-Here, the integrated UMAP is split by condition, meaning that cells from Condition A are separated from cells from condition B. Additionally, cells are colored according to their sample origin. This allows us to check the overlap of biological replicates from the same condition.
+Here, the integrated UMAP is split by condition, meaning that cells from Condition A are separated from cells from Condition B. Additionally, cells are colored according to their sample origin. This allows us to check the overlap of biological replicates from the same condition.
 
 
 "
@@ -4751,7 +4751,7 @@ plotlab <- "
 
 ## UMAP split by condition and colored by integrated clusters
 
-Here we plot the UMAP split by conditon and colored by integrated clusters. This is useful to see compositional differences in which clusters may be enriched or depleted between conditions.
+Here we plot the UMAP split by condition and colored by integrated clusters. This is useful to see compositional differences in which clusters may be enriched or depleted between conditions.
 
 
 "
@@ -4803,7 +4803,7 @@ plotlab <- "
 
 ## Violin Plots of quality metrics
 
-Here we plots some quality metrics for each integrated cluster including number of UMIs per cell (nCount_RNA), number of unique genes detected per cell (nFeature_RNA), percent mitochondrial gene expression (percent.mito), and percent hemoglobin gene expression (percent.hemoglobin).
+Here we plot some quality metrics for each integrated cluster including number of UMIs per cell (nCount_RNA), number of unique genes detected per cell (nFeature_RNA), percent mitochondrial gene expression (percent.mito), and percent hemoglobin gene expression (percent.hemoglobin).
 
 
 "
@@ -4855,7 +4855,7 @@ print( summaryplots_integrated$ap_samp_to_clust )
 plotlab <- "
 
 
-## Per-sample alluvial plots mapping indiviudal sample clusters to integrated clusters
+## Per-sample alluvial plots mapping individual sample clusters to integrated clusters
 
 For each sample, we plot an alluvial plot mapping the individual sample clusters with the integrated clusters.
 
@@ -5063,7 +5063,7 @@ This alluvial plot maps cluster labels to top celltype labels for each cell. Thi
 We apply an ad-hoc method to extend the label transfer from individual cells (default) across entire clusters. We do this by taking the average score of each cell type score in the cluster and choosing the max. This can help simplify the analysis and can be less noisy by sharing information across cells, but may also hide intra-cluster variability, such as particular sub-clusters which may correspond to distinct cell sub-types.
 
 We also apply a thresholding approach such that clusters with a max score of less than 0.3 are considered non-transferrable and marked as NA (not applicable). These may reflect clusters of cells which are not in the reference dataset.
-Additionally, clusters with a score between 0.3 - 0.5 are marked with the suffix "_putative" to indicate the somewhat uncertain status. All cluster markers should be carefully inspected and checked for cell type, independnetly of the label transfer results.
+Additionally, clusters with a score between 0.3 - 0.5 are marked with the suffix "_putative" to indicate the somewhat uncertain status. All cluster markers should be carefully inspected and checked for cell type, independently of the label transfer results.
 
 '
   
@@ -5151,7 +5151,7 @@ Here, we test for differences in the abundance of celltypes (clusters) between c
 
 If we are comparing two conditions such as treated versus untreated or knockout vs wildtype, one biological effect we can try to test for is the difference in the cell type compositional abundance. The idea that tissue cell type compositions can change in response to biological stimuli has been called "polycreodism" and may reflect particular cell type sensitivity to the perturbation [(Lappalainen & Greally 2017)](https://www.nature.com/articles/nrg.2017.32). For example, it would likely of interest to note that a knockout or drug completely ablates a certain celltype, reduces another by half, increases another by 25%, and leaves others unchanged. Biologically, these kinds of differences can be explained by various mechanisms, such as differentiation of certain cell types being specifically impaired by a knockout, or specific cell types being particularly sensitive to a drug.
 
-We use the scRNA-seq data to test for differential compositional abundance of each cluster. If replicates are present, we make use of these to test differential abdundance across conditions using the "Propeller" method from the R package "speckle" [(Phipson et al 2022)](https://academic.oup.com/bioinformatics/article/38/20/4720/6675456). This method calculates cell proportions for each sample, applies a variance stabilizing transformation, and then compares proportion across conditions via linear regression. It is similar to pseudobulk differential expression analysis in that it takes into accounts having multiple biological replicate samples for each condition. Specifically, we use the arcsin square root transformation by setting "transform = asin". We picked this test and this transformation based on the results of a benchmarking study comparing compositional analysis methods [(Simmons 2022)](https://www.biorxiv.org/content/10.1101/2022.02.04.479123v1.full). Though Propeller calculates False Discovery Rates (FDR), we define significance using only nominal P value for power reasons.
+We use the scRNA-seq data to test for differential compositional abundance of each cluster. If replicates are present, we make use of these to test differential abundance across conditions using the "Propeller" method from the R package "speckle" [(Phipson et al 2022)](https://academic.oup.com/bioinformatics/article/38/20/4720/6675456). This method calculates cell proportions for each sample, applies a variance stabilizing transformation, and then compares proportion across conditions via linear regression. It is similar to pseudobulk differential expression analysis in that it takes into accounts having multiple biological replicate samples for each condition. Specifically, we use the arcsin square root transformation by setting "transform = asin". We picked this test and this transformation based on the results of a benchmarking study comparing compositional analysis methods [(Simmons 2022)](https://www.biorxiv.org/content/10.1101/2022.02.04.479123v1.full). Though Propeller calculates False Discovery Rates (FDR), we define significance using only nominal P value for power reasons.
 
 If replicates are not available, we use an ad-hoc method that relies on the R `prop.test()` function, which is very similar to the ChiSquare test (see [this forum discussion](https://stats.stackexchange.com/questions/2391/what-is-the-relationship-between-a-chi-squared-test-and-test-of-equal-proportion)). This works by calculating the proportion of cells in each condition and comparing the proportions. Because there are often thousands of cells being compared, P values can be extremely low. However, this method can result in false-positive conclusions, as the results of 1-vs-1 sample comparisons may not extend to the populations the samples are drawn from. Thus, we advise caution, and interpretation without replicates should be considered as preliminary / pilot data.
 
@@ -5336,7 +5336,7 @@ Below we summarize the results of cross-condition differential expression (DE) a
 
 If multiple replicates are available, then the best way to take advantage of these is to use a "pseudobulk" strategy. This refers to an approach in which cells from each sample are pooled together, and bulk RNA-seq analysis methods are used to identify DE genes across conditions. Pseudobulk differential expression analysis is done with EdgeR likelihood ratio test, as recommended by [Squair et al 2021 Nat Com.](https://www.nature.com/articles/s41467-021-25960-2)
 
-If replicates are not available, it is still possible to compare conditions. This is done using a wilcoxon test approach. Drawing conclusions from the results of this type of analysis are inherently limited as they constitute "N of 1" experiments, but can be considered as preliminary/pilot data.
+If replicates are not available, it is still possible to compare conditions. This is done using a Wilcoxon test approach. Drawing conclusions from the results of this type of analysis are inherently limited as they constitute "N of 1" experiments, but can be considered as preliminary/pilot data.
 
 
 ```{r de_test_used_text, results='asis'}
@@ -6435,7 +6435,7 @@ Finally, the thresholds above do not affect downstream results from pathway anal
   plotlab <- '
 ### Per-cluster heatmaps of all DEGs
 
-To ensure the differential expression results are robust, it is helpful to inspect all DEGs by visualizing them in a heatmap. For each cluster, we compare the DEGs at both the single cell level, and either the pseudobulk level (if we used pseudobulk_edgeR) or the average RISC value level (if using wilcox).
+To ensure the differential expression results are robust, it is helpful to inspect all DEGs by visualizing them in a heatmap. For each cluster, we compare the DEGs at both the single cell level, and either the pseudobulk level (if we used pseudobulk_edgeR) or the average RISC value level (if using Wilcox).
 
 
 
@@ -6533,7 +6533,7 @@ Here, we plot all significant DEGs after averaging the RISC-transformed values f
 
 Pathway analysis for the cross-condition analysis is performed for overexpressed and underexpressed genes for each cluster. This is done via Gene Set Enrichment Analysis (GSEA) [(Subramanian et al 2005)](https://www.pnas.org/doi/10.1073/pnas.0506580102).
 
-GSEA is preferred over other pathway analysis such as fisher tests or chi-square tests because it does not require making arbitrary cutoffs to the number of DEGs and takes into account how strongly differentially expressed each gene may be. For the latter, data-driven gene-specific weight is applied. We use a standard weighting method of -log10(P-value) * sign of Log Fold Change.
+GSEA is preferred over other pathway analysis such as Fisher tests or chi-square tests because it does not require making arbitrary cutoffs to the number of DEGs and takes into account how strongly differentially expressed each gene may be. For the latter, data-driven gene-specific weight is applied. We use a standard weighting method of -log10(P-value) * sign of Log Fold Change.
 
 The pathways we choose in pathway analysis are derived from the Molecular Signatures Database (MSIGDB) where they are sorted by categories, such as Gene Ontology (GO) Biological Process, GO Molecular Function, KEGG, Reactome, etc. These are databases that annotate genes by function or molecular pathway.
 

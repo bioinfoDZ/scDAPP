@@ -282,8 +282,8 @@ scRNAseq_pipeline_runner <- function(  datadir,
 
   if(missing(input_seurat_obj)){ input_seurat_obj = FALSE}
 
-  if(missing(title)){title = '10X analysis - clustering and integration'}
-  if(missing(author)){author = 'Alexander Ferrena, Deyou Zheng'}
+  if(missing(title)){title = 'scDAPP Report'}
+  if(missing(author)){author = 'Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues'}
 
 
 
