@@ -259,7 +259,9 @@ pwaycats <- c("HALLMARK", "GO_BP", "GO_MF", "GO_CC", "CP_REACTOME", "CP_KEGG")
 risc_reference <- params$risc_reference
 
 # code for risc_reference works best if its set to NULL rather than "auto" string
+if(!is.null(risc_reference)){
 if(risc_reference == 'auto'){ risc_reference <- NULL }
+}
 
 
 #autofilter parameters
