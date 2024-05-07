@@ -204,7 +204,7 @@ For downstream analysis tips including using aPEAR for network enrichment analys
 
 ## Example Dataset
 
-Please see [here](https://github.com/bioinfoDZ/scDAPP/tree/main/ExampleData) for an example / test dataset.
+Please see [here](https://github.com/FerrenaAlexander/scDAPP_example_data) for an example / test dataset.
 
 <br />
 
