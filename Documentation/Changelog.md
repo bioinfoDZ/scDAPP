@@ -3,6 +3,13 @@
 For all changes, please update changelog and use Year-Month-Day
 
 
+## 1.1.0
+
+2024.04.07
+- fix a bug in DEG weighting for GSEA caused by incorrect gene matching
+- fix a bug in pathway analysis module which sometimes caused errors due to active devices
+
+
 ## 1.0.2
 
 2024.04.30
