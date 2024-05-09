@@ -8,9 +8,8 @@ This package contains an automated pipeline for scRNA-seq that includes individu
 
 ## Citing scDAPP
 
-scDAPP will soon be posted to bioRxiv and submitted. For now, please cite:
-
-scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized for cross-group comparisons. Manuscript in Preparation. Ferrena A, Zheng XY, Jackson K, Hoang B, Zheng D.
+Please cite our bioRxiv pre-print:
+[Ferrena et al bioRXiv 2024](https://www.biorxiv.org/content/10.1101/2024.05.06.592708v1)
 
 <br />
 <br />
