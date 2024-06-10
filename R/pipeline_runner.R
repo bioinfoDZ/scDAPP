@@ -107,6 +107,7 @@ r_package_test <- function(){
 #' @param res_int numeric, default = 0.5 ; Louvain resolution for louvain clustring of RISC integrated dataset; see `scDAPP::scCluster_louvain_res()`
 #' @param RISC_louvain_neighbors integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()` or `scDAPP::scCluster_louvain_res()` where implementation of this is unchanged
 #' @param Pseudobulk_mode T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the `prop.test()` function for compositional analysis.
+#' @param DE_test a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more.
 #' @param crossconditionDE_padj_thres numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if `Pseudobulk_mode` is set to T default is 0.1; if `Pseudobulk_mode` is F default is 0.05
 #' @param crossconditionDE_lfc_thres numeric, absolute value of LFC threshold for significant DE genes in cross condition DE; if `Pseudobulk_mode` is set to F default is 0 (no minimum lFC); if `Pseudobulk_mode` is F default is 0.25
 #' @param pathway_padj_thres numeric, threshold for significant DE pathways via GSEA test; default is 0.1
@@ -216,6 +217,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        RISC_louvain_neighbors,
 
                                        
+                                       DE_test,
                                        crossconditionDE_padj_thres,
                                        crossconditionDE_lfc_thres,
                                        pathway_padj_thres,
@@ -226,6 +228,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
 
                                        title,
                                        author,
+                                       
                                        de.test.use,
                                        pseudobulk_metadata
                                        ){
@@ -273,7 +276,10 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(RISC_louvain_neighbors)){ RISC_louvain_neighbors = 10}
 
 
-
+  if(missing(DE_test)){
+    if(Pseudobulk_mode == T){DE_test = 'EdgeR-LRT'}
+    if(Pseudobulk_mode == F){DE_test = 'wilcox'}
+  }
   if(missing(crossconditionDE_padj_thres)){ crossconditionDE_padj_thres = NULL}
   if(missing(crossconditionDE_lfc_thres)){ crossconditionDE_lfc_thres = NULL}
   if(missing(pathway_padj_thres)){ pathway_padj_thres = 0.1}
@@ -326,6 +332,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       RISC_louvain_neighbors = RISC_louvain_neighbors,
 
                       Pseudobulk_mode = Pseudobulk_mode,
+                      DE_test = DE_test,
                       crossconditionDE_padj_thres = crossconditionDE_padj_thres,
                       crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
                       pathway_padj_thres = pathway_padj_thres,

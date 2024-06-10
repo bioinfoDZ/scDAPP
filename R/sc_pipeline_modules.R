@@ -9,6 +9,7 @@
 #' @param comps data.frame with two columns called c1, c2; these are the conditions you want to set up. Should be present in psuedobulk_metadata Condition column.
 #' @param grouping_variable string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters". It is not mandatory, but will use factor level ordering of this variable in the meta.data to control analysis order, and if not will sort by alphanumeric order (cluster 1, then 2, cluster A, then B, etc)
 #' @param Pseudobulk_mode T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the `prop.test()` function for compositional analysis.
+#' @param DE_test a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more.
 #' @param outdir_int string, path to save results to, if not provided will not save. Will create a sub-directory called "differentialexpression_crosscondition" and save inside of there.
 #' @param assay string, name of Seurat assay to use, default is DefaultAssay(sobjint)
 #' @param slot string, name of Seurat assay slot to use, default is 'data'
@@ -68,6 +69,7 @@ de_across_conditions_module <- function(sobjint,
                                         comps,
                                         grouping_variable,
                                         Pseudobulk_mode,
+                                        DE_test,
                                         outdir_int,
                                         assay,
                                         slot,
@@ -78,7 +80,6 @@ de_across_conditions_module <- function(sobjint,
                                         
 ){
   
-  require(edgeR)
   
   if( missing(sobjint)) { stop('Provide Seurat object') }
   if( missing(grouping_variable)) { stop(grouping_variable <- 'seurat_clusters') }
@@ -97,7 +98,10 @@ de_across_conditions_module <- function(sobjint,
     
   }
   
-  
+  if(missing(DE_test)){
+    if(Pseudobulk_mode == T){DE_test = 'EdgeR-LRT'}
+    if(Pseudobulk_mode == F){DE_test = 'wilcox'}
+  }
   
   
   
@@ -145,10 +149,7 @@ de_across_conditions_module <- function(sobjint,
   } else{groupinglev_nicelabs <- groupinglevs}
   
   
-  ### use pseudobulk if comparisons have 1 vs 1
-  
-  
-  # if not, use wilcox test
+  ### DE: pseudobulk or single-cell
   
   if(Pseudobulk_mode == T){
     
@@ -369,93 +370,265 @@ de_across_conditions_module <- function(sobjint,
         gem <- gem[match(cellsexp$gene, rownames(gem)),]
         
         
-        #counts and "group"
-        eobj <- DGEList(counts = gem, group = comp_pseudobulk_md$Condition)
-        
-        #size factors
-        eobj <- calcNormFactors(eobj)
-        
-        #design, using group variable, factor levels are important
-        design <- model.matrix(~comp_pseudobulk_md$Condition)
         
         
         
-        #dispersion
-        eobj <- estimateDisp(eobj, design)
-        
-        
-        ### run it
-        # coef = 2 is higher factor level, which should be c1
-        fit <- glmFit(eobj,design)
-        lrt <- glmLRT(fit,coef=2)
-        
-        #get res
-        res <- as.data.frame ( topTags(lrt, n = Inf) )
-        
-        #cbind pct.1 and pct.2
-        cellsexp <- cellsexp[match(rownames(res), cellsexp$gene),]
-        res <- cbind(res, cellsexp[,-1])
         
         
         
-        #attach gene name as a column
-        res <- cbind(rownames(res), res)
-        colnames(res)[1] <- 'gene_symbol'
         
         
-        # #add weight:
-        # # -log10 pvalue * sign LFC * abs value of percent difference
-        # # ie, significe of DE * sign of DE * num cells exp gene in that direction
-        # ## downweight mismatch sign vs pct diff genes... do this by squring them, which makes decimal smaller ##
-        # # add + 1 to abs pct diff --> do this to keep FGSEA scores high, otherwise we are actually dividing them by pct diff
-        # pctdiff <- res$pct.diff
-        # pctdiff[sign(pctdiff) != sign(res$logFC)] <- pctdiff[sign(pctdiff) != sign(res$logFC)] ^ 2
-        # pctdiff <- abs(pctdiff) + 1
-        # res$weight <- -log10(res$PValue) * res$logFC * pctdiff
+        ### EdgeR
         
-        ## UPDATE DEC 7 2023, WEIGHT BY -LOG10(PVAL) * SIGN OF LFC
+        if(DE_test == 'EdgeR' | DE_test == 'EdgeR-LRT'){
+          
+          require(edgeR)
+          
+          
+          #counts and "group"
+          eobj <- DGEList(counts = gem, group = comp_pseudobulk_md$Condition)
+          
+          #size factors
+          eobj <- calcNormFactors(eobj)
+          
+          #design, using group variable, factor levels are important
+          
+          ## Note, this may be passed as a user parameter...
+          #FORMULA PARAMETER MAY BE IMPLEMENTED LATER
+          design <- model.matrix(~comp_pseudobulk_md$Condition)
+          
+          
+          
+          
+          #dispersion
+          eobj <- estimateDisp(eobj, design)
+          
+          
+          ### run the test
+          
+          #normal edgeR, added Jun 5 2024 as per reviewer request
+          if(DE_test == 'EdgeR'){
+            
+            
+            #run exact test as per qCML method, "vanilla" EdgeR
+            et <- exactTest(eobj)
+            
+            #get res
+            res <- as.data.frame ( topTags(et, n = Inf) )
+            
+            
+          }
+          
+          #edgeR-LRT, only original test for pseudobulk comparisons based on Squair et al pseudobulk benchmark
+          if(DE_test == 'EdgeR-LRT'){
+            
+            # coef = 2 is higher factor level, which should be c1
+            fit <- glmFit(eobj,design)
+            
+            ## when using with user-supplied formula, we need to find the column name with Conditon... this can get complicated...
+            # coef = grep(colnames(design), pattern = 'Condition') #not fully implemented currently
+            #FORMULA PARAMETER MAY BE IMPLEMENTED LATER
+            lrt <- glmLRT(fit,coef=2)
+            
+            #get res
+            res <- as.data.frame ( topTags(lrt, n = Inf) )
+            
+          }
+          
+          
+          
+          
+          #cbind pct.1 and pct.2
+          cellsexp <- cellsexp[match(rownames(res), cellsexp$gene),]
+          res <- cbind(res, cellsexp[,-1])
+          
+          
+          
+          #attach gene name as a column
+          res <- cbind(rownames(res), res)
+          colnames(res)[1] <- 'gene_symbol'
+          
+          
+          
+          
+          
+          # #add weight:
+          # # -log10 pvalue * sign LFC * abs value of percent difference
+          # # ie, significe of DE * sign of DE * num cells exp gene in that direction
+          # ## downweight mismatch sign vs pct diff genes... do this by squring them, which makes decimal smaller ##
+          # # add + 1 to abs pct diff --> do this to keep FGSEA scores high, otherwise we are actually dividing them by pct diff
+          # pctdiff <- res$pct.diff
+          # pctdiff[sign(pctdiff) != sign(res$logFC)] <- pctdiff[sign(pctdiff) != sign(res$logFC)] ^ 2
+          # pctdiff <- abs(pctdiff) + 1
+          # res$weight <- -log10(res$PValue) * res$logFC * pctdiff
+          
+          ## UPDATE DEC 7 2023, WEIGHT BY -LOG10(PVAL) * SIGN OF LFC
+          
+          ## prep weighted list ##
+          
+          #we have to deal with underflow...
+          # get -log10 pvalues, sort
+          scores <- -log10(res$PValue)
+          scores <- scores * sign(res$logFC)
+          names(scores) <- res$gene_symbol
+          
+          #sort by log pval with names
+          scores <- sort(scores,decreasing = T)
+          
+          
+          #also get logFC vector; for INf, we will sort them by LFC...
+          logFC_vec <- res$logFC; names(logFC_vec) <- res$gene_symbol
+          
+          
+          # fix the underflow...
+          scores <- scDAPP::fix_underflow(scores, logFC_vec)
+          
+          #make sure scores is in order of genes...
+          ### update May 7 2024 --> there was an error in this before
+          # it caused scrambling of genes and incorrect pathway analysis :/
+          # scores <- scores[match(res$gene_symbol, res$gene_symbol)]
+          scores <- scores[match(res$gene_symbol, names(scores))]
+          
+          
+          #put in res
+          res$weight <- scores
+          rm(scores, logFC_vec)
+          
+          
+          #order by weight
+          res <- res[order(res$weight, decreasing = T),]
+          
+          
+          
+          #cbind normcounts
+          nc <- cpm(eobj)
+          nc <- nc[match(rownames(res), rownames(nc)),]
+          
+          #add norm counts and raw counts
+          rc <- gem
+          rc <- rc[match(rownames(res), rownames(rc)),]
+          
+          
+          #cbind norm counts and rawcounts
+          colnames(nc) <- paste0('normcounts_', colnames(nc))
+          colnames(rc) <- paste0('rawcounts_', colnames(rc))
+          res <- cbind(res, nc, rc)
+          
+          
+          
+        }
         
-        ## prep weighted list ##
         
-        #we have to deal with underflow...
-        # get -log10 pvalues, sort
-        scores <- -log10(res$PValue)
-        scores <- scores * sign(res$logFC)
-        names(scores) <- res$gene_symbol
+        ### DESeq2
         
-        #sort by log pval with names
-        scores <- sort(scores,decreasing = T)
+        if(DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT'){
+          
+          require(DESeq2)
+          
+          
+          #create dds obj
+          dds <- DESeqDataSetFromMatrix(gem, comp_pseudobulk_md,
+                                        design = ~ Condition)
+          
+          
+          if(DE_test == 'DESeq2'){
+            
+            #run DESeq2 
+            dds <- DESeq(dds)
+            
+          }
+          
+          
+          if(DE_test == 'DESeq2-LRT'){
+            
+            #run DESeq2 
+            dds <- DESeq(dds, test = 'LRT', reduced = ~1)
+            
+            
+          }
+          
+          
+          
+          #get res
+          res <- as.data.frame(results(dds))
+          
+          #set NA padj values to 1 as per guide
+          # https://www.bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#i-want-to-benchmark-deseq2-comparing-to-other-de-tools.
+          res[is.na(res$padj), "padj"] <- 1
+          
+          
+          
+          #add gene_symbol
+          # attach gene name as a column
+          res <- cbind(rownames(res), res)
+          colnames(res)[1] <- 'gene_symbol'
+          
+          
+          
+          #cbind pct.1 and pct.2
+          cellsexp <- cellsexp[match(rownames(res), cellsexp$gene),]
+          res <- cbind(res, cellsexp[,-1])
+          
+          
+          
+          ## prep weighted list ##
+          
+          #we have to deal with underflow...
+          # get -log10 pvalues, sort
+          scores <- -log10(res$pvalue)
+          scores <- scores * sign(res$log2FoldChange)
+          names(scores) <- res$gene_symbol
+          
+          #sort by log pval with names
+          scores <- sort(scores,decreasing = T)
+          
+          
+          #also get logFC vector; for INf, we will sort them by LFC...
+          logFC_vec <- res$log2FoldChange; names(logFC_vec) <- res$gene_symbol
+          
+          
+          # fix the underflow...
+          scores <- scDAPP::fix_underflow(scores, logFC_vec)
+          
+          #make sure scores is in order of genes...
+          ### update May 7 2024 --> there was an error in this before
+          # it caused scrambling of genes and incorrect pathway analysis :/
+          # scores <- scores[match(res$gene_symbol, res$gene_symbol)]
+          scores <- scores[match(res$gene_symbol, names(scores))]
+          
+          
+          #put in res
+          res$weight <- scores
+          rm(scores, logFC_vec)
+          
+          
+          #add norm counts and raw counts
+          nc <- counts(dds, normalized = T)
+          rc <- counts(dds, normalized = F)
+          
+          
+          #cbind norm counts and rawcounts
+          colnames(nc) <- paste0('normcounts_', colnames(nc))
+          colnames(rc) <- paste0('rawcounts_', colnames(rc))
+          res <- cbind(res, nc, rc)
+          
+          
+          
+          #order by weight
+          res <- res[order(res$weight, decreasing = T),]
+          
+          
+          
+        }
         
         
-        #also get logFC vector; for INf, we will sort them by LFC...
-        logFC_vec <- res$logFC; names(logFC_vec) <- res$gene_symbol
         
         
-        # fix the underflow...
-        scores <- fix_underflow(scores, logFC_vec)
-        
-        #make sure scores is in order of genes...
-        ### update May 7 2024 --> there was an error in this before
-        # it caused scrambling of genes and incorrect pathway analysis :/
-        # scores <- scores[match(res$gene_symbol, res$gene_symbol)]
-        scores <- scores[match(res$gene_symbol, names(scores))]
         
         
-        #put in res
-        res$weight <- scores
-        rm(scores, logFC_vec)
-        
-        #order by weight
-        res <- res[order(res$weight, decreasing = T),]
         
         
-        #cbind normcounts
-        nc <- cpm(eobj)
-        nc <- nc[match(rownames(res), rownames(nc)),]
-        res <- cbind(res, nc)
-        
-        
-        res
+        return(res)
         
         
       })
@@ -484,7 +657,7 @@ de_across_conditions_module <- function(sobjint,
   
   
   
-  
+  ### DE: pseudobulk or single-cell
   
   if(Pseudobulk_mode == F){
     
@@ -573,7 +746,7 @@ de_across_conditions_module <- function(sobjint,
                            ident.1 = c1, ident.2 = c2,
                            assay = assay, slot = slot,
                            group.by = 'Condition',
-                           test.use = 'wilcox')
+                           test.use = DE_test)
         
         # future::plan(strategy = 'sequential')
         
@@ -619,7 +792,7 @@ de_across_conditions_module <- function(sobjint,
         
         
         # fix the underflow...
-        scores <- fix_underflow(scores, logFC_vec)
+        scores <- scDAPP::fix_underflow(scores, logFC_vec)
         
         
         #make sure scores is in order of genes...
@@ -667,40 +840,8 @@ de_across_conditions_module <- function(sobjint,
   
   
   
-  
-  #if wilcoxon is used, reformat the dataframe to match edgeR, to ease the pathway analysis
-  
-  if(Pseudobulk_mode == F){
-    
-    
-    #for each comparison, loop thru each cluster, and reformat the table
-    
-    m_bycluster_crosscondition_de_comps <- lapply(m_bycluster_crosscondition_de_comps, function(m_bycluster_crosscondition_de){
-      
-      
-      m_bycluster_crosscondition_de <- lapply(m_bycluster_crosscondition_de, function(res){
-        
-        #reformat all
-        res <- res[,c("gene_symbol", "avg_log2FC","p_val", "p_val_adj", "pct.1", "pct.2", "pct.diff", "weight" )]
-        
-        #rename to match edgeR
-        colnames(res) <- c("gene_symbol", "logFC","PValue", "qvalue_bonferroni", "pct.1", "pct.2","pct.diff", "weight"  )
-        
-        res$FDR <- p.adjust(res$PValue, method = 'fdr')
-        
-        res
-        
-      })
-      
-    })
-    
-    
-    
-  }
-  
   ## write out the DE results for each comparison, cross condition for each cluster
-  
-  
+  # we will then reformat the results, and then last we will write out a table of num DEGs
   compslen <- 1:nrow(comps)
   
   invisible(
@@ -741,6 +882,142 @@ de_across_conditions_module <- function(sobjint,
         })
       )
       
+      
+      
+      # ### write out num DEGs summary table ###
+      # #prep NUMDEGS object using THRESHOLD OBJECTS
+      # numdegs <- sapply(m_bycluster_crosscondition_de, function(m){
+      #   
+      #   #normal fdr and padj thresholds
+      #   m <- m[m$FDR < crossconditionDE_padj_thres,, drop=F]
+      #   m <- m[abs(m$logFC) > crossconditionDE_lfc_thres,, drop=F]
+      #   
+      #   #pct thresholds: +FC, pct1 > 0.1; -FC, pct2 > 0.1
+      #   
+      #   upm <- m[m$logFC > 0,,drop=F]
+      #   upm <- upm[upm$pct.1 > crossconditionDE_min.pct,, drop=F]
+      #   
+      #   dnm <- m[m$logFC < 0,,drop=F]
+      #   dnm <- dnm[dnm$pct.2 > crossconditionDE_min.pct,, drop=F]
+      #   
+      #   m <- rbind(upm,dnm)
+      #   
+      #   try( table( factor(sign(m$logFC), levels=c(-1,1)) ) )
+      # })
+      # 
+      # numdegs <- t(numdegs)
+      # colnames(numdegs) <- c(c2, c1)
+      # 
+      # #make sure all clusters are shown
+      # # make a fake df and replace fake with real res
+      # numdegs_all <- data.frame(Cluster = groupinglev_nicelabs,
+      #                           c1 = 0, c2 = 0)
+      # colnames(numdegs_all) <- c('Cluster', c1, c2)
+      # rownames(numdegs_all) <- numdegs_all$Cluster
+      # 
+      # numdegs_all[rownames(numdegs), c1] <- numdegs[,c1]
+      # numdegs_all[rownames(numdegs), c2] <- numdegs[,c2]
+      # rownames(numdegs_all) <- NULL
+      # 
+      # 
+      # write.csv(numdegs_all, paste0(outdir_int, '/differentialexpression_crosscondition/',c1,'_vs_', c2, '_numDEGs_summary.csv'), quote = F, row.names = T)
+      # 
+      
+      
+    })
+  )
+  
+  
+  
+  
+  #if wilcoxon is used, reformat the dataframe to match edgeR, to ease the pathway analysis
+  
+  if( Pseudobulk_mode == F | DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT' ){
+    
+    
+    
+    #for each comparison, loop thru each cluster, and reformat the table
+    
+    ##  REFORMAT FOR SINGLE CELL WILCOX TEST OUTPUT
+    if(Pseudobulk_mode == F){
+      
+      
+      
+      m_bycluster_crosscondition_de_comps <- lapply(m_bycluster_crosscondition_de_comps, function(m_bycluster_crosscondition_de){
+        
+        
+        m_bycluster_crosscondition_de <- lapply(m_bycluster_crosscondition_de, function(res){
+          
+          #reformat all
+          res <- res[,c("gene_symbol", "avg_log2FC","p_val", "p_val_adj", "pct.1", "pct.2", "pct.diff", "weight" )]
+          
+          #rename to match edgeR
+          colnames(res) <- c("gene_symbol", "logFC","PValue", "qvalue_bonferroni", "pct.1", "pct.2","pct.diff", "weight"  )
+          
+          res$FDR <- p.adjust(res$PValue, method = 'fdr')
+          
+          res
+          
+        })
+        
+      })
+      
+    }
+    
+    
+    
+    ##  REFORMAT FOR PSEUDOBULK DESEQ2 / DESEQ2-LRT CELL WILCOX TEST OUTPUT
+    if( Pseudobulk_mode == T & (DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT') ){
+      
+      
+      m_bycluster_crosscondition_de_comps <- lapply(m_bycluster_crosscondition_de_comps, function(m_bycluster_crosscondition_de){
+        
+        
+        m_bycluster_crosscondition_de <- lapply(m_bycluster_crosscondition_de, function(res){
+          
+          #select columns
+          # we need to select the columns with raw and norm counts
+          counts_colnames <- colnames(res)[(grep(pattern = 'weight', x = colnames(res)) + 1):ncol(res)]
+          
+          #subset cols
+          # res <- res[,c("gene_symbol", "avg_log2FC","p_val", "p_val_adj", "pct.1", "pct.2", "pct.diff", "weight" , counts_colnames)]
+          res <- res[,c("gene_symbol", "log2FoldChange","pvalue", "padj", "pct.1", "pct.2", "pct.diff", "weight" , counts_colnames)]
+          
+          #rename to match edgeR
+          colnames(res) <- c("gene_symbol", "logFC","PValue", "qvalue_bonferroni", "pct.1", "pct.2","pct.diff", "weight" , counts_colnames  )
+          
+          res$FDR <- p.adjust(res$PValue, method = 'fdr')
+          
+          res
+          
+        })
+        
+      })
+      
+    }
+    
+    
+  }
+  
+  
+  
+  
+  
+  ## write a table with num DEGs
+  compslen <- 1:nrow(comps)
+  invisible(
+    lapply(compslen, function(compidx){
+      
+      
+      #get comparison condition levels
+      c1 <- comps[compidx,1]
+      c2 <- comps[compidx,2]
+      
+      #get comp lab
+      lab <- comps[compidx,3]
+      
+      #get cross conditions res per cluster list
+      m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de_comps[[compidx]]
       
       
       ### write out num DEGs summary table ###
@@ -787,9 +1064,11 @@ de_across_conditions_module <- function(sobjint,
   )
   
   
-  #save RDS file of DE res list
-  deres_rds_file <- paste0(outdir_int, '/differentialexpression_crosscondition/m_bycluster_crosscondition_de_comps.rds')
-  saveRDS(m_bycluster_crosscondition_de_comps, deres_rds_file)
+  
+  
+  #save RDS file of DE res list -- > we save this later anyway, just wastes memory
+  # deres_rds_file <- paste0(outdir_int, '/differentialexpression_crosscondition/m_bycluster_crosscondition_de_comps.rds')
+  # saveRDS(m_bycluster_crosscondition_de_comps, deres_rds_file)
   
   
   return(m_bycluster_crosscondition_de_comps)

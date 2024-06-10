@@ -3,6 +3,15 @@
 For all changes, please update changelog and use Year-Month-Day
 
 
+## 1.2.0
+
+2024.06.XX
+- add support for DESeq2, DESeq2-LRT and non-LRT EdgeR test in pseudobulk DE comparisons
+- add support for all test.use options from Seurat::FindMarkers as possible DE tests in non-pseudobulk DE comparisons
+- remove saving of unnecessary .rds file with list of DE tables in DE module, because it is already saved later on in pathway analysis module
+
+
+
 ## 1.1.0
 
 2024.04.07
