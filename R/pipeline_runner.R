@@ -299,6 +299,32 @@ scRNAseq_pipeline_runner <- function(  datadir,
   message('Will run rmd file at:\n',
           rmdfile,
           '\n\n')
+  
+  
+  
+  #### write some exceptions 
+  
+  #DE tests must be in a set of tests
+  if(Pseudobulk_mode == T){
+    
+    if(!DE_test %in% c('EdgeR', 'EdgeR-LRT', 'DESeq2', 'DESeq2-LRT')){
+      stop("With 'Pseudobulk_mode' set to T, DE_test must be one of: 'EdgeR', 'EdgeR-LRT', 'DESeq2', 'DESeq2-LRT'; value ", DE_test, " was passed")
+    }
+    
+  }
+  
+  #DE tests must be in a set of tests
+  if(Pseudobulk_mode == F){
+    
+    if(!DE_test %in% c('wilcox' , 'wilcox_limma', 'bimod', 't', 'negbinom', 'poisson', 'LR', 'MAST', 'DESeq2' )){
+      stop("With 'Pseudobulk_mode' set to F, DE_test must be one of: 'wilcox' , 'wilcox_limma', 'bimod', 't', 'negbinom', 'poisson', 'LR', 'MAST', 'DESeq2'; value ", DE_test, " was passed")
+    }
+    
+  }
+  
+  
+  
+  ####
 
 
   rmarkdown::render(rmdfile,
