@@ -33,6 +33,7 @@ params:
   res_int: 0.5
   RISC_louvain_neighbors: 10
   Pseudobulk_mode: NULL
+  DE_test: NULL
   crossconditionDE_padj_thres: NULL
   crossconditionDE_lfc_thres: NULL
   pathway_padj_thres: 0.1
@@ -305,6 +306,9 @@ res_int <- params$res_int
 RISC_louvain_neighbors <- params$RISC_louvain_neighbors
 
 
+# DE test
+DE_test <- params$DE_test
+
 #for these, defaults will be null, then set to lenient if pseudobulk and strict if wilcox
 
 crossconditionDE_padj_thres <- params$crossconditionDE_padj_thres
@@ -456,6 +460,7 @@ pl <- list(datadir = datadir,
            RISC_louvain_neighbors = RISC_louvain_neighbors,
            
            Pseudobulk_mode = Pseudobulk_mode,
+           DE_test = DE_test,
            crossconditionDE_padj_thres = crossconditionDE_padj_thres,
            crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
            pathway_padj_thres = pathway_padj_thres,

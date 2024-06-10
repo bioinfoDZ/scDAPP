@@ -91,7 +91,7 @@ scRNAseq_pipeline_runner(
 
 \item{RISC_louvain_neighbors}{integer, default = 10; number of nearest neighbors to consider during clustering; see \code{RISC::scCluster()} or \code{scDAPP::scCluster_louvain_res()} where implementation of this is unchanged}
 
-\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more.}
+\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
 
 \item{crossconditionDE_padj_thres}{numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if \code{Pseudobulk_mode} is set to T default is 0.1; if \code{Pseudobulk_mode} is F default is 0.05}
 
