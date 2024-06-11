@@ -12,8 +12,8 @@
 #' SpatialSingulomics::r_package_test()
 #' }
 r_package_test <- function(){
-
-
+  
+  
   packages <- c(
     #CRAN
     "tidyverse",  # general data wrangling
@@ -26,23 +26,23 @@ r_package_test <- function(){
     "ggfittext", # part of alluvial plot
     "ggrepel", # part of alluvial plot
     "hdf5r", # generally a hard oen to install, seurat dep
-
-
+    
+    
     #Bioconductor
     "edgeR",     # optional, for edgeR pseudobulk DE
     "glmGamPoi",  # for faster  SCT
     "fgsea",              #GSEA / pathway analysis
     "ComplexHeatmap", # for heatmaps
-
+    
     #Github
     "DoubletFinder",
     "RISC",
     "scDAPP"
-
+    
   )
-
+  
   packages <- data.frame(pkg = packages)
-
+  
   packages$vers <- sapply(packages$pkg, function(pkg){
     tryCatch({as.character(packageVersion(pkg))},
              error=function(cond) {
@@ -51,9 +51,9 @@ r_package_test <- function(){
                return(NA)
              })
   }, simplify = T)
-
-
-
+  
+  
+  
   library(tidyverse)
   library(patchwork)  # combine plots
   library(RISC)
@@ -73,7 +73,7 @@ r_package_test <- function(){
   library(ggalluvial) # part of alluvial plot
   library(ggfittext) # part of alluvial plot
   library(ggrepel) # part of alluvial plot
-
+  
   return(packages)
 }
 
@@ -196,9 +196,9 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        comps,
                                        
                                        Pseudobulk_mode,
-
+                                       
                                        risc_reference,
-
+                                       
                                        min_num_UMI,
                                        min_num_Feature,
                                        max_perc_mito,
@@ -209,13 +209,13 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        autofilter_medianabsolutedev_threshold,
                                        autofilter_loess_negative_residual_threshold,
                                        doubletFinder,
-
+                                       
                                        pcs_indi,
                                        res_indi,
                                        pcs_int,
                                        res_int,
                                        RISC_louvain_neighbors,
-
+                                       
                                        
                                        DE_test,
                                        crossconditionDE_padj_thres,
@@ -223,21 +223,21 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        pathway_padj_thres,
                                        species,
                                        workernum,
-
+                                       
                                        input_seurat_obj,
-
+                                       
                                        title,
                                        author,
                                        
                                        de.test.use,
                                        pseudobulk_metadata
-                                       ){
-
-
+){
+  
+  
   message('\n\nBegin pipeline\n\n')
-
-
-
+  
+  
+  
   ### note: make sure to all params to here and to the rmd params section
   if(!missing(pseudobulk_metadata) & missing(sample_metadata) ){sample_metadata <- pseudobulk_metadata}
   if(!missing(de.test.use) & missing(Pseudobulk_mode) ){Pseudobulk_mode <- ifelse(de.test.use == 'pseudobulk_edgeR', yes= T, no = F) }
@@ -249,14 +249,14 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(m_reference)){m_reference = NULL}
   # if(missing(SeuratLabelTransfer.normalization.method)){SeuratLabelTransfer.normalization.method = 'auto'}
   # SeuratLabelTransfer.normalization.method  string, either "auto", "SCT", or "LogNormalize". Default is "auto". This is passed to `Seurat::FindTransferAnchors()`. "SCT" is ideal; "auto" searches for "SCT" assay in reference and uses if detected. "LogNormalize" can be used if SCT is not possible, for example if raw counts are hard to get for a published dataset.
-
-
-
+  
+  
+  
   if(missing(sample_metadata)){ sample_metadata = NULL}
   if(missing(comps)){ comps = NULL}
-
+  
   if(missing(risc_reference)){ risc_reference =  NULL}
-
+  
   if(missing(min_num_UMI)){ min_num_UMI =  500}
   if(missing(min_num_Feature)){ min_num_Feature =  200}
   if(missing(max_perc_mito)){ max_perc_mito =  25}
@@ -267,15 +267,15 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(autofilter_medianabsolutedev_threshold)){ autofilter_medianabsolutedev_threshold =  3}
   if(missing(autofilter_loess_negative_residual_threshold)){ autofilter_loess_negative_residual_threshold =  -5}
   if(missing(doubletFinder)){ doubletFinder =  TRUE}
-
-
+  
+  
   if(missing(pcs_indi)){pcs_indi =  30}
   if(missing(res_indi)){res_indi = 0.5}
   if(missing(pcs_int)){ pcs_int = 30}
   if(missing(res_int)){ res_int = 0.5}
   if(missing(RISC_louvain_neighbors)){ RISC_louvain_neighbors = 10}
-
-
+  
+  
   if(missing(DE_test)){
     if(Pseudobulk_mode == T){DE_test = 'EdgeR-LRT'}
     if(Pseudobulk_mode == F){DE_test = 'wilcox'}
@@ -285,17 +285,17 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(pathway_padj_thres)){ pathway_padj_thres = 0.1}
   if(missing(species)){ species = 'Homo sapiens'}
   if(missing(workernum)){ workernum = 1}
-
+  
   if(missing(input_seurat_obj)){ input_seurat_obj = FALSE}
-
+  
   if(missing(title)){title = 'scDAPP Report'}
   if(missing(author)){author = 'Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues'}
-
-
-
+  
+  
+  
   #locate the pipeline file
   rmdfile <- system.file("rmd", "scRNAseq_clustering_integration.Rmd", package = "scDAPP")
-
+  
   message('Will run rmd file at:\n',
           rmdfile,
           '\n\n')
@@ -324,9 +324,23 @@ scRNAseq_pipeline_runner <- function(  datadir,
   
   
   
+  
+  # make sure DE packages are installed
+  if(DE_test == 'MAST'){
+    if(!('MAST' %in% rownames(installed.packages()))){
+      stop('Please install MAST first')
+    }
+  }
+  
+  if(DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT'){
+    if(!('DESeq2' %in% rownames(installed.packages()))){
+      stop('Please install DESeq2 first')
+    }
+  }
+  
   ####
-
-
+  
+  
   rmarkdown::render(rmdfile,
                     params=list(
                       datadir = datadir,
@@ -337,9 +351,9 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       
                       sample_metadata = sample_metadata,
                       comps = comps,
-
+                      
                       risc_reference = risc_reference,
-
+                      
                       min_num_UMI = min_num_UMI,
                       min_num_Feature = min_num_Feature,
                       max_perc_mito = max_perc_mito,
@@ -350,13 +364,13 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       autofilter_medianabsolutedev_threshold = autofilter_medianabsolutedev_threshold,
                       autofilter_loess_negative_residual_threshold = autofilter_loess_negative_residual_threshold,
                       doubletFinder = doubletFinder,
-
+                      
                       pcs_indi = pcs_indi,
                       res_indi = res_indi,
                       pcs_int = pcs_int,
                       res_int = res_int,
                       RISC_louvain_neighbors = RISC_louvain_neighbors,
-
+                      
                       Pseudobulk_mode = Pseudobulk_mode,
                       DE_test = DE_test,
                       crossconditionDE_padj_thres = crossconditionDE_padj_thres,
@@ -365,25 +379,25 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       species = species,
                       workernum = workernum,
                       input_seurat_obj = input_seurat_obj,
-
+                      
                       title = title,
                       author = author,
-
+                      
                       force_redo = FALSE #maybe in future...
                     ),
-
+                    
                     #this line ensures html prints to outdir folder
                     output_dir = outdir
-
+                    
   )
-
-
-
+  
+  
+  
   message('\n\nPipeline completed!\n\n')
-
+  
   return(warnings())
-
-
+  
+  
 }
 
 
