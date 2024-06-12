@@ -1114,6 +1114,8 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
     # make sure to save it. database can update over time
     pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition/')
     dir.create(pwayoutdir, recursive = T)
+    
+    
     if( !file.exists( paste0(pwayoutdir, '/msigdb_pathways.rds') ) ){
 
       message('Accessing MSIGDBR database')
@@ -1832,6 +1834,449 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
   
   
 }
+
+
+
+
+
+
+
+
+
+
+#' Overrepresentation analysis for cross condition pathway analysis
+#'
+#' This function is a modular component of the scRNAseq pipeline. Perform OverRepresentation Analysis (ORA) via the ClusterProfiler package on the results of differential expression (DE) analysis for cross-condition comparison. Multiple conditions are supported. ClusterProfiler objects and tables are saved.
+#'
+#' @param m_bycluster_crosscondition_de_comps the output of `scDAPP::de_across_conditions_module()`.
+#' @param pathways data.frame, the output of `scDAPP::preppathways_pathwayanalysis_crosscondition_module()`
+#' @param sample_metadata data.frame with sample names and conditions, same as in `scDAPP::de_across_conditions_module()`, see that function's documentation for description.
+#' @param comps data.frame with conditions to test in GSEA, same as in `scDAPP::de_across_conditions_module()`, see that function for description
+#' @param pathway_padj_thres numeric, threshold for significance of pathway enrichment after multiple test correction, passed to qvalueCutoff in `clusterProfiler::enricher`
+#' @param pwaycats UNTESTED CURRENTLY. character vector of msigdb pathways data.frame in gs_subcat to run.
+#' @param workernum integer. number of CPUs. default = 1.
+#' @param outdir_int string, directory to save pathways to. Will create a sub-directory called "pathwayanalysis_crosscondition_ORA" and save inside of there.
+#'
+#' @return a list that contains the raw results and plots as a nested loop: first level is A vs B comparison, then category-by-category of MSIGDB database, then a data.frame of cluster-by-cluster results
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#'
+#'
+#' # FIRST: run `scDAPP::de_across_conditions_module()`. the output object of that is used as the main input for this pathway analysis function.
+#'
+#' # SECOND: prep pathways before running
+#' pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(species = species,
+#' outdir_int = outdir_int)
+#'
+#' # THIRD: run the pathway analysis.
+#' # see `scDAPP::de_across_conditions_module()` for a description of the sample_metadata and comps files.
+#' pways_output_list <- scDAPP::ORA_crosscondition_module(
+#' m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+#' pathways = pathways,
+#' sample_metadata = sample_metadata,
+#' comps = comps,
+#' workernum = 6,
+#' outdir_int = outdir_int
+#' )
+#'
+#' # Access the output files
+#' # note that all results will be saved to outdir_int.
+#' pathway_analysis_mainlist_comps <- pways_output_list$pathway_analysis_mainlist_comps
+#' pathwaysummplots_comps <- pways_output_list$pathwaysummplots_comps
+#'
+#' #these are both lists that contain the raw tables and per-cluster plots (first object);
+#' # and summaryplots that show pathway enrichment across clusters (second object).
+#'
+#' }
+ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
+                                      pathways,
+                                      sample_metadata,
+                                      comps,
+                                      pathway_padj_thres,
+                                      pwaycats,
+                                      workernum,
+                                      outdir_int
+){
+  
+  
+  require(clusterProfiler)
+  require(foreach)
+  require(doParallel)
+  require(parallel)
+  
+  
+  
+  
+  
+  #### picking default categories
+  # for now hardcode these
+  if(missing(pwaycats)){
+    # pwaycats <- c("HALLMARK", "GO_BP", "GO_MF", "GO_CC", "CP_REACTOME", "CP_KEGG", "TFT_GTRD", "TFT_TFT_Legacy")
+    pwaycats <- c("HALLMARK", "GO_BP", "GO_MF", "GO_CC", "CP_REACTOME", "CP_KEGG", "TFT_GTRD", "TFT_TFT_Legacy")
+  }
+  
+  if(missing(pathway_padj_thres)){
+    pathway_padj_thres <- 0.1
+  }
+  if(missing(workernum)){
+    workernum <- 1
+  }
+  
+  
+  ### pathway analysis for each condition comparison
+  
+  # for each condition comparison,
+  # for each cluster
+  # do pathway analysis and make plot
+  
+  
+  
+  
+  
+  #prep names
+  comps$labels <- paste0(comps$c1, '_vs_', comps$c2)
+  
+  compslen <- 1:nrow(comps)
+  compidx = 1 #for testing
+  
+  
+  
+  pathway_analysis_mainlist_comps <- lapply(compslen, function(compidx){
+    
+    
+    #get comparison condition levels
+    c1 <- comps[compidx,1]
+    c2 <- comps[compidx,2]
+    
+    #get comp lab
+    lab <- comps[compidx,3]
+    
+    message(lab)
+    
+    #get cross conditions res per cluster list
+    m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de_comps[[compidx]]
+    
+    
+    
+    pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition_ORA/',c1,'_vs_', c2, '/')
+    if( !dir.exists(pwayoutdir) ){ dir.create(pwayoutdir, recursive = T) }
+    
+    
+    ### loop thru pathway categories
+    names(pwaycats) <- pwaycats
+    
+    
+    #get clust / grouping names
+    clusters <- names(m_bycluster_crosscondition_de)
+    
+    
+    
+    
+    #set gene universe
+    pwaycat <- pwaycats[1] #for testing
+    
+    pathway_analysis_mainlist <- lapply(pwaycats, function(pwaycat){
+      
+      message('\n\n', pwaycat, '\n\n')
+      
+      
+      #get pways and genes in this category
+      term2gene <- pathways[pathways$gs_subcat == pwaycat,c('gs_name', 'gene_symbol')]
+      
+      
+      #get list of pathways upreg in each cluster
+      
+      cl <- parallel::makeCluster(workernum, rscript_args = c("--no-init-file", "--no-site-file", "--no-environ"))
+      doParallel::registerDoParallel(cl)
+      
+      
+      clust = clusters[1] #for test
+      
+      #pwayres_DE_across_conditions_per_cluster <- lapply(clusters, function(clust){
+      pwayres_DE_across_conditions_per_cluster <- foreach(clust = clusters,
+                                                          .packages = c('clusterProfiler'),
+                                                          .export = c( 'm_bycluster_crosscondition_de', 'pathway_padj_thres', 'crossconditionDE_padj_thres', 'crossconditionDE_lfc_thres', 'crossconditionDE_min.pct', 'c1', 'c2'),
+                                                          .noexport = c('pathways'),
+                                                          .verbose = T) %dopar%
+        {
+          
+          
+          
+          invisible(gc(full = T, reset = F, verbose = F))
+          
+          
+          #get DEG res
+          res <- m_bycluster_crosscondition_de[[clust]]
+          
+          
+          
+          ## split by lfc sign and run ##
+          sign_nums <- c(1, -1)
+          ts <- 1 #test
+          signres_l <- lapply(sign_nums, function(ts){
+            
+            #for this sign (ts), subset res and run clusterProfiler
+            subres <- res[sign(res$logFC) == ts,,drop=F]
+            
+            #subset by padj
+            subres <- subres[subres$FDR < crossconditionDE_padj_thres,,drop = F]
+            
+            #subset by lfc thres, can use abs val
+            subres <- subres[abs(subres$FDR) > crossconditionDE_lfc_thres,,drop = F]
+            
+            #subset by min.pct 1 for positive, min pct.2 for negative
+            crossconditionDE_min.pct <- 0
+            if(ts == 1){
+              subres <- subres[subres$pct.1 > crossconditionDE_min.pct,,drop = F] 
+            } else{
+              subres <- subres[subres$pct.2 > crossconditionDE_min.pct,,drop = F] 
+            }
+            
+            
+            
+            #important, select min num genes; let's say 7 genes min for good luck
+            if(nrow(subres) < 7){
+              return()
+            }
+            
+            
+            ## if not, we can proceed with clusterProfiler
+            genenames <- subres$gene_symbol
+            
+            
+            
+            
+            ## run cluster profiler; any error, let's just return a null, maybe dangerous
+            tryCatch(
+              
+              expr = {
+                
+                ora_res <- enricher(genenames,
+                                    TERM2GENE = term2gene,
+                                    qvalueCutoff = pathway_padj_thres,
+                                    pvalueCutoff = 1
+                                    
+                )
+                
+              },
+              
+              error = function(e){
+                
+                ora_res <- data.frame()
+                
+              }
+              
+            )
+            
+            
+            
+            #clusterProfiler has its own trycatch, which returns NULL... i guess we'll use ours though
+            if(length(ora_res) == 0){ora_res <- data.frame()}
+            
+            
+            #return null if none 
+            if(nrow(ora_res) == 0){return()}
+            
+            #don't use their useless class, just a less useful data.frame
+            ora_res <- as.data.frame(ora_res)
+            
+            
+            # add a direction column
+            ora_res$Direction <- ifelse(ts == 1, c1, c2)
+            
+            
+            
+            return(ora_res)
+            
+          })
+          
+          
+          
+          #remove empty res
+          signres_l <- signres_l[lengths(signres_l) > 0]
+          
+          if(length(signres_l) == 0){return()} # if there are just no pathways, return null
+          
+          signres <- dplyr::bind_rows(signres_l)
+          
+          
+          #return the result table and the plot
+          return(signres)
+          
+          
+          
+          
+        } #per-cluster loop for this pathway category loop end
+      
+      parallel::stopCluster(cl)
+      
+      
+      names(pwayres_DE_across_conditions_per_cluster) <- clusters
+      
+      
+      return(pwayres_DE_across_conditions_per_cluster)
+      
+    }) #per-pathway category loop end
+    
+    
+    
+    
+    ### remove all NULLS (clusters with no pathways)
+    
+    # remove null categories, ie entire category had no significant pathways
+    
+    #recursively set all missing to 0
+    pathway_analysis_mainlist = lapply(pathway_analysis_mainlist, function(pwayres_cats){
+      
+      pwayres_cats <- lapply(pwayres_cats, function(pwayres_clusts){
+        pwayres_clusts[lengths(pwayres_clusts) > 0]
+      })
+      
+      pwayres_cats[lengths(pwayres_cats) > 0]
+      
+      
+    })
+    
+    #remove any missing categories
+    pathway_analysis_mainlist <- pathway_analysis_mainlist[lengths(pathway_analysis_mainlist)>0]
+    
+    
+    invisible(gc(full = T, reset = F, verbose = F))
+    
+    
+    #save pway analysis for this comparison
+    
+    # loop over this new pwayruns, since some categories theoretically don't have any enriched though unlikely
+    pwayruns <- names(pathway_analysis_mainlist)
+    
+    
+    #for each category, get clster res in that cateogry,
+    # for each cluster, save the up/down csv and plots
+    invisible(
+      finalpwayouts <- lapply(pwayruns, function(pwaycat){
+        
+        
+        
+        # message(pwaycat)
+        
+        
+        subcatout <- paste0(pwayoutdir, '/', pwaycat, '/')
+        
+        # dir.create(subcatout) --> do this with recursive later, maybe prevent even making it if all don't work
+        
+        clustres <- pathway_analysis_mainlist[[pwaycat]]
+        
+        clusters <- names(clustres)
+        
+        
+        #for each cluster, get csv and save
+        numpways <- lapply(clusters, function(clust){
+          
+          
+          
+          
+          pwayres_DE_across_conditions_per_cluster <- clustres[[clust]]
+          
+          
+          
+          if(is.null(pwayres_DE_across_conditions_per_cluster)){return()}
+          
+          #this is the table
+          signres <- pwayres_DE_across_conditions_per_cluster
+          
+          #save csv
+          
+          subcatout_clustdir <- paste0(subcatout, '/', clust, '/')
+          
+          suppressWarnings(dir.create(subcatout_clustdir, recursive = T))
+          
+          
+          #csv file
+          subcatout_clustdir_gseares <- paste0(subcatout_clustdir, '/pathwaytable.csv')
+          
+          
+          write.csv(signres, subcatout_clustdir_gseares, quote = F, row.names = F)
+          
+          
+          
+          
+          nrow(signres)
+          
+          
+          
+          
+          
+          
+          
+        } ) # close clusters lapply
+        
+        
+      }) # close saving loop for all categories
+      
+    ) # close invisible wrap around lapply
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    ### close any open devices
+    while (!is.null(dev.list()))  dev.off()
+    
+    
+    
+    
+    return(pathway_analysis_mainlist)
+    
+    
+  }) # close cross condition lapply
+  
+  
+  names(pathway_analysis_mainlist_comps) <- comps$labels
+  
+  
+  
+  
+  #remove big objects
+  rm(pathways)
+  invisible(gc(full = T, reset = F, verbose = F))
+  
+  
+  
+  
+  pathway_analysis_mainlist_comps
+  
+  
+  ### for easily reproducing plots and etc, save them as R objects...
+  pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition_ORA/')
+  DE_pathways_plot_objects_list_file <- paste0(pwayoutdir, '/DE_ORA_list_object.rds')
+  
+  saveRDS(pathway_analysis_mainlist_comps, DE_pathways_plot_objects_list_file)
+  
+  
+  
+  return(pathway_analysis_mainlist_comps)
+  
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

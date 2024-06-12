@@ -39,6 +39,7 @@ params:
   pathway_padj_thres: 0.1
   species: 'Homo sapiens'
   workernum: 1
+  run_ORA: FALSE
   input_seurat_obj: FALSE
   title: scDAPP Report
   author: Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues
@@ -261,7 +262,7 @@ risc_reference <- params$risc_reference
 
 # code for risc_reference works best if its set to NULL rather than "auto" string
 if(!is.null(risc_reference)){
-if(risc_reference == 'auto'){ risc_reference <- NULL }
+  if(risc_reference == 'auto'){ risc_reference <- NULL }
 }
 
 
@@ -347,6 +348,9 @@ pathway_padj_thres <- params$pathway_padj_thres
 
 # pwaycats: NULL
 species <- params$species
+
+## use ORA
+run_ORA <- params$run_ORA
 
 
 
@@ -465,6 +469,7 @@ pl <- list(datadir = datadir,
            crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
            pathway_padj_thres = pathway_padj_thres,
            species = species,
+           run_ORA = run_ORA,
            
            workernum = workernum,
            input_seurat_obj = input_seurat_obj
@@ -6205,6 +6210,31 @@ DE_pathways_plot_objects_list_file <- paste0(pwayoutdir, '/DE_pathways_plot_obje
 
 saveRDS(DE_pathways_plot_objects_list, DE_pathways_plot_objects_list_file)
 
+
+
+```
+
+
+
+```{r pathwayanalysis_crosscondition_ORA, results='hide', message=FALSE, fig.show='hide', warning=FALSE }
+
+
+if(run_ORA == T){
+  
+  ORA_mainlist_comps <- ORA_crosscondition_module(m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+                                                  pathways = pathways,
+                                                  sample_metadata = sample_metadata,
+                                                  comps = comps,
+                                                  pathway_padj_thres = pathway_padj_thres,
+                                                  workernum = workernum,
+                                                  outdir_int = outdir_int
+  )
+  
+  
+  rm(ORA_mainlist_comps)
+  
+  
+}
 
 
 ```

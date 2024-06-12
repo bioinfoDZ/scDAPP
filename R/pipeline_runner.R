@@ -113,6 +113,7 @@ r_package_test <- function(){
 #' @param pathway_padj_thres numeric, threshold for significant DE pathways via GSEA test; default is 0.1
 #' @param species string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see `msigdbr::msigdbr_species()`
 #' @param workernum integer, number of CPU threads, default = 1
+#' @param run_ORA T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
 #' @param input_seurat_obj T/F. If true, will read in Seurat objects from `datadir` with names matching the sample column of `sample_metadata`. Ie, if datadir contains objects called "Sample1.rds", "Sample2.rds", and psuedobulk_metadata has "Sample1" in the Sample column, only Sample1.rds will be read in. Useful for data with some preprocessing or hashed data input.
 #' @param title string, title of HTML report. Default is "10X analysis - clustering and integration".
 #' @param author string, name of authors which will be shown on HTML report. We recommend passing a comma separated string. Default is "Alexander Ferrena, Deyou Zheng".
@@ -223,6 +224,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        pathway_padj_thres,
                                        species,
                                        workernum,
+                                       run_ORA,
                                        
                                        input_seurat_obj,
                                        
@@ -285,6 +287,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(pathway_padj_thres)){ pathway_padj_thres = 0.1}
   if(missing(species)){ species = 'Homo sapiens'}
   if(missing(workernum)){ workernum = 1}
+  if(mising(run_ORA)){ run_ORA = F }
   
   if(missing(input_seurat_obj)){ input_seurat_obj = FALSE}
   
@@ -328,13 +331,21 @@ scRNAseq_pipeline_runner <- function(  datadir,
   # make sure DE packages are installed
   if(DE_test == 'MAST'){
     if(!('MAST' %in% rownames(installed.packages()))){
-      stop('Please install MAST first')
+      stop('DE_test is set to "MAST". Please install MAST first.')
     }
   }
   
   if(DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT'){
     if(!('DESeq2' %in% rownames(installed.packages()))){
-      stop('Please install DESeq2 first')
+      stop('DE_test is set to "DESeq2". Please install DESeq2 first')
+    }
+  }
+  
+  
+  #if using run_ORA make sure clusterProfiler is installed
+  if(run_ORA == T){
+    if(!('clusterProfiler' %in% rownames(installed.packages()))){
+      stop('run_ORA is set to T. Please install clusterProfiler first')
     }
   }
   
@@ -378,6 +389,8 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       pathway_padj_thres = pathway_padj_thres,
                       species = species,
                       workernum = workernum,
+                      run_ORA = run_ORA,
+                      
                       input_seurat_obj = input_seurat_obj,
                       
                       title = title,
