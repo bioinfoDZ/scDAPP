@@ -9,6 +9,9 @@ ORA_crosscondition_module(
   pathways,
   sample_metadata,
   comps,
+  crossconditionDE_padj_thres,
+  crossconditionDE_lfc_thres,
+  crossconditionDE_min.pct,
   pathway_padj_thres,
   pwaycats,
   workernum,
@@ -23,6 +26,12 @@ ORA_crosscondition_module(
 \item{sample_metadata}{data.frame with sample names and conditions, same as in \code{scDAPP::de_across_conditions_module()}, see that function's documentation for description.}
 
 \item{comps}{data.frame with conditions to test in GSEA, same as in \code{scDAPP::de_across_conditions_module()}, see that function for description}
+
+\item{crossconditionDE_padj_thres}{numeric; adjusted P value maximum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.1}
+
+\item{crossconditionDE_lfc_thres}{numeric; Log Fold Change magnitude (absolute value) minimum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.}
+
+\item{crossconditionDE_min.pct}{numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Default is 0.1 if pseudobulk_edgeR is used; 0 if wilcox is used.}
 
 \item{pathway_padj_thres}{numeric, threshold for significance of pathway enrichment after multiple test correction, passed to qvalueCutoff in \code{clusterProfiler::enricher}}
 

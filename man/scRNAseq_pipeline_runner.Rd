@@ -35,6 +35,7 @@ scRNAseq_pipeline_runner(
   pathway_padj_thres,
   species,
   workernum,
+  run_ORA,
   input_seurat_obj,
   title,
   author,
@@ -102,6 +103,8 @@ scRNAseq_pipeline_runner(
 \item{species}{string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see \code{msigdbr::msigdbr_species()}}
 
 \item{workernum}{integer, number of CPU threads, default = 1}
+
+\item{run_ORA}{T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in \code{clusterProfiler::enricher()}. clusterProfiler must be installed for this. Will save table outputs.}
 
 \item{input_seurat_obj}{T/F. If true, will read in Seurat objects from \code{datadir} with names matching the sample column of \code{sample_metadata}. Ie, if datadir contains objects called "Sample1.rds", "Sample2.rds", and psuedobulk_metadata has "Sample1" in the Sample column, only Sample1.rds will be read in. Useful for data with some preprocessing or hashed data input.}
 

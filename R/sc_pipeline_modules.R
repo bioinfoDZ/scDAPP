@@ -1844,6 +1844,8 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
 
 
 
+
+
 #' Overrepresentation analysis for cross condition pathway analysis
 #'
 #' This function is a modular component of the scRNAseq pipeline. Perform OverRepresentation Analysis (ORA) via the ClusterProfiler package on the results of differential expression (DE) analysis for cross-condition comparison. Multiple conditions are supported. ClusterProfiler objects and tables are saved.
@@ -1852,6 +1854,9 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
 #' @param pathways data.frame, the output of `scDAPP::preppathways_pathwayanalysis_crosscondition_module()`
 #' @param sample_metadata data.frame with sample names and conditions, same as in `scDAPP::de_across_conditions_module()`, see that function's documentation for description.
 #' @param comps data.frame with conditions to test in GSEA, same as in `scDAPP::de_across_conditions_module()`, see that function for description
+#' @param crossconditionDE_padj_thres numeric; adjusted P value maximum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.1
+#' @param crossconditionDE_lfc_thres numeric; Log Fold Change magnitude (absolute value) minimum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.
+#' @param crossconditionDE_min.pct numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Default is 0.1 if pseudobulk_edgeR is used; 0 if wilcox is used.
 #' @param pathway_padj_thres numeric, threshold for significance of pathway enrichment after multiple test correction, passed to qvalueCutoff in `clusterProfiler::enricher`
 #' @param pwaycats UNTESTED CURRENTLY. character vector of msigdb pathways data.frame in gs_subcat to run.
 #' @param workernum integer. number of CPUs. default = 1.
@@ -1894,6 +1899,10 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
                                       pathways,
                                       sample_metadata,
                                       comps,
+                                      # DE thresholds must be passed here!!
+                                      crossconditionDE_padj_thres,
+                                      crossconditionDE_lfc_thres,
+                                      crossconditionDE_min.pct,
                                       pathway_padj_thres,
                                       pwaycats,
                                       workernum,

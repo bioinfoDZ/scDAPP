@@ -6221,11 +6221,17 @@ saveRDS(DE_pathways_plot_objects_list, DE_pathways_plot_objects_list_file)
 
 if(run_ORA == T){
   
+  
+  crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
+  
   ORA_mainlist_comps <- ORA_crosscondition_module(m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
                                                   pathways = pathways,
                                                   sample_metadata = sample_metadata,
                                                   comps = comps,
                                                   pathway_padj_thres = pathway_padj_thres,
+                                                  crossconditionDE_padj_thres = crossconditionDE_padj_thres,
+                                                  crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
+                                                  crossconditionDE_min.pct = crossconditionDE_min.pct,
                                                   workernum = workernum,
                                                   outdir_int = outdir_int
   )
