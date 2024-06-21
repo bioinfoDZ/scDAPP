@@ -287,7 +287,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(pathway_padj_thres)){ pathway_padj_thres = 0.1}
   if(missing(species)){ species = 'Homo sapiens'}
   if(missing(workernum)){ workernum = 1}
-  if(mising(run_ORA)){ run_ORA = F }
+  if(missing(run_ORA)){ run_ORA = F }
   
   if(missing(input_seurat_obj)){ input_seurat_obj = FALSE}
   
