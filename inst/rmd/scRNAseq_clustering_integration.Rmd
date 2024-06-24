@@ -159,6 +159,9 @@ set.seed(2022)
 #   pcs_int = 30,
 #   res_int = 1,
 #   RISC_louvain_neighbors=10,
+#   
+#   run_ORA = T,
+#   DE_test = 'EdgeR-LRT',
 # 
 #   risc_reference = NULL,
 #   crossconditionDE_padj_thres = NULL,
@@ -314,7 +317,7 @@ DE_test <- params$DE_test
 
 crossconditionDE_padj_thres <- params$crossconditionDE_padj_thres
 crossconditionDE_lfc_thres <- params$crossconditionDE_lfc_thres
-crossconditionDE_min.pct <- NULL
+crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
 
 if(Pseudobulk_mode == T){
   
@@ -326,11 +329,10 @@ if(Pseudobulk_mode == T){
     crossconditionDE_lfc_thres <- 0
   }
   
-  # crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
-  
-  if(is.null(crossconditionDE_lfc_thres)){
-    crossconditionDE_min.pct <- 0.1
-  }
+
+  # if(is.null(crossconditionDE_lfc_thres)){
+  #   crossconditionDE_min.pct <- 0.1
+  # }
   
   
 }
@@ -345,11 +347,10 @@ if(Pseudobulk_mode == F){
     crossconditionDE_lfc_thres <- 0.25
   }
   
-  # crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
-  
-  if(is.null(crossconditionDE_lfc_thres)){
-    crossconditionDE_min.pct <- 0
-  }
+
+  # if(is.null(crossconditionDE_lfc_thres)){
+  #   crossconditionDE_min.pct <- 0
+  # }
   
   
 }
@@ -5443,7 +5444,6 @@ if(Pseudobulk_mode == T){
 
 
 ``` {r de_prepplots, results='hide', message=FALSE, fig.show='hide', warning=FALSE}
-
 
 
 
