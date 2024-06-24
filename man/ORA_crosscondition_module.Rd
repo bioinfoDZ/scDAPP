@@ -27,19 +27,13 @@ ORA_crosscondition_module(
 
 \item{comps}{data.frame with conditions to test in GSEA, same as in \code{scDAPP::de_across_conditions_module()}, see that function for description}
 
-\item{crossconditionDE_padj_thres}{numeric; adjusted P value maximum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.1}
-
-\item{crossconditionDE_lfc_thres}{numeric; Log Fold Change magnitude (absolute value) minimum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.}
-
-\item{crossconditionDE_min.pct}{numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Default is 0.1 if pseudobulk_edgeR is used; 0 if wilcox is used.}
-
 \item{pathway_padj_thres}{numeric, threshold for significance of pathway enrichment after multiple test correction, passed to qvalueCutoff in \code{clusterProfiler::enricher}}
 
 \item{pwaycats}{UNTESTED CURRENTLY. character vector of msigdb pathways data.frame in gs_subcat to run.}
 
 \item{workernum}{integer. number of CPUs. default = 1.}
 
-\item{outdir_int}{string, directory to save pathways to. Will create a sub-directory called "pathwayanalysis_crosscondition_ORA" and save inside of there.}
+\item{outdir_int}{string, directory to save pathways to. Will create a sub-directory called "overrepresentation_pathway_analysis" and save inside of there.}
 }
 \value{
 a list that contains the raw results and plots as a nested loop: first level is A vs B comparison, then category-by-category of MSIGDB database, then a data.frame of cluster-by-cluster results

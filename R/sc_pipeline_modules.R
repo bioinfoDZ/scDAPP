@@ -1124,7 +1124,7 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
       #replace : with _ in actual pathway names:
       pathways$gs_subcat <- gsub(':', '_', pathways$gs_subcat)
 
-      saveRDS(pathways, paste0(pwayoutdir, '/msigdb_pathways.rds') )
+      # saveRDS(pathways, paste0(pwayoutdir, '/msigdb_pathways.rds') )
 
     } else{
       message('Reading cached msigdbr pathways')
@@ -1175,6 +1175,10 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
 
   #purge mem
   invisible(gc(full = T, reset = F, verbose = F))
+  
+  #save it
+  
+  saveRDS(pathways, paste0(pwayoutdir, '/msigdb_pathways.rds') )
 
 
   return(pathways)
@@ -1854,13 +1858,10 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
 #' @param pathways data.frame, the output of `scDAPP::preppathways_pathwayanalysis_crosscondition_module()`
 #' @param sample_metadata data.frame with sample names and conditions, same as in `scDAPP::de_across_conditions_module()`, see that function's documentation for description.
 #' @param comps data.frame with conditions to test in GSEA, same as in `scDAPP::de_across_conditions_module()`, see that function for description
-#' @param crossconditionDE_padj_thres numeric; adjusted P value maximum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.1
-#' @param crossconditionDE_lfc_thres numeric; Log Fold Change magnitude (absolute value) minimum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.
-#' @param crossconditionDE_min.pct numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Default is 0.1 if pseudobulk_edgeR is used; 0 if wilcox is used.
 #' @param pathway_padj_thres numeric, threshold for significance of pathway enrichment after multiple test correction, passed to qvalueCutoff in `clusterProfiler::enricher`
 #' @param pwaycats UNTESTED CURRENTLY. character vector of msigdb pathways data.frame in gs_subcat to run.
 #' @param workernum integer. number of CPUs. default = 1.
-#' @param outdir_int string, directory to save pathways to. Will create a sub-directory called "pathwayanalysis_crosscondition_ORA" and save inside of there.
+#' @param outdir_int string, directory to save pathways to. Will create a sub-directory called "overrepresentation_pathway_analysis" and save inside of there.
 #'
 #' @return a list that contains the raw results and plots as a nested loop: first level is A vs B comparison, then category-by-category of MSIGDB database, then a data.frame of cluster-by-cluster results
 #' @export
@@ -1899,7 +1900,6 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
                                       pathways,
                                       sample_metadata,
                                       comps,
-                                      # DE thresholds must be passed here!!
                                       crossconditionDE_padj_thres,
                                       crossconditionDE_lfc_thres,
                                       crossconditionDE_min.pct,
@@ -1969,7 +1969,7 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
     
     
     
-    pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition_ORA/',c1,'_vs_', c2, '/')
+    pwayoutdir <- paste0(outdir_int, '/overrepresentation_pathway_analysis/',c1,'_vs_', c2, '/')
     if( !dir.exists(pwayoutdir) ){ dir.create(pwayoutdir, recursive = T) }
     
     
@@ -2033,7 +2033,7 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
             subres <- subres[subres$FDR < crossconditionDE_padj_thres,,drop = F]
             
             #subset by lfc thres, can use abs val
-            subres <- subres[abs(subres$FDR) > crossconditionDE_lfc_thres,,drop = F]
+            subres <- subres[abs(subres$logFC) > crossconditionDE_lfc_thres,,drop = F]
             
             #subset by min.pct 1 for positive, min pct.2 for negative
             crossconditionDE_min.pct <- 0
@@ -2197,13 +2197,14 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
           
           #save csv
           
-          subcatout_clustdir <- paste0(subcatout, '/', clust, '/')
-          
-          suppressWarnings(dir.create(subcatout_clustdir, recursive = T))
+          # prep subfolder
+          suppressWarnings(dir.create(subcatout, recursive = T))
           
           
           #csv file
-          subcatout_clustdir_gseares <- paste0(subcatout_clustdir, '/pathwaytable.csv')
+          subcatout_clustdir_gseares <- paste0(subcatout, '/significantpathways_', clust, '.csv')
+          
+          
           
           
           write.csv(signres, subcatout_clustdir_gseares, quote = F, row.names = F)
@@ -2263,7 +2264,7 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
   
   
   ### for easily reproducing plots and etc, save them as R objects...
-  pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition_ORA/')
+  pwayoutdir <- paste0(outdir_int, '/overrepresentation_pathway_analysis/')
   DE_pathways_plot_objects_list_file <- paste0(pwayoutdir, '/DE_ORA_list_object.rds')
   
   saveRDS(pathway_analysis_mainlist_comps, DE_pathways_plot_objects_list_file)
