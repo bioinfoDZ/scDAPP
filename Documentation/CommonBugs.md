@@ -114,6 +114,8 @@ brew install geos gdal
 
 https://stackoverflow.com/questions/50997636/problems-installing-rgeos-and-rgdal-on-mac-os-x-high-sierra
 
+<br />
+<br />
 
 
 ## 7 "‘==’ only defined for equally-sized data frames"
