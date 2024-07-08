@@ -10,6 +10,7 @@ de_across_conditions_module(
   comps,
   grouping_variable,
   Pseudobulk_mode,
+  DE_test,
   outdir_int,
   assay,
   slot,
@@ -29,6 +30,8 @@ de_across_conditions_module(
 \item{grouping_variable}{string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters". It is not mandatory, but will use factor level ordering of this variable in the meta.data to control analysis order, and if not will sort by alphanumeric order (cluster 1, then 2, cluster A, then B, etc)}
 
 \item{Pseudobulk_mode}{T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the \code{prop.test()} function for compositional analysis.}
+
+\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
 
 \item{outdir_int}{string, path to save results to, if not provided will not save. Will create a sub-directory called "differentialexpression_crosscondition" and save inside of there.}
 

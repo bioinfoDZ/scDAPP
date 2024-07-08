@@ -33,11 +33,13 @@ params:
   res_int: 0.5
   RISC_louvain_neighbors: 10
   Pseudobulk_mode: NULL
+  DE_test: NULL
   crossconditionDE_padj_thres: NULL
   crossconditionDE_lfc_thres: NULL
   pathway_padj_thres: 0.1
   species: 'Homo sapiens'
   workernum: 1
+  run_ORA: FALSE
   input_seurat_obj: FALSE
   title: scDAPP Report
   author: Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues
@@ -157,6 +159,9 @@ set.seed(2022)
 #   pcs_int = 30,
 #   res_int = 1,
 #   RISC_louvain_neighbors=10,
+#   
+#   run_ORA = T,
+#   DE_test = 'EdgeR-LRT',
 # 
 #   risc_reference = NULL,
 #   crossconditionDE_padj_thres = NULL,
@@ -167,9 +172,6 @@ set.seed(2022)
 #   input_seurat_obj = T,
 #   force_redo = F
 # )
-
-
-
 
 
 
@@ -260,7 +262,7 @@ risc_reference <- params$risc_reference
 
 # code for risc_reference works best if its set to NULL rather than "auto" string
 if(!is.null(risc_reference)){
-if(risc_reference == 'auto'){ risc_reference <- NULL }
+  if(risc_reference == 'auto'){ risc_reference <- NULL }
 }
 
 
@@ -305,11 +307,14 @@ res_int <- params$res_int
 RISC_louvain_neighbors <- params$RISC_louvain_neighbors
 
 
+# DE test
+DE_test <- params$DE_test
+
 #for these, defaults will be null, then set to lenient if pseudobulk and strict if wilcox
 
 crossconditionDE_padj_thres <- params$crossconditionDE_padj_thres
 crossconditionDE_lfc_thres <- params$crossconditionDE_lfc_thres
-
+crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
 
 if(Pseudobulk_mode == T){
   
@@ -320,6 +325,11 @@ if(Pseudobulk_mode == T){
   if(is.null(crossconditionDE_lfc_thres)){
     crossconditionDE_lfc_thres <- 0
   }
+  
+
+  # if(is.null(crossconditionDE_lfc_thres)){
+  #   crossconditionDE_min.pct <- 0.1
+  # }
   
   
 }
@@ -334,6 +344,11 @@ if(Pseudobulk_mode == F){
     crossconditionDE_lfc_thres <- 0.25
   }
   
+
+  # if(is.null(crossconditionDE_lfc_thres)){
+  #   crossconditionDE_min.pct <- 0
+  # }
+  
   
 }
 
@@ -343,6 +358,9 @@ pathway_padj_thres <- params$pathway_padj_thres
 
 # pwaycats: NULL
 species <- params$species
+
+## use ORA
+run_ORA <- params$run_ORA
 
 
 
@@ -456,10 +474,12 @@ pl <- list(datadir = datadir,
            RISC_louvain_neighbors = RISC_louvain_neighbors,
            
            Pseudobulk_mode = Pseudobulk_mode,
+           DE_test = DE_test,
            crossconditionDE_padj_thres = crossconditionDE_padj_thres,
            crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
            pathway_padj_thres = pathway_padj_thres,
            species = species,
+           run_ORA = run_ORA,
            
            workernum = workernum,
            input_seurat_obj = input_seurat_obj
@@ -5387,10 +5407,11 @@ if(Pseudobulk_mode == T){
     outdir_int=outdir_int,
     assay = 'RNA', slot = 'counts',
     Pseudobulk_mode = T,
+    DE_test = DE_test,
     cluster_prefix = T,
     crossconditionDE_padj_thres = crossconditionDE_padj_thres,
     crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
-    crossconditionDE_min.pct = 0.1
+    crossconditionDE_min.pct = crossconditionDE_min.pct
   )
   
 } else{
@@ -5403,10 +5424,11 @@ if(Pseudobulk_mode == T){
     outdir_int=outdir_int,
     assay = 'RISC', slot = 'data',
     Pseudobulk_mode = F,
+    DE_test = DE_test,
     cluster_prefix = T,
     crossconditionDE_padj_thres = crossconditionDE_padj_thres,
     crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
-    crossconditionDE_min.pct = 0
+    crossconditionDE_min.pct = crossconditionDE_min.pct
   )
   
 }
@@ -5419,7 +5441,6 @@ if(Pseudobulk_mode == T){
 
 
 ``` {r de_prepplots, results='hide', message=FALSE, fig.show='hide', warning=FALSE}
-
 
 
 
@@ -5449,7 +5470,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
   
   
   #get num DEGs
-  crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
+  # crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
   numdegs <- sapply(m_bycluster_crosscondition_de, function(m){
     
     #normal fdr and padj thresholds
@@ -5503,7 +5524,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
     m <- m[m$FDR < crossconditionDE_padj_thres,, drop=F]
     m <- m[abs(m$logFC) > crossconditionDE_lfc_thres,, drop=F]
     
-    crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
+    # crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
     
     upm <- m[m$logFC > 0,,drop=F]
     upm <- upm[upm$pct.1 > crossconditionDE_min.pct,, drop=F]
@@ -6198,6 +6219,37 @@ DE_pathways_plot_objects_list_file <- paste0(pwayoutdir, '/DE_pathways_plot_obje
 
 saveRDS(DE_pathways_plot_objects_list, DE_pathways_plot_objects_list_file)
 
+
+
+```
+
+
+
+```{r pathwayanalysis_crosscondition_ORA, results='hide', message=FALSE, fig.show='hide', warning=FALSE }
+
+
+if(run_ORA == T){
+  
+  
+  # crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
+  
+  ORA_mainlist_comps <- ORA_crosscondition_module(m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+                                                  pathways = pathways,
+                                                  sample_metadata = sample_metadata,
+                                                  comps = comps,
+                                                  pathway_padj_thres = pathway_padj_thres,
+                                                  crossconditionDE_padj_thres = crossconditionDE_padj_thres,
+                                                  crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
+                                                  crossconditionDE_min.pct = crossconditionDE_min.pct,
+                                                  workernum = workernum,
+                                                  outdir_int = outdir_int
+  )
+  
+  
+  rm(ORA_mainlist_comps)
+  
+  
+}
 
 
 ```

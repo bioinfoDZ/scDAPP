@@ -12,8 +12,8 @@
 #' SpatialSingulomics::r_package_test()
 #' }
 r_package_test <- function(){
-
-
+  
+  
   packages <- c(
     #CRAN
     "tidyverse",  # general data wrangling
@@ -26,23 +26,23 @@ r_package_test <- function(){
     "ggfittext", # part of alluvial plot
     "ggrepel", # part of alluvial plot
     "hdf5r", # generally a hard oen to install, seurat dep
-
-
+    
+    
     #Bioconductor
     "edgeR",     # optional, for edgeR pseudobulk DE
     "glmGamPoi",  # for faster  SCT
     "fgsea",              #GSEA / pathway analysis
     "ComplexHeatmap", # for heatmaps
-
+    
     #Github
     "DoubletFinder",
     "RISC",
     "scDAPP"
-
+    
   )
-
+  
   packages <- data.frame(pkg = packages)
-
+  
   packages$vers <- sapply(packages$pkg, function(pkg){
     tryCatch({as.character(packageVersion(pkg))},
              error=function(cond) {
@@ -51,9 +51,9 @@ r_package_test <- function(){
                return(NA)
              })
   }, simplify = T)
-
-
-
+  
+  
+  
   library(tidyverse)
   library(patchwork)  # combine plots
   library(RISC)
@@ -73,7 +73,7 @@ r_package_test <- function(){
   library(ggalluvial) # part of alluvial plot
   library(ggfittext) # part of alluvial plot
   library(ggrepel) # part of alluvial plot
-
+  
   return(packages)
 }
 
@@ -107,11 +107,13 @@ r_package_test <- function(){
 #' @param res_int numeric, default = 0.5 ; Louvain resolution for louvain clustring of RISC integrated dataset; see `scDAPP::scCluster_louvain_res()`
 #' @param RISC_louvain_neighbors integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()` or `scDAPP::scCluster_louvain_res()` where implementation of this is unchanged
 #' @param Pseudobulk_mode T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the `prop.test()` function for compositional analysis.
+#' @param DE_test a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
 #' @param crossconditionDE_padj_thres numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if `Pseudobulk_mode` is set to T default is 0.1; if `Pseudobulk_mode` is F default is 0.05
 #' @param crossconditionDE_lfc_thres numeric, absolute value of LFC threshold for significant DE genes in cross condition DE; if `Pseudobulk_mode` is set to F default is 0 (no minimum lFC); if `Pseudobulk_mode` is F default is 0.25
 #' @param pathway_padj_thres numeric, threshold for significant DE pathways via GSEA test; default is 0.1
 #' @param species string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see `msigdbr::msigdbr_species()`
 #' @param workernum integer, number of CPU threads, default = 1
+#' @param run_ORA T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
 #' @param input_seurat_obj T/F. If true, will read in Seurat objects from `datadir` with names matching the sample column of `sample_metadata`. Ie, if datadir contains objects called "Sample1.rds", "Sample2.rds", and psuedobulk_metadata has "Sample1" in the Sample column, only Sample1.rds will be read in. Useful for data with some preprocessing or hashed data input.
 #' @param title string, title of HTML report. Default is "10X analysis - clustering and integration".
 #' @param author string, name of authors which will be shown on HTML report. We recommend passing a comma separated string. Default is "Alexander Ferrena, Deyou Zheng".
@@ -195,9 +197,9 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        comps,
                                        
                                        Pseudobulk_mode,
-
+                                       
                                        risc_reference,
-
+                                       
                                        min_num_UMI,
                                        min_num_Feature,
                                        max_perc_mito,
@@ -208,33 +210,36 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        autofilter_medianabsolutedev_threshold,
                                        autofilter_loess_negative_residual_threshold,
                                        doubletFinder,
-
+                                       
                                        pcs_indi,
                                        res_indi,
                                        pcs_int,
                                        res_int,
                                        RISC_louvain_neighbors,
-
                                        
+                                       
+                                       DE_test,
                                        crossconditionDE_padj_thres,
                                        crossconditionDE_lfc_thres,
                                        pathway_padj_thres,
                                        species,
                                        workernum,
-
+                                       run_ORA,
+                                       
                                        input_seurat_obj,
-
+                                       
                                        title,
                                        author,
+                                       
                                        de.test.use,
                                        pseudobulk_metadata
-                                       ){
-
-
+){
+  
+  
   message('\n\nBegin pipeline\n\n')
-
-
-
+  
+  
+  
   ### note: make sure to all params to here and to the rmd params section
   if(!missing(pseudobulk_metadata) & missing(sample_metadata) ){sample_metadata <- pseudobulk_metadata}
   if(!missing(de.test.use) & missing(Pseudobulk_mode) ){Pseudobulk_mode <- ifelse(de.test.use == 'pseudobulk_edgeR', yes= T, no = F) }
@@ -246,14 +251,14 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(m_reference)){m_reference = NULL}
   # if(missing(SeuratLabelTransfer.normalization.method)){SeuratLabelTransfer.normalization.method = 'auto'}
   # SeuratLabelTransfer.normalization.method  string, either "auto", "SCT", or "LogNormalize". Default is "auto". This is passed to `Seurat::FindTransferAnchors()`. "SCT" is ideal; "auto" searches for "SCT" assay in reference and uses if detected. "LogNormalize" can be used if SCT is not possible, for example if raw counts are hard to get for a published dataset.
-
-
-
+  
+  
+  
   if(missing(sample_metadata)){ sample_metadata = NULL}
   if(missing(comps)){ comps = NULL}
-
+  
   if(missing(risc_reference)){ risc_reference =  NULL}
-
+  
   if(missing(min_num_UMI)){ min_num_UMI =  500}
   if(missing(min_num_Feature)){ min_num_Feature =  200}
   if(missing(max_perc_mito)){ max_perc_mito =  25}
@@ -264,37 +269,89 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(autofilter_medianabsolutedev_threshold)){ autofilter_medianabsolutedev_threshold =  3}
   if(missing(autofilter_loess_negative_residual_threshold)){ autofilter_loess_negative_residual_threshold =  -5}
   if(missing(doubletFinder)){ doubletFinder =  TRUE}
-
-
+  
+  
   if(missing(pcs_indi)){pcs_indi =  30}
   if(missing(res_indi)){res_indi = 0.5}
   if(missing(pcs_int)){ pcs_int = 30}
   if(missing(res_int)){ res_int = 0.5}
   if(missing(RISC_louvain_neighbors)){ RISC_louvain_neighbors = 10}
-
-
-
+  
+  
+  if(missing(DE_test)){
+    if(Pseudobulk_mode == T){DE_test = 'EdgeR-LRT'}
+    if(Pseudobulk_mode == F){DE_test = 'wilcox'}
+  }
   if(missing(crossconditionDE_padj_thres)){ crossconditionDE_padj_thres = NULL}
   if(missing(crossconditionDE_lfc_thres)){ crossconditionDE_lfc_thres = NULL}
   if(missing(pathway_padj_thres)){ pathway_padj_thres = 0.1}
   if(missing(species)){ species = 'Homo sapiens'}
   if(missing(workernum)){ workernum = 1}
-
+  if(missing(run_ORA)){ run_ORA = F }
+  
   if(missing(input_seurat_obj)){ input_seurat_obj = FALSE}
-
+  
   if(missing(title)){title = 'scDAPP Report'}
   if(missing(author)){author = 'Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues'}
-
-
-
+  
+  
+  
   #locate the pipeline file
   rmdfile <- system.file("rmd", "scRNAseq_clustering_integration.Rmd", package = "scDAPP")
-
+  
   message('Will run rmd file at:\n',
           rmdfile,
           '\n\n')
-
-
+  
+  
+  
+  #### write some exceptions 
+  
+  #DE tests must be in a set of tests
+  if(Pseudobulk_mode == T){
+    
+    if(!DE_test %in% c('EdgeR', 'EdgeR-LRT', 'DESeq2', 'DESeq2-LRT')){
+      stop("With 'Pseudobulk_mode' set to T, DE_test must be one of: 'EdgeR', 'EdgeR-LRT', 'DESeq2', 'DESeq2-LRT'; value ", DE_test, " was passed")
+    }
+    
+  }
+  
+  #DE tests must be in a set of tests
+  if(Pseudobulk_mode == F){
+    
+    if(!DE_test %in% c('wilcox' , 'wilcox_limma', 'bimod', 't', 'negbinom', 'poisson', 'LR', 'MAST', 'DESeq2' )){
+      stop("With 'Pseudobulk_mode' set to F, DE_test must be one of: 'wilcox' , 'wilcox_limma', 'bimod', 't', 'negbinom', 'poisson', 'LR', 'MAST', 'DESeq2'; value ", DE_test, " was passed")
+    }
+    
+  }
+  
+  
+  
+  
+  # make sure DE packages are installed
+  if(DE_test == 'MAST'){
+    if(!('MAST' %in% rownames(installed.packages()))){
+      stop('DE_test is set to "MAST". Please install MAST first.')
+    }
+  }
+  
+  if(DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT'){
+    if(!('DESeq2' %in% rownames(installed.packages()))){
+      stop('DE_test is set to "DESeq2". Please install DESeq2 first')
+    }
+  }
+  
+  
+  #if using run_ORA make sure clusterProfiler is installed
+  if(run_ORA == T){
+    if(!('clusterProfiler' %in% rownames(installed.packages()))){
+      stop('run_ORA is set to T. Please install clusterProfiler first')
+    }
+  }
+  
+  ####
+  
+  
   rmarkdown::render(rmdfile,
                     params=list(
                       datadir = datadir,
@@ -305,9 +362,9 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       
                       sample_metadata = sample_metadata,
                       comps = comps,
-
+                      
                       risc_reference = risc_reference,
-
+                      
                       min_num_UMI = min_num_UMI,
                       min_num_Feature = min_num_Feature,
                       max_perc_mito = max_perc_mito,
@@ -318,39 +375,42 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       autofilter_medianabsolutedev_threshold = autofilter_medianabsolutedev_threshold,
                       autofilter_loess_negative_residual_threshold = autofilter_loess_negative_residual_threshold,
                       doubletFinder = doubletFinder,
-
+                      
                       pcs_indi = pcs_indi,
                       res_indi = res_indi,
                       pcs_int = pcs_int,
                       res_int = res_int,
                       RISC_louvain_neighbors = RISC_louvain_neighbors,
-
+                      
                       Pseudobulk_mode = Pseudobulk_mode,
+                      DE_test = DE_test,
                       crossconditionDE_padj_thres = crossconditionDE_padj_thres,
                       crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
                       pathway_padj_thres = pathway_padj_thres,
                       species = species,
                       workernum = workernum,
+                      run_ORA = run_ORA,
+                      
                       input_seurat_obj = input_seurat_obj,
-
+                      
                       title = title,
                       author = author,
-
+                      
                       force_redo = FALSE #maybe in future...
                     ),
-
+                    
                     #this line ensures html prints to outdir folder
                     output_dir = outdir
-
+                    
   )
-
-
-
+  
+  
+  
   message('\n\nPipeline completed!\n\n')
-
+  
   return(warnings())
-
-
+  
+  
 }
 
 

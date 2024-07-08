@@ -113,3 +113,18 @@ brew install geos gdal
 
 
 https://stackoverflow.com/questions/50997636/problems-installing-rgeos-and-rgdal-on-mac-os-x-high-sierra
+
+
+
+## 7 "‘==’ only defined for equally-sized data frames"
+
+This error may arise early in the pipeline, for example during the "filtering_main" block.
+
+It may be caused by an issue with dependency packages ggplot2 and patchwork. Solution: update to at least ggplot2 >= 3.5.1 and patchwork >= 1.2.0.
+
+Relevant github issues:
+- https://github.com/satijalab/seurat/issues/8170
+- https://github.com/thomasp85/patchwork/issues/342
+
+
+

@@ -29,11 +29,13 @@ scRNAseq_pipeline_runner(
   pcs_int,
   res_int,
   RISC_louvain_neighbors,
+  DE_test,
   crossconditionDE_padj_thres,
   crossconditionDE_lfc_thres,
   pathway_padj_thres,
   species,
   workernum,
+  run_ORA,
   input_seurat_obj,
   title,
   author,
@@ -90,6 +92,8 @@ scRNAseq_pipeline_runner(
 
 \item{RISC_louvain_neighbors}{integer, default = 10; number of nearest neighbors to consider during clustering; see \code{RISC::scCluster()} or \code{scDAPP::scCluster_louvain_res()} where implementation of this is unchanged}
 
+\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
+
 \item{crossconditionDE_padj_thres}{numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if \code{Pseudobulk_mode} is set to T default is 0.1; if \code{Pseudobulk_mode} is F default is 0.05}
 
 \item{crossconditionDE_lfc_thres}{numeric, absolute value of LFC threshold for significant DE genes in cross condition DE; if \code{Pseudobulk_mode} is set to F default is 0 (no minimum lFC); if \code{Pseudobulk_mode} is F default is 0.25}
@@ -99,6 +103,8 @@ scRNAseq_pipeline_runner(
 \item{species}{string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see \code{msigdbr::msigdbr_species()}}
 
 \item{workernum}{integer, number of CPU threads, default = 1}
+
+\item{run_ORA}{T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in \code{clusterProfiler::enricher()}. clusterProfiler must be installed for this. Will save table outputs.}
 
 \item{input_seurat_obj}{T/F. If true, will read in Seurat objects from \code{datadir} with names matching the sample column of \code{sample_metadata}. Ie, if datadir contains objects called "Sample1.rds", "Sample2.rds", and psuedobulk_metadata has "Sample1" in the Sample column, only Sample1.rds will be read in. Useful for data with some preprocessing or hashed data input.}
 
