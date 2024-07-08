@@ -276,6 +276,9 @@ These parameters allow for control of sophisticated analysis methods.
 
 - `species` string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see `msigdbr::msigdbr_species()`
 
+- `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
+
+- `run_ORA` - T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
 
 
 ## QC filtering parameters
@@ -301,8 +304,6 @@ Finally, we use [DoubletFinder](https://github.com/chris-mcginnis-ucsf/DoubletFi
 
 
 ## Tunable analysis parameters
-
-These parameters affect 
 
 
 - `pcs_indi` integer, default = 30; number of PCs to use in individual sample processing / clustering
