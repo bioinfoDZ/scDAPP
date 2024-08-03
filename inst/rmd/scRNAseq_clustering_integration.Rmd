@@ -179,7 +179,6 @@ set.seed(2022)
 
 
 
-
 #set verbosity --> deprecated, keep false
 verbose=F
 
@@ -326,7 +325,7 @@ if(Pseudobulk_mode == T){
     crossconditionDE_lfc_thres <- 0
   }
   
-
+  
   # if(is.null(crossconditionDE_lfc_thres)){
   #   crossconditionDE_min.pct <- 0.1
   # }
@@ -344,7 +343,7 @@ if(Pseudobulk_mode == F){
     crossconditionDE_lfc_thres <- 0.25
   }
   
-
+  
   # if(is.null(crossconditionDE_lfc_thres)){
   #   crossconditionDE_min.pct <- 0
   # }
@@ -635,7 +634,7 @@ library(future)
 library(parallel)
 library(foreach)
 
-library(glmGamPoi)  # for faster SCT
+# library(glmGamPoi)  # for faster SCT
 library(ComplexHeatmap) # for heatmaps
 library(ggdendro)       #for clustering dendrograms
 
@@ -884,7 +883,9 @@ af_md_list <- foreach(code = sample_metadata$Code,
     #1. normalize and cluster raw data w/o filter
     
     #normalize and cluster
-    suppressWarnings(sobj <- Seurat::SCTransform(sobj, verbose = T, method="glmGamPoi"))
+    # suppressWarnings(sobj <- Seurat::SCTransform(sobj, verbose = T, method="glmGamPoi"))
+    #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
+    sobj <- Seurat::SCTransform(sobj, verbose = F)
     
     sobj <- Seurat::RunPCA(object = sobj, verbose = F)
     
@@ -949,7 +950,9 @@ af_md_list <- foreach(code = sample_metadata$Code,
       
       
       #normalize and cluster
-      suppressWarnings(sobj_df <- Seurat::SCTransform(sobj_df, verbose = T, method="glmGamPoi"))
+      # suppressWarnings(sobj_df <- Seurat::SCTransform(sobj_df, verbose = T, method="glmGamPoi"))
+      #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
+      sobj_df <- Seurat::SCTransform(sobj_df, verbose = F)
       
       sobj_df <- Seurat::RunPCA(object = sobj_df, verbose = F)
       
@@ -1766,7 +1769,11 @@ sobjlist <- lapply(sample_metadata$Code, function(code){
   
   DefaultAssay(sobj) <- 'RNA'
   
-  sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose, method = 'glmGamPoi', vst.flavor='v2')
+  # sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose, method = 'glmGamPoi', vst.flavor='v2')
+  #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
+  # also, vst.flaver = 'v2' appears to be the default
+  sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose )
+  
   
   sobj <- RunPCA(sobj, assay = "SCT", verbose = verbose)
   
