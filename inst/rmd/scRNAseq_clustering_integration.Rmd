@@ -885,6 +885,7 @@ af_md_list <- foreach(code = sample_metadata$Code,
     #normalize and cluster
     # suppressWarnings(sobj <- Seurat::SCTransform(sobj, verbose = T, method="glmGamPoi"))
     #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
+    options(future.globals.maxSize = 15000 * 1024^2) # 15 GB # as of Aug 4th, we set this INSIDE the loop, since future seems to throw various errors... unfortunate
     sobj <- Seurat::SCTransform(sobj, verbose = F)
     
     sobj <- Seurat::RunPCA(object = sobj, verbose = F)
