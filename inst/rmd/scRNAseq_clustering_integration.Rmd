@@ -634,7 +634,7 @@ library(future)
 library(parallel)
 library(foreach)
 
-# library(glmGamPoi)  # for faster SCT
+library(glmGamPoi)  # for faster SCT
 library(ComplexHeatmap) # for heatmaps
 library(ggdendro)       #for clustering dendrograms
 
@@ -876,6 +876,9 @@ af_md_list <- foreach(code = sample_metadata$Code,
     
     message(code)
     
+    # as of Aug 4th, we set this INSIDE the loop, since future seems to throw various errors... unfortunate
+    options(future.globals.maxSize = 15000 * 1024^2) # 15 GB 
+    
     #read in sobj 
     sobj <- readRDS(paste0(qctmpdir, '/', code, '.rds'))
     
@@ -883,10 +886,11 @@ af_md_list <- foreach(code = sample_metadata$Code,
     #1. normalize and cluster raw data w/o filter
     
     #normalize and cluster
-    # suppressWarnings(sobj <- Seurat::SCTransform(sobj, verbose = T, method="glmGamPoi"))
+    suppressWarnings(sobj <- Seurat::SCTransform(sobj, verbose = T, method="glmGamPoi"))
     #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
-    options(future.globals.maxSize = 15000 * 1024^2) # 15 GB # as of Aug 4th, we set this INSIDE the loop, since future seems to throw various errors... unfortunate
-    sobj <- Seurat::SCTransform(sobj, verbose = F)
+    
+    # sobj <- Seurat::SCTransform(sobj, verbose = F)
+    # UPDATE AGAIN AUG 12; glmgampoi did not seem to cause the memory problem
     
     sobj <- Seurat::RunPCA(object = sobj, verbose = F)
     
@@ -951,9 +955,10 @@ af_md_list <- foreach(code = sample_metadata$Code,
       
       
       #normalize and cluster
-      # suppressWarnings(sobj_df <- Seurat::SCTransform(sobj_df, verbose = T, method="glmGamPoi"))
+      suppressWarnings(sobj_df <- Seurat::SCTransform(sobj_df, verbose = T, method="glmGamPoi"))
       #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
-      sobj_df <- Seurat::SCTransform(sobj_df, verbose = F)
+      # sobj_df <- Seurat::SCTransform(sobj_df, verbose = F)
+      # UPDATE AGAIN AUG 12; glmgampoi did not seem to cause the memory problem
       
       sobj_df <- Seurat::RunPCA(object = sobj_df, verbose = F)
       
@@ -1770,10 +1775,10 @@ sobjlist <- lapply(sample_metadata$Code, function(code){
   
   DefaultAssay(sobj) <- 'RNA'
   
-  # sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose, method = 'glmGamPoi', vst.flavor='v2')
+  sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose, method = 'glmGamPoi', vst.flavor='v2')
   #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
   # also, vst.flaver = 'v2' appears to be the default
-  sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose )
+  # sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose )
   
   
   sobj <- RunPCA(sobj, assay = "SCT", verbose = verbose)
