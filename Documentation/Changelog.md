@@ -2,6 +2,11 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
+## 1.2.1
+2024.08.12
+- fix a bug related to parallelization memory reservation caused by external dependency update
+- add presto package to the description file remotes for auto-install
+- place presto to new suggests field of description file and also move aPEAR from imports to suggests
 
 ## 1.2.0
 
