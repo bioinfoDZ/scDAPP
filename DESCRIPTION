@@ -1,6 +1,6 @@
 Package: scDAPP
 Title: single-cell Differential Analysis and Processing Pipeline
-Version: 1.2.0
+Version: 1.2.1
 Authors@R: 
     person("Alexander", "Ferrena", , "alexander.ferrena@einsteinmed.edu", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-9578-8683"))

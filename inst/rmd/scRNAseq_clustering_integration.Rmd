@@ -134,9 +134,9 @@ set.seed(2022)
 #   outdir = paste0(projdir, 'outs/DEVTEST/' ),
 #   Pseudobulk_mode = T,
 # 
-#   use_labeltransfer = F,
-#   # refdatapath = paste0(projdir, 'Reference_Seurat_Generation/Fuwai_E105_Wn1Cre_Hearts/CNCCsE105_Dub_namedClusters.rds'),
-#   # m_reference = paste0(projdir, 'Reference_Seurat_Generation/Fuwai_E105_Wn1Cre_Hearts/Markers.rds'),
+#   use_labeltransfer = T,
+#   refdatapath = paste0(projdir, 'labeltransferref/LabelTransferRef_SCTnormalized.rds'),
+#   m_reference = paste0(projdir, 'labeltransferref/LabelTransferRefMarkers.rds'),
 # 
 #   sample_metadata = paste0(projdir, '/sample_metadata.csv'),
 #   comps = paste0(projdir, '/comps.csv'),
@@ -145,9 +145,9 @@ set.seed(2022)
 #   min_num_Feature = 200,
 #   max_perc_mito = 25,
 #   max_perc_hemoglobin = 25,
-#   autofilter_complexity = F,
+#   autofilter_complexity = T,
 #   autofilter_mito = T,
-#   autofilter_nUMI = F,
+#   autofilter_nUMI = T,
 #   autofilter_medianabsolutedev_threshold = 3,
 #   autofilter_loess_negative_residual_threshold = -5,
 # 
@@ -157,9 +157,9 @@ set.seed(2022)
 #   pcs_indi = 30,
 #   res_indi = 0.5,
 #   pcs_int = 30,
-#   res_int = 1,
+#   res_int = 0.5,
 #   RISC_louvain_neighbors=10,
-#   
+# 
 #   run_ORA = T,
 #   DE_test = 'EdgeR-LRT',
 # 
@@ -172,6 +172,7 @@ set.seed(2022)
 #   input_seurat_obj = T,
 #   force_redo = F
 # )
+
 
 
 
@@ -436,6 +437,28 @@ if(is.null(comps)){
   
   
 }
+
+
+
+
+
+
+#### DO SOME CHECKS ####
+
+
+## make sure all comps are in sample_metadata
+compscheck <- unique(c(comps$c1, comps$c2))
+
+if( any(!(compscheck %in% sample_metadata$Condition)) ){
+  
+  missingcomps <- compscheck[!(compscheck %in% sample_metadata$Condition)]
+  
+  
+  stop("Some conditions in the comps.csv file are missing from sample_metadata.csv. Please make sure all comparisons in comps.csv are present in the Condition column of sample_metadata.csv and spelled correctly.\nThe following conditions are present in comps.csv but missing from the sample_metadata.csv file's Condition column: ", paste(missingcomps, collapse = ', '))
+  
+  
+}
+
 
 
 
@@ -5548,15 +5571,24 @@ DEplots_comps <- lapply(compslen, function(compidx){
     m <- rbind(upm,dnm)
     
     
+    ### Sep 22 2024
+    ## we started saving normcounts and rawcounts, which broke this code.
+    # we will srip "normcounts" from the colnames
+    colnames(m) <- gsub('normcounts_', '', colnames(m))
+    
+    
+    
     #make sure all samples are in top
     # only if de pseudobulk
     if(Pseudobulk_mode == T){
       
-      if( any(!(subpmd$Code %in% colnames(m))) ){
+      if( any(!( subpmd$Code %in% colnames(m))) ){
+        
         missingcodes <- subpmd$Code[!(subpmd$Code %in% colnames(m))]
         missingcodecols <- lapply(missingcodes, function(code){
           missingdf <- data.frame(missing = rep(0, nrow(m)) )
-          colnames(missingdf) <- code
+          # colnames(missingdf) <- code
+          colnames(missingdf) <- 
           return(missingdf)
         })
         
