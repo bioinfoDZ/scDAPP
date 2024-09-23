@@ -9,6 +9,7 @@ For all changes, please update changelog and use Year-Month-Day
 - place presto to new suggests field of description file and also move aPEAR from imports to suggests
 - add an exception to make sure all condition levels in comps.csv are present in sample_metadata$Condition (second column)
 - fix an error with DEG heatmap plotting when pseudobulk mode = T
+- add a new vignette for subclustering and running comparative modules
 
 
 ## 1.2.0
