@@ -8,8 +8,8 @@ This package contains an automated pipeline for scRNA-seq that includes individu
 
 ## Citing scDAPP
 
-Please cite our bioRxiv pre-print:
-[Ferrena et al bioRXiv 2024](https://www.biorxiv.org/content/10.1101/2024.05.06.592708v1)
+Please cite our publication: [Ferrena et al, NAR Genomics and Bioinformatics 2024](https://academic.oup.com/nargab/article/6/4/lqae134/7786160)
+
 
 <br />
 <br />
@@ -196,7 +196,7 @@ Assays and layers / slots of the integrated Seurat object found at `multisample_
 - Predictions assay: [label transfer](https://satijalab.org/seurat/articles/integration_mapping) scores from Seurat.
 
 
-For downstream analysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
+For downstream analysis tips including using aPEAR for network enrichment analysis, ShinyCell for making an exploratory analysis app, or strategies to re-run the DE analysis after calling celltypes or sub-clustering, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
 
 
 <br />
@@ -205,7 +205,7 @@ For downstream analysis tips including using aPEAR for network enrichment analys
 
 ## Example Dataset
 
-Please see [here](https://github.com/FerrenaAlexander/scDAPP_example_data) for an example / test dataset.
+Please see [here](https://github.com/FerrenaAlexander/scDAPP_example_data) for an example dataset.
 
 <br />
 
