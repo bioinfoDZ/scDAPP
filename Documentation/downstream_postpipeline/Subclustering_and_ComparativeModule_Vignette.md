@@ -1,20 +1,20 @@
 # scDAPP downstream: sub-clustering and comparative analysis modules
 
 
-Sometimes it is necessary to re-run comparative analyses such as compositional analysis, differential expression analysis, or pathway analysis. For example, we may subset the object to remove cells or samples, or we may re-cluster the object, or call celltypes, or even run these analysis on celltype sub-clusters.
+Sometimes, comparative analyses such as compositional, differential expression, or pathway analyses need to be re-run. For example, we may subset the object to remove cells or samples, re-cluster the object, call cell types, or even run these analyses on cell type sub-clusters.
 
 Using the scDAPP pipeline module functions, it is straightforward to run these types of analyses.
 
 
-## Step 1: Load the scDAPP library and depenency libraries in a specific order
+## Step 1: Load the scDAPP library and dependency libraries in a specific order
 
-First we load the scDAPP library and then run the `r_package_test()` function, which itself loads important libraries in the correct order. If the libraries are not loaded or loaded in an incorrect order, errors will occur and the module functions will not work.
+First, we load the scDAPP library and then run the `r_package_test()` function, which itself loads important libraries in the correct order. If the libraries are not loaded or loaded in an incorrect order, errors will occur and the module functions will not work.
 ```
 library(scDAPP)
 scDAPP::r_package_test() #this function will load a bunch of relevant packages in the correct order
 ```
 
-## Step 2: prepare inputs: read in the Seurat object, sample_metadata.csv, and comps.csv; and define an outdir_int
+## Step 2: Prepare inputs: read in the Seurat object, sample_metadata.csv, and comps.csv; and define an outdir_int
 
 
 First, read in the sample_metadata.csv and comps.csv files you used to run the analysis:
@@ -52,7 +52,7 @@ Set1_AACACGTGTAGCGTGA-1-gPlexJ1 Healthy_2   Healthy               2
 ```
 
 
-## Step 3: prepare a `grouping_variable`
+## Step 3: Prepare a `grouping_variable`
 
 The `grouping_variable` refers to a grouping of cells, such as clusters. For example, across each level of `grouping_variable` (ie, across each cluster), you can compare Condition A vs B. You will likely be interested in modifying this.
 
@@ -129,7 +129,7 @@ md <- md[md$seurat_clusters == 1,]
 sobjint_SUBSETTED_C1only <- sobjint[,rownames(md)]
 
 ## SUBCLUSTER - this is how we subcluster with RISC.
-# no renormalizing (basically its just a log norm anyway, plus some special RISC normalization)
+# no renormalizing (basically it's just a log norm anyway, plus some special RISC normalization)
 # just find HVGs, scale, PCA, graph, and cluster
 
 
@@ -147,7 +147,7 @@ sobjint_SUBSETTED_C1only <- Seurat::RunPCA(object = sobjint_SUBSETTED_C1only, ve
 #check elbow plot
 ElbowPlot(sobjint_SUBSETTED_C1only)
 
-#based on elbow plot, choose PCS to use for graph and for UMAP
+#based on elbow plot, choose PCS to use for graph and UMAP
 sobjint_SUBSETTED_C1only <- Seurat::FindNeighbors(object = sobjint_SUBSETTED_C1only, dims = 1:10, verbose = F)
 sobjint_SUBSETTED_C1only <- Seurat::RunUMAP(sobjint_SUBSETTED_C1only, dims = 1:10)
 
@@ -161,7 +161,7 @@ DimPlot(sobjint_SUBSETTED_C1only, split.by = 'Condition', group.by = 'Code')
 #note that this overwrites the "seurat_clusters" variable.
 
 
-# a note about the clusterig nomenclatures you may find after scDAPP: 
+# a note about the clustering nomenclatures you may find after scDAPP: 
 
 #pipeline post-intergration clustering is named like: 
 # RISC_Louvain_npc30_res0.5
@@ -204,7 +204,7 @@ After sub-clustering, you can also pass the sub-clustering metadata column name 
 <br />
 <br />
 
-## Step 4: compositional analysis module
+## Step 4: Compositional analysis module
 
 Using any of the examples above, we can first perform compositional analysis. First, you should check the documentation of the module to see the different options:
 
@@ -229,7 +229,7 @@ comp_result <- scDAPP::compositional_analysis_module(sobjint,
 ```
 
 
-Or we can run it for Example C, where we we subsetted for one cluster and then sub-clustered:
+Or we can run it for Example C, where we subsetted for one cluster and then sub-clustered:
 
 ```
 comp_result <- scDAPP::compositional_analysis_module(sobjint_SUBSETTED_C1only,
@@ -243,7 +243,7 @@ comp_result <- scDAPP::compositional_analysis_module(sobjint_SUBSETTED_C1only,
 
 ## Step 5: Differential expression and pathway analysis
 
-Next we will use Example A (Celltype re-mapping) for differential expression (DE) analysis and pathway analysis.
+Next, we will use Example A (Celltype re-mapping) for differential expression (DE) analysis and pathway analysis.
 
 
 The documentation for these modules is extensive and explains how to use the modules in the correct order. The order is also below:
@@ -263,10 +263,10 @@ The documentation for these modules is extensive and explains how to use the mod
 
 
 
-### 5A: DE analysis
+### 5.1 - DE analysis
 
 
-DE analysis be run with something like below. The most importang things to decide are the `grouping_variable` and `Pseudobulk_mode`.
+DE analysis be run with something like below. The most important things to decide are the `grouping_variable` and `Pseudobulk_mode`.
 
 Below is how we can run DE analysis for Example A (Celltype re-mapping):
 
@@ -284,11 +284,11 @@ m_bycluster_crosscondition_de_comps <- scDAPP::de_across_conditions_module(sobji
 For Example C, we can change "sobjint" to "sobjint_SUBSETTED_C1only"; and we can change "`grouping_variable` = 'Celltype'" to "`grouping_variable` = 'RISC_snn_res.0.1'", or whatever suits your data.
 
 
-### 5B: prep pathways
+### 5.2 - Prep pathways
 
 The scDAPP pipeline downloads a pathways database (Molecular Signatures Database, MSIGDB) using the "msigdbr" package. You can re-use the downloaded copy from your prior scDAPP pipeline run (preferred), or just re-download from scratch.
 
-To re-use the downloaded one: read it in from the pipeline output, as shown below. However, note that you may need to do a quick and easy pre-processing, if the pipeline was run on older versions. This involves sub-selecting some pathways and changing the pathway table format slightly. Prior to scDAPP v1.2.0 we used to save the whole raw pathway table (but in new versions the subsetted/reformatted table is saved).
+To re-use the downloaded one: read it in from the pipeline output, as shown below. However, note that you may need to do a quick and easy pre-processing if the pipeline was run on older versions. This involves sub-selecting some pathways and changing the pathway table format slightly. Prior to scDAPP v1.2.0 we used to save the whole raw pathway table (but in new versions, the subsetted/reformatted table is saved).
 
 ```
 #read in pathway table
@@ -336,7 +336,7 @@ pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(species =
 
 
 
-### 5C, run pathway analysis (GSEA)
+### 5.3 - Run pathway analysis (GSEA)
 
 Above, we ran DE analysis and prepared the pathways from a database. We will use both of these to run pathway analysis using GSEA.
 
@@ -362,7 +362,7 @@ At this point, you are pretty much done, and can start just looking at the outpu
 Note that the pathway module function will also save a .rds object of a list containing the DEG object and the pathway results. This can be handy for quickly reading in the data, making new plots, etc.
 
 ```
-#read in list of DE and pahtway results
+#read in list of DE and pathway results
 DE_pathways_plot_objects_list <- readRDS('PATH/TO/SAVED/OUTPUTS/pathwayanalysis_crosscondition/DE_pathways_plot_objects_list.rds')
 
 #this is a complex nested list object:
@@ -414,17 +414,17 @@ pathway_analysis_mainlist_comps <- DE_pathways_plot_objects_list$pathway_analysi
 This object will be the input for aPEAR. We have prepared a [detailed vignette on applying aPEAR](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/downstream_postpipeline/aPEAR_wrapper.md) with this.
 
 
-### 5D, run pathway analysis (ORA)
+### 5.4 - Run pathway analysis (ORA)
 
 
-At a reviewer's request, we added functionality for over-representation analysis (ORA) to scDAPP. This is a fisher-test based analysis, where we actually make a cutoff of DEGs (ie select a threshold for pvalue / padj and LFC). It is different from GSEA, the default pathway analysis method shown above, which does not require sometimes arbitrary cutoffs.
+At a reviewer's request, we added functionality for over-representation analysis (ORA) to scDAPP. This is a fisher-test based analysis, where we actually make a cutoff of DEGs (i.e. select a threshold for pvalue / padj and LFC). It is different from GSEA, the default pathway analysis method shown above, which does not require sometimes arbitrary cutoffs.
 
 The ORA module is similar to the GSEA module.
 
 You must define some cutoffs:
 - `crossconditionDE_padj_thres`: adjusted pvalue cutoff. In the pipeline, we set this to 0.1 for pseudobulk, and 0.05 for non-pseudobulk.
-- `crossconditionDE_lfc_thres`: log fold change cutoff, provided as an absolute value. In the pipeline, we use no cutoff (set to 0) for pseudobulk, and set this ti 0.25 (it will seelct +/-0.25 l2fc) for non-pseudobulk.
-- `crossconditionDE_min.pct`: numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Only used for counting DEGs. In the pipeline, we set this to 0.1 if pseudobulk is used; 0 if wilcox is used.
+- `crossconditionDE_lfc_thres`: log fold change cutoff, provided as an absolute value. In the pipeline, we use no cutoff (set to 0) for pseudobulk, and set this to 0.25 (it will select +/-0.25 l2fc) for non-pseudobulk.
+- `crossconditionDE_min.pct`: numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Only used for counting DEGs. In the pipeline, we set this to 0.1 if pseudobulk is used; and 0 if wilcox is used.
 
 To run the module, you can use something like below:
 
