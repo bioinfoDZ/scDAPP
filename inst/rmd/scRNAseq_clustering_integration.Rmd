@@ -5587,8 +5587,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
         missingcodes <- subpmd$Code[!(subpmd$Code %in% colnames(m))]
         missingcodecols <- lapply(missingcodes, function(code){
           missingdf <- data.frame(missing = rep(0, nrow(m)) )
-          # colnames(missingdf) <- code
-          colnames(missingdf) <- 
+          colnames(missingdf) <- code
           return(missingdf)
         })
         

@@ -2,6 +2,13 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
+## 1.2.2
+2024.10.29
+- In Description file, add BiocManager as an Imports dependency, hopefully to fix auto-install of sparseMatrixStats from fresh
+- In Description file, add clusterProfiler to biocViews and Suggests
+- Fix a bug in the "de_preplots" block related to adding missing samples as zeros, missing zero df was not being given the colnames of the missing samples
+
+
 ## 1.2.1
 2024.09.22
 - fix a bug related to parallelization memory reservation caused by external dependency update
