@@ -55,5 +55,6 @@ Imports:
     FNN,
     sparseMatrixStats,
     RISC (>= 1.7.0),
-    viridis
+    viridis,
+    BiocManager
 LazyData: true
