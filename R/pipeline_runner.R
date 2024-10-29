@@ -9,7 +9,7 @@
 #'
 #' @examples
 #' \dontrun{
-#' SpatialSingulomics::r_package_test()
+#' scDAPP::r_package_test()
 #' }
 r_package_test <- function(){
   

@@ -1,9 +1,8 @@
 # Installation
 
 
-If you have any issues, please email BOTH alexander.ferrena@einsteinmed.edu and alexanderferrena@gmail.com
+If you have any issues, please email alexanderferrena@gmail.com, or open an issue in this github repo.
 
-Or open an issue in this github repo.
 
 <br />
 
