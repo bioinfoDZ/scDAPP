@@ -14,6 +14,6 @@ This will load the key dependencies and report the versions of those dependencie
 }
 \examples{
 \dontrun{
-SpatialSingulomics::r_package_test()
+scDAPP::r_package_test()
 }
 }

@@ -1,14 +1,14 @@
 Package: scDAPP
 Title: single-cell Differential Analysis and Processing Pipeline
-Version: 1.2.1
+Version: 1.2.2
 Authors@R: 
-    person("Alexander", "Ferrena", , "alexander.ferrena@einsteinmed.edu", role = c("aut", "cre"),
+    person("Alexander", "Ferrena", , "alexanderferrena@gmail.com", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-9578-8683"))
 Description: End to end pipeline for cross-group analysis of single cell transcriptomic data.
 License: GPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.1
+RoxygenNote: 7.3.2
 Depends: 
     R (>= 4.0)
 biocViews:
@@ -16,7 +16,8 @@ biocViews:
     glmGamPoi,
     fgsea,
     ComplexHeatmap,
-    sparseMatrixStats
+    sparseMatrixStats,
+    clusterProfiler
 Remotes:
     chris-mcginnis-ucsf/DoubletFinder,
     phipsonlab/speckle,
@@ -24,7 +25,8 @@ Remotes:
     immunogenomics/presto
 Suggests:
     presto,
-    aPEAR
+    aPEAR,
+    clusterProfiler
 Imports: 
     tidyverse,
     Matrix,
@@ -55,5 +57,6 @@ Imports:
     FNN,
     sparseMatrixStats,
     RISC (>= 1.7.0),
-    viridis
+    viridis,
+    BiocManager
 LazyData: true
