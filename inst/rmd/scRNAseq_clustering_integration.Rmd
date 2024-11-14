@@ -179,6 +179,12 @@ set.seed(2022)
 
 
 
+
+
+
+
+
+
 #set verbosity --> deprecated, keep false
 verbose=F
 
@@ -795,19 +801,29 @@ if(input_seurat_obj == T){## read in
 #add in qc values for mito and hemoglobin
 
 sobjlist <- lapply(sobjlist, function(sobj){
+  
+  
+  #Nov 14 2024: check if objects already have "percent.mito" and "percent.hemo" and "Phase", thus allowing user to pass these if using seurat objects as input
+  
   #mito content, add to metadata
-  mito.features <- grep(pattern = "^mt-", x = rownames(x = sobj), value = TRUE, ignore.case = T)
-  sobj[["percent.mito"]] <- Seurat::PercentageFeatureSet(sobj, features = mito.features)
+  if(!('percent.mito' %in% colnames(sobj@meta.data))){
+    mito.features <- grep(pattern = "^mt-", x = rownames(x = sobj), value = TRUE, ignore.case = T)
+    sobj[["percent.mito"]] <- Seurat::PercentageFeatureSet(sobj, features = mito.features)
+  }
   
   #hemoglobin content, add to metadata
-  sobj$percent.hemoglobin <- scDAPP::calculate_percent.hemoglobin(sobj)
+  if(!('percent.hemoglobin' %in% colnames(sobj@meta.data))){
+    sobj$percent.hemoglobin <- scDAPP::calculate_percent.hemoglobin(sobj)
+  }
   
   #calculate phase (if possible, sometimes it fails)
-  try(
-    sobj <- CellCycleScoring(sobj,
-                             s.features = Seurat::cc.genes.updated.2019$s.genes,
-                             g2m.features = Seurat::cc.genes.updated.2019$g2m.genes)
-  )
+  if(!('Phase' %in% colnames(sobj@meta.data))){
+    try(
+      sobj <- CellCycleScoring(sobj,
+                               s.features = Seurat::cc.genes.updated.2019$s.genes,
+                               g2m.features = Seurat::cc.genes.updated.2019$g2m.genes)
+    )
+  }
   
   sobj
   
@@ -1023,8 +1039,10 @@ af_md_list <- foreach(code = sample_metadata$Code,
     
     
     #prep genes
-    n <- 5
-    top <- m %>% group_by(cluster) %>% top_n(n = n, wt = score)
+    if(length(levels(sobjraw$seurat_clusters)) > 1){
+      n <- 5
+      top <- m %>% group_by(cluster) %>% top_n(n = n, wt = score)
+    }
     
     #make some plots
     d_rawclust <- DimPlot(sobjraw, group.by = 'seurat_clusters', label = T, repel = T)+ggtitle('Unfiltered data clusters', subtitle = 'Louvain res = 0.1')
@@ -1047,8 +1065,9 @@ af_md_list <- foreach(code = sample_metadata$Code,
                                         pattern = '\\.', '\n')
     
     
-    
-    hm_raw <- DoHeatmap(sobjraw, top$gene, raster = F)+NoLegend() + labs(title = "Pre-filter cluster markers")
+    if(length(levels(sobjraw$seurat_clusters)) > 1){
+      hm_raw <- DoHeatmap(sobjraw, top$gene, raster = F)+NoLegend() + labs(title = "Pre-filter cluster markers")
+    } else{hm_raw <- NULL}
     
     # d_filt_clust <- DimPlot(sobjraw, group.by = newclustname, label = T, repel = T)+ggtitle('Filtered data clusters')
     
@@ -3598,6 +3617,8 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 
 ```{r integration_postproc, message=F, results='hide', warning=F}
+
+beepr::beep()
 
 
 # integrated UMAP
