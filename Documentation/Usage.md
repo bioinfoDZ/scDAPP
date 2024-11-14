@@ -14,9 +14,7 @@ If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeli
 # Usage
 
 
-If you have any issues, please email BOTH alexander.ferrena@einsteinmed.edu and alexanderferrena@gmail.com
-
-Or open an issue in this github repo.
+If you have any issues, please email alexanderferrena@gmail.com, or open an issue in this github repo.
 
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.

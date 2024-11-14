@@ -2,11 +2,28 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
+#1.2.3
+2024.11.14
+- add a new feature: check if Seurat objects already have "percent.mito", "percent.hemoglobin" or "Phase" in the metadata before computing these, thus allowing user to pass these if using seurat objects as input. Useful for when running organisms besides human/mouse.
+
+
+## 1.2.2
+2024.10.29
+- In Description file, add BiocManager as an Imports dependency, hopefully to fix auto-install of sparseMatrixStats from fresh
+- In Description file, add clusterProfiler to biocViews and Suggests
+- Fix a bug in the "de_preplots" block related to adding missing samples as zeros, missing zero df was not being given the colnames of the missing samples
+- update docs
+
+
 ## 1.2.1
-2024.08.12
+2024.09.22
 - fix a bug related to parallelization memory reservation caused by external dependency update
 - add presto package to the description file remotes for auto-install
 - place presto to new suggests field of description file and also move aPEAR from imports to suggests
+- add an exception to make sure all condition levels in comps.csv are present in sample_metadata$Condition (second column)
+- fix an error with DEG heatmap plotting when pseudobulk mode = T
+- add a new vignette for subclustering and running comparative modules
+
 
 ## 1.2.0
 
