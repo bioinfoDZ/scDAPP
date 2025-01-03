@@ -2,7 +2,7 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
-#1.2.3
+## 1.2.3
 2024.11.14
 - add a new feature: check if Seurat objects already have "percent.mito", "percent.hemoglobin" or "Phase" in the metadata before computing these, thus allowing user to pass these if using seurat objects as input. Useful for when running organisms besides human/mouse.
 

@@ -8,7 +8,7 @@ This package contains an automated pipeline for scRNA-seq that includes individu
 
 ## Citing scDAPP
 
-Please cite our publication: [Ferrena et al, NAR Genomics and Bioinformatics 2024](https://academic.oup.com/nargab/article/6/4/lqae134/7786160)
+Please cite our publication: [scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized for cross-group comparison, NAR Genomics and Bioinformatics 2024](https://academic.oup.com/nargab/article/6/4/lqae134/7786160)
 
 
 <br />
@@ -17,7 +17,7 @@ Please cite our publication: [Ferrena et al, NAR Genomics and Bioinformatics 202
 
 ## Installation
 
-This package relies on key dependencies including R >= 4.0, Seurat >= 5.0, and RISC >= 1.7. If you have those packages working then you should be able to install with minimal difficulty.
+This package relies on key dependencies including R >= 4.0, Seurat >= 5.0, and RISC >= 1.7. If you have those working then you should be able to install with minimal difficulty.
 
 For more details including installing on HPC and installing within a conda environment, see the [detailed installation instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Installation.md).
 
@@ -184,7 +184,7 @@ nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 
 The outputs are shown below:
 
-<img src="images/scDAPP_F3_outputs.png" width="300" height="300">
+<img src="images/scDAPP_F3_outputs.png" width="300" height="350">
 
 
 
@@ -209,7 +209,7 @@ Please see [here](https://github.com/FerrenaAlexander/scDAPP_example_data) for a
 
 <br />
 
-## Common bugs and fixes
+## Common errors and fixes
 
 Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md).
 

@@ -2,7 +2,7 @@
 
 This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), integration with RISC, and cross-condition compositional (cell proportion) analysis and differential expression (DE) analysis. Multi-condition comparisons (condition A vs B vs C, ie WT vs KO vs Drug) are supported. 
 
-If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis (Propeller) and DE (EdgeR-LRT). If no replicates are present, will use the chi-square test of proportions (R proportion.test) for compositional analysis and the Wilcoxon test for DE.
+If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis and DE.
 
 
 
@@ -20,7 +20,7 @@ If you have any issues, please email alexanderferrena@gmail.com, or open an issu
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
 
 
-![](images/scDAPP_F2_inputs.png)
+![](../images/scDAPP_F2_inputs.png)
 
 
 <br />
@@ -34,7 +34,7 @@ Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 file
 Run Cellranger and keep the output folders from all samples together in a single folder.
 The parameter `datadir` is the path to a folder containing the Cellranger outputs.
 
-Cellranger produces many output files for each sample. Minimally, the folders in `datadir` must contain one item, the file called `filtered_feature_bc_matrix.h5`. For example, if you have four samples, you will need (or if you have run Cellranger, already have) a folder with four sub-folders with the sample names. `datadir` should be the path pointing to folder holding everything. It will search the subfolders for the `filtered_feature_bc_matrix.h5` file. The sample names (sample sub-folder names) should match the "Sample" column of the `sample_metadata.csv` file as explained below.
+Cellranger produces many output files for each sample. Minimally, the folders in `datadir` must contain one item, the file called `filtered_feature_bc_matrix.h5`. For example, if you have four samples, you will need (or if you have run Cellranger, already have) a folder with four sub-folders with the sample names. `datadir` should be the path pointing to folder holding everything. It will search the subfolders for the `filtered_feature_bc_matrix.h5` files. The sample names (sample sub-folder names) should match the "Sample" column of the `sample_metadata.csv` file as explained below.
 
 
 
@@ -42,7 +42,7 @@ Cellranger produces many output files for each sample. Minimally, the folders in
 
 Alternatively, the pipeline accepts Seurat objects if `input_seurat_obj` is set to TRUE. This can be useful for hashed/multiplexed samples, pre-filtered samples, or published data for which .h5 files are not easily available.
 
-Save each Seurat object as individual .rds files using the `saveRDS()` R command. Each sample should be named "SampleXYZ1.rds" and so on. The sample names should match the "Sample" column of the `sample_metadata.csv` file as explained below. The pipeline will use the "RNA" assay and the 
+Save each Seurat object as individual .rds files using the `saveRDS()` R command. Each sample should be named "SampleXYZ1.rds" and so on. The sample names should match the "Sample" column of the `sample_metadata.csv` file as explained below. The pipeline will use the "RNA" assay and the "counts" layer/slot of the Seurat objects.
 
 For [hashed](https://cite-seq.com/cell-hashing/) or [multiplexed](https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/running-pipelines/cr-3p-multi) inputs, this option can also be used. We recommended splitting all of the samples apart into separate Seurat objects even if they are from the same hash / CMO pool.
 
@@ -298,6 +298,7 @@ Finally, we use [DoubletFinder](https://github.com/chris-mcginnis-ucsf/DoubletFi
 - `doubletFinder` - T/F, default is T, whether to filter doublets with DoubletFinder
 
 
+Please note, as of v1.2.3 (update pushed around Jan 3 2025), it is now possible to pre-calculate some QC values and store them in the Seurat object metadata. These include `percent.mito`, `percent.hemoglobin`, and `Phase` (cell cycle phase). These can be calculated however you wish (such as with `Seurat::AddModuleScore()` or `Seurat::CellCycleScoring()`) and stored with these exact column names in the input Seurat object metadata. This can be useful if working with less common species, where gene names may differ a lot from typical human/mouse symbols for these QC metrics. Make sure to set `input_seurat_obj` to TRUE to use this. Note however that MSIGDBR has a limited set of compatible species with pathway genes. You can run `msigdbr::msigdbr_species()` in R to check the available species. If your species of interest is not on the list, you may consider still using the pipeline and selecting the species / taxon closest to your subject of study, but then using the pipeline outputs to run your own pathway analysis using the DEGs.
 
 
 
@@ -325,7 +326,7 @@ Running with multiple CPU threads ("workers") can speed up the analysis, *especi
 
 - `workernum` integer, number of CPU threads, default = 1
 
-If on HPC, make sure to also request the appropaite number of CPUs, for example by adding the following two lines to the SBATCH header for 11 cpus:
+If on HPC, make sure to also request the appropriate number of CPUs, for example by adding the following two lines to the SBATCH header for 11 cpus:
 ```
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=11
@@ -336,7 +337,7 @@ Equivalent Grid Engine / qsub command:
 #$ -pe smp 11
 ```
 
-Paralellization is generally implemented across samples, so do not set `workernum` higher than the number of samples.
+Parallelization is generally implemented across samples, so do not set `workernum` higher than the number of samples.
 
 
 
@@ -350,7 +351,7 @@ Ask for this on SLURM-based HPC schedulers:
 ```
 
 Equivalent qsub command, need to divide total mem in GB 150 by number of CPUS.
-For 150 over 11 CPUs, ask for 13.64 GB for each CPU.
+For 150GB over 11 CPUs, ask for 13.64 GB for each CPU.
 ```
 #$ -l h_vmem=13.645g
 ```
@@ -366,7 +367,7 @@ For 150 over 11 CPUs, ask for 13.64 GB for each CPU.
 
 The outputs are shown below:
 
-<img src="../images/scDAPP_F3_outputs.png" width="300" height="300">
+<img src="../images/scDAPP_F3_outputs.png" width="300" height="350">
 
 
 
