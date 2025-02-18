@@ -175,8 +175,8 @@ de_across_conditions_module <- function(sobjint,
       sobjint_ct <- sobjint[,cells]
       
       #try to unlog the RISC counts...
-      sobjint_ct@assays$RISC@data <- expm1(sobjint_ct@assays$RISC@data)
-      
+      # sobjint_ct@assays$RISC@data <- expm1(sobjint_ct@assays$RISC@data)
+      # UPDATE feb 18 2025 - i think the line above is irrelevant, we unlog RISC values way earlier
       
       
       suppressMessages(
@@ -332,8 +332,10 @@ de_across_conditions_module <- function(sobjint,
         md <- md[md[,grouping_variable] == clust,]
         md <- md[md$Condition %in% comp_pseudobulk_md$Condition,]
         sobjint_comp_ct <- sobjint[,rownames(md)]
-        mat <- sobjint_comp_ct@assays$RISC@data
-        mat <- expm1(mat)
+        # mat <- sobjint_comp_ct@assays$RISC@data
+        # mat <- expm1(mat)
+        mat <- GetAssayData(sobjsub, assay = assay, layer = slot)
+        # UPDATE FEB 18 2024 - MAKE SURE TO USE ASSAY / SLOT PASSED TO FUNCTION
         
         
         #split to c1 and c2, and count

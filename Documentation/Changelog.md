@@ -3,8 +3,9 @@
 For all changes, please update changelog and use Year-Month-Day
 
 ## 1.2.3
-2024.11.14
+2025.02.18
 - add a new feature: check if Seurat objects already have "percent.mito", "percent.hemoglobin" or "Phase" in the metadata before computing these, thus allowing user to pass these if using seurat objects as input. Useful for when running organisms besides human/mouse.
+- fix a bug to fully utilize assay and slot (layer) in the de cross conditions module; allows use of the function outside of the pipeline, ie even if no RISC assay is present in the object
 
 
 ## 1.2.2
