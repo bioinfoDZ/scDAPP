@@ -130,3 +130,21 @@ Relevant github issues:
 
 
 
+
+<br />
+<br />
+
+
+
+## 8 Error in aPEAR installation from CRAN: package ‘aPEAR’ is not available for this version of R
+
+2025.02.19 
+
+aPEAR was apparently removed from CRAN on 2025.01.10.
+
+Run the below code to install aPEAR from the CRAN archive along with dependencies.
+```
+remotes::install_url('https://cran.r-project.org/src/contrib/Archive/aPEAR/aPEAR_1.0.0.tar.gz')
+```
+
+
