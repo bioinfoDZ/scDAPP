@@ -7,6 +7,7 @@ For all changes, please update changelog and use Year-Month-Day
 - add a new feature: check if Seurat objects already have "percent.mito", "percent.hemoglobin" or "Phase" in the metadata before computing these, thus allowing user to pass these if using seurat objects as input. Useful for when running organisms besides human/mouse.
 - fix a bug to fully utilize assay and slot (layer) in the de cross conditions module; allows use of the function outside of the pipeline, ie even if no RISC assay is present in the object
 - aPEAR removed from CRAN on 2025.01.10; suggest a method to install from CRAN archive.
+- add a function `twt_colored_heatmap()` to easily visualize a two-way-table of categorical variables with many levels, a nice alternative to alluvial plots
 
 
 ## 1.2.2
