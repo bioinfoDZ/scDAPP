@@ -140,7 +140,7 @@ de_across_conditions_module <- function(sobjint,
   # try to check if they are clusters; max str len will probably be 3 (in huge datasets...)
   if( is.null(cluster_prefix) ) {
     
-    if( max(str_length(groupinglevs)) <= 3 ){cluster_prefix <- T}
+    if( max(str_length(groupinglevs)) <= 3 ){cluster_prefix <- T} else{cluster_prefix = F}
     
   }
   
@@ -334,7 +334,7 @@ de_across_conditions_module <- function(sobjint,
         sobjint_comp_ct <- sobjint[,rownames(md)]
         # mat <- sobjint_comp_ct@assays$RISC@data
         # mat <- expm1(mat)
-        mat <- GetAssayData(sobjsub, assay = assay, layer = slot)
+        mat <- GetAssayData(sobjint_comp_ct, assay = assay, layer = slot)
         # UPDATE FEB 18 2024 - MAKE SURE TO USE ASSAY / SLOT PASSED TO FUNCTION
         
         

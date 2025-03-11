@@ -533,7 +533,7 @@ doubletfinderwrapper <- function(seuratobject, clusters, autofilterres, num.core
 
   if( missing( clusters )) {clusters <- "seurat_clusters"}
   if( !(clusters %in% colnames(seuratobject@meta.data)) ) {stop('No clusters detected in Seurat object')}
-  if( missing(sct) ){  sct <- ifelse('SCT' %in% names(sobj@assays), yes = T, no = F) }
+  if( missing(sct) ){  sct <- ifelse('SCT' %in% names(seuratobject@assays), yes = T, no = F) }
 
   if( missing(num.cores) ){num.cores <- 1}
 
