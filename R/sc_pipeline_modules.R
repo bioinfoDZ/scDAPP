@@ -1140,9 +1140,34 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
     message('Accessing MSIGDBR database')
     #read pathways
     pathways <- msigdbr::msigdbr(species = species)
-
+    
+    
+    ## 2025.03.31: MSIGDB V10 was released in mid march 2025. it changed the format a lot. 
+    # I think for now we can just add the old column names; gs_subcat and gs_cat
+    #check if the old columns names are in; if not, add the new columns as the old
+    msigdbrcolnames <- colnames(pathways)
+    if( any(!c('gs_subcat', 'gs_cat') %in% msigdbrcolnames) ){
+      
+      pathways$gs_cat <- pathways$gs_collection
+      pathways$gs_subcat <- pathways$gs_subcollection
+      
+      
+      #for ease, do this here..
+      pathways$gs_subcat <- gsub(':', '_', pathways$gs_subcat)
+      
+      ## replace "TFT_TFT_LEGACY" with "TFT_TFT_Legacy", as per the old name...
+      pathways[pathways$gs_subcat == 'TFT_TFT_LEGACY', "gs_subcat"] <- 'TFT_TFT_Legacy'
+      
+      #they added a new kegg medicus and old kegg is now kegg_legacy; set the kegg_legacy as CP_KEGG as before
+      pathways[pathways$gs_subcat == 'CP_KEGG_LEGACY', "gs_subcat"] <- 'CP_KEGG'
+      
+    }
+    
+    
     #replace : with _ in actual pathway names:
     pathways$gs_subcat <- gsub(':', '_', pathways$gs_subcat)
+
+
   }
 
 

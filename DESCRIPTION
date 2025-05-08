@@ -23,6 +23,7 @@ Remotes:
     phipsonlab/speckle,
     bioinfodz/RISC,
     immunogenomics/presto
+    igordot/msigdbdf
 Suggests:
     presto,
     aPEAR,
