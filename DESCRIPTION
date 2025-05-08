@@ -22,7 +22,7 @@ Remotes:
     chris-mcginnis-ucsf/DoubletFinder,
     phipsonlab/speckle,
     bioinfodz/RISC,
-    immunogenomics/presto
+    immunogenomics/presto,
     igordot/msigdbdf
 Suggests:
     presto,
