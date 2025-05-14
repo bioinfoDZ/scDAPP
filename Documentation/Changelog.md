@@ -2,6 +2,10 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
+## 1.3.1
+2025.05.14
+- add a fix for the MSIGDBR v10 to v24 update: remove "msigdbdf" from remotes imports
+
 ## 1.3.0
 2025.05.09
 - add a new feature: check if Seurat objects already have "percent.mito", "percent.hemoglobin" or "Phase" in the metadata before computing these, thus allowing user to pass these if using seurat objects as input. Useful for when running organisms besides human/mouse.

@@ -1108,7 +1108,7 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
   
   
   require(msigdbr)
-  require(msigdbf)
+  # require(msigdbf)
   
   #prep the pathways
   # make sure to save it. database can update over time
