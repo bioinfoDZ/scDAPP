@@ -6,33 +6,24 @@ This package contains an automated pipeline for scRNA-seq that includes individu
 ![](images/scDAPP_F1_overview.png)
 
 
-## Citing scDAPP
 
-Please cite our publication: [Ferrena et al, NAR Genomics and Bioinformatics 2024](https://academic.oup.com/nargab/article/6/4/lqae134/7786160)
-
-
-<br />
 <br />
 
 
 ## Installation
 
-This package relies on key dependencies including R >= 4.0, Seurat >= 5.0, and RISC >= 1.7. If you have those packages working then you should be able to install with minimal difficulty.
+This package relies on key dependencies including R >= 4.0, Seurat >= 5.0, and RISC >= 1.7. If you have those working then you should be able to install with minimal difficulty.
 
-For more details including installing on HPC and installing within a conda environment, see the [detailed installation instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Installation.md).
+For more details including installing on HPC and installing within a Conda environment, see the [detailed installation instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Installation.md).
 
-1. First **install Matrix and irlba** from source. Installing irlba from source after Matrix will prevent [this common error](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md#1-function-as_cholmod_sparse-not-provided-by-package-matrix).
-```
-install.packages("Matrix", type = "source")
-install.packages("irlba", type = "source")
-```
-
-2. You can then install this package and its dependencies from Github with:
+You can install this package and its dependencies from Github with:
 
 ``` r
 # install.packages("devtools")
 devtools::install_github("bioinfoDZ/scDAPP")
 ```
+
+If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
 
 
@@ -87,13 +78,13 @@ scDAPP::scRNAseq_pipeline_runner(
 ##### Input 1: Prep the input gene expression data samples
 The main input is raw counts, either in the form of .h5 files or Seurat objects.
 
-If you want to input .h5 files (ie from Cellranger), datadir should have sub-folders, one per sample. They should match the "Sample" column in `sample_metadata.csv`. Minimally, each sub-folder should contain a file called "filtered_feature_bc_matrix.h5" somewhere in the sub-folder, the pipeline will search for it.
+If you want to input .h5 files (ie from Cellranger), datadir should have sub-folders, one per sample. The subfolder names should match the "Sample" column in `sample_metadata.csv`. Minimally, each sub-folder should contain a file called "filtered_feature_bc_matrix.h5" somewhere in the sub-folder, the pipeline will search for it.
 
-Or, if you want to input Seurat objects, datadir should be a folder with Seurat objects saved as .RDS files, one per sample. The names should match the pseudobulk metadata Sample column, ie "SampleXYZ1.rds", "SampleXYZ2.rds". Then you can set `input_seurat_obj` to TRUE. Note that this option provides flexibility and can be used to process pre-filtered samples, hashed/demultiplexed samples, published data not in h5 format, etc- as long as you can get it into a Seurat object. Also, note that assay should be called "RNA" and the layer should be set to "counts".
+Or, if you want to input Seurat objects, datadir should be a folder with Seurat objects saved as .RDS files, one per sample. The names should match the pseudobulk metadata Sample column, ie "SampleXYZ1.rds", "SampleXYZ2.rds". Then you can set `input_seurat_obj` to TRUE. Note that this option provides flexibility and can be used to process pre-filtered samples, hashed/demultiplexed samples, published data not in h5 format, etc- as long as you can get it into a Seurat object. Also, note that this pipeline works with raw counts. The Seurat assay should be called "RNA" and the layer/slot should be set to "counts".
 
 ##### Input 2: `sample_metadata` - tell the pipeline what your samples are
 
-`sample_metadata.csv` tells the pipeline what the samples are, and which condition (genotype or experimental state) they are. It should be a csv file that looks like this:
+`sample_metadata.csv` tells the pipeline what the samples are, and which condition (ie genotype or experimental state) they are. It should be a csv file that looks like this:
 
 ```
 Sample,Condition,Code
@@ -121,10 +112,13 @@ KO1,KO2
 
 ### 2. Execute pipeline_runner.R from unix shell command line
 
-The pipeline will take a fair amount of time and memory. A run with 11 samples took around 24 hours and ran successfully with an allocation of 150GB of memory.
+The pipeline will take a fair amount of time and memory. A run with 11 samples took around 24 hours and ran successfully with an allocation of 150GB of memory. It is recommended to use a powerful computer or server such as an HPC system.
 
-
-You can submit a Slurm HPC job to run it. One example might look something like below.
+Below is an example SLURM HPC submission script. Note fields you may want to edit related to cores, time and memory requests of the job. See the [usage instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md) for resource requirement estimation for cores, memory, and time.
+- `cpus-per-task`: number of cores for parallelization. Set this equal to `workernum` in the pipeline_runner.R file.
+- `t`: the time you are requesting for the job.
+- `mem`: how much RAM the job should be given.
+- `p`: the name of the SLURM partition you are submitting to. This will vary based on your HPC - see your HPC's guides or ask the admins for advice for how to pick this, based on the requested resources above.
 
 ```
 #!/bin/bash
@@ -144,12 +138,12 @@ You can submit a Slurm HPC job to run it. One example might look something like 
 # https://docs.conda.io/en/latest/miniconda.html
 source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/conda.sh
 
-#activate r_env
+#activate conda env
 # see detailed install instructions for this conda env
-conda activate r_env
+conda activate 2025scdapp
 
 #run R file 
-# assumes there is the file "pipeline_runner.sh" in the current working directory
+# assumes there is the file "pipeline_runner.R" in the current working directory
 rfile=pipeline_runner.R
 
 echo Submitting $rfile
@@ -182,16 +176,16 @@ nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 
 ## Outputs and downstream
 
-The outputs are shown below:
+A diagram showing the output files is shown below:
 
-<img src="images/scDAPP_F3_outputs.png" width="300" height="300">
+<img src="images/scDAPP_F3_outputs.png" width="300" height="350">
 
 
 
 The .HTML file contains a report summarizing all steps and results of the analysis. The folders contain information including plots, marker .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
 
 Assays and layers / slots of the integrated Seurat object found at `multisample_integration/data_objects/Seurat-object_integrated.rds` are as follows:
-- RISC assay: "data" layer contains batch-corrected matrix direct and unmodified from RISC, which is in natural log space (log1p). "counts" layer contains antilog to "count" space, "batch corrected counts". Data layer is most useful.
+- RISC assay: "data" layer contains normalized, batch-corrected matrix direct and unmodified from RISC, which is in natural log space (log1p). "counts" layer contains antilog to "count" space, "batch corrected counts". Data layer is most useful.
 - RNA assay: "counts" layer contains a concatenated matrix of raw UMI counts (non-normalized, non-batch corrected) from all samples. "data" layer contains something similar to Log1p counts (the output of `Seurat::NormalizeData()`).
 - Predictions assay: [label transfer](https://satijalab.org/seurat/articles/integration_mapping) scores from Seurat.
 
@@ -209,7 +203,7 @@ Please see [here](https://github.com/FerrenaAlexander/scDAPP_example_data) for a
 
 <br />
 
-## Common bugs and fixes
+## Common errors and fixes
 
 Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md).
 
@@ -218,5 +212,12 @@ Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Co
 ## Changelog
 
 Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Changelog.md).
+
+<br />
+
+## Citing scDAPP
+
+Please cite our publication: [scDAPP: a comprehensive single-cell transcriptomics analysis pipeline optimized for cross-group comparison, NAR Genomics and Bioinformatics 2024](https://academic.oup.com/nargab/article/6/4/lqae134/7786160)
+
 
 

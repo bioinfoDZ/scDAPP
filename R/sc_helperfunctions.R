@@ -124,6 +124,91 @@ alluvialplot <- function(labelsdf, repel, nudge_x, ggfittext, ...){
 
 
 
+#' A colored heatmap style two-way counts table to compare two variables such as cell metadata like clusters vs celltypes
+#' 
+#' A two-way table plotter, starting from long-format (per-sample / per-cell data.frame). Column 1 is the x-axis (columns), while column 2 is the y-axis (rows) of the plot. Factorize to control order of the rows/columns (unless clustering is used).
+#'
+#' @param labelsdf data.frame with two columns of categorical data
+#' @param xaxis.title string, title, default colname of the first column of labelsdf
+#' @param xaxis.fontsize numeric, fontsize default 12
+#' @param xaxis.rotate_angle numeric, default 45 (tilted)
+#' @param xaxis.cluster T/F, default F, cluster the columns
+#' @param yaxis.title string, title, default colname of the second column of labelsdf
+#' @param yaxis.fontsize numeric, fontsize default 12
+#' @param yaxis.cluster T/F, default F, cluster the rows
+#' @param cell.fontsize numeric, default 7, size of the numbers inside the cells
+#'
+#' @return a ComplexHeatmap object
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' labelsdf <- data.frame(sobjint$seurat_clusters, sobjint$Celltype)
+#' colnames(labelsdf) <- c('Clusters', 'Celltype')
+#' 
+#' twt <- twt_colored_heatmap(labelsdf)
+#' twt
+#' 
+#' }
+twt_colored_heatmap <- function(labelsdf,
+                                
+                                xaxis.title = colnames(labelsdf)[1],
+                                xaxis.fontsize = 12,
+                                xaxis.rotate_angle = 45,
+                                xaxis.cluster = F,
+                                
+                                yaxis.title = colnames(labelsdf)[2],
+                                yaxis.fontsize = 12,
+                                yaxis.cluster = F,
+                                
+                                cell.fontsize = 7
+                                
+                                
+){
+  
+  require(ComplexHeatmap)
+  require(grid)
+  
+  #two way table of counts of the values
+  twt <- as.matrix(table(labelsdf[,2], labelsdf[,1]))
+  
+  #scale the 
+  twt_scale <- scale(twt)
+  
+  
+  #plot
+  twt <- ComplexHeatmap::Heatmap(twt_scale, 
+                                 
+                                 rect_gp = grid::gpar(col = "white", lwd = 0.5),
+                                 border_gp = grid::gpar(col = "black", lwd = 2),
+                                 
+                                 
+                                 column_title_side = 'bottom',
+                                 column_title = xaxis.title, 
+                                 column_names_gp = grid::gpar(fontsize = xaxis.fontsize),
+                                 column_names_rot = xaxis.rotate_angle,
+                                 cluster_columns = xaxis.cluster, 
+                                 
+                                 
+                                 row_names_side = 'left',
+                                 row_title = yaxis.title,
+                                 row_names_gp = grid::gpar(fontsize = yaxis.fontsize),
+                                 cluster_rows = yaxis.cluster, 
+                                 
+                                 
+                                 show_heatmap_legend = F,
+                                 
+                                 cell_fun = function(j, i, x, y, width, height, fill) {
+                                   grid::grid.text(sprintf("%.0f", twt[i, j]), x, y, gp = gpar(fontsize = cell.fontsize, col = 'white'))
+                                 })
+  
+  
+  #return plot
+  twt
+  
+}
+
+
 
 
 

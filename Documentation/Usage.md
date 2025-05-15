@@ -2,7 +2,7 @@
 
 This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), integration with RISC, and cross-condition compositional (cell proportion) analysis and differential expression (DE) analysis. Multi-condition comparisons (condition A vs B vs C, ie WT vs KO vs Drug) are supported. 
 
-If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis (Propeller) and DE (EdgeR-LRT). If no replicates are present, will use the chi-square test of proportions (R proportion.test) for compositional analysis and the Wilcoxon test for DE.
+If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis and DE.
 
 
 
@@ -14,13 +14,14 @@ If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeli
 # Usage
 
 
-If you have any issues, please email alexanderferrena@gmail.com, or open an issue in this github repo.
+If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
+
 
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
 
 
-![](images/scDAPP_F2_inputs.png)
+![](../images/scDAPP_F2_inputs.png)
 
 
 <br />
@@ -34,7 +35,7 @@ Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 file
 Run Cellranger and keep the output folders from all samples together in a single folder.
 The parameter `datadir` is the path to a folder containing the Cellranger outputs.
 
-Cellranger produces many output files for each sample. Minimally, the folders in `datadir` must contain one item, the file called `filtered_feature_bc_matrix.h5`. For example, if you have four samples, you will need (or if you have run Cellranger, already have) a folder with four sub-folders with the sample names. `datadir` should be the path pointing to folder holding everything. It will search the subfolders for the `filtered_feature_bc_matrix.h5` file. The sample names (sample sub-folder names) should match the "Sample" column of the `sample_metadata.csv` file as explained below.
+Cellranger produces many output files for each sample. Minimally, the folders in `datadir` must contain one item, the file called `filtered_feature_bc_matrix.h5`. For example, if you have four samples, you will need (or if you have run Cellranger, already have) a folder with four sub-folders with the sample names. `datadir` should be the path pointing to folder holding everything. It will search the subfolders for the `filtered_feature_bc_matrix.h5` files. The sample names (sample sub-folder names) should match the "Sample" column of the `sample_metadata.csv` file as explained below.
 
 
 
@@ -42,10 +43,11 @@ Cellranger produces many output files for each sample. Minimally, the folders in
 
 Alternatively, the pipeline accepts Seurat objects if `input_seurat_obj` is set to TRUE. This can be useful for hashed/multiplexed samples, pre-filtered samples, or published data for which .h5 files are not easily available.
 
-Save each Seurat object as individual .rds files using the `saveRDS()` R command. Each sample should be named "SampleXYZ1.rds" and so on. The sample names should match the "Sample" column of the `sample_metadata.csv` file as explained below. The pipeline will use the "RNA" assay and the 
+Save each Seurat object as individual .rds files using the `saveRDS()` R command. Each sample should be named "SampleXYZ1.rds" and so on. The sample names should match the "Sample" column of the `sample_metadata.csv` file as explained below. The pipeline will use the "RNA" assay and the "counts" layer/slot of the Seurat objects.
 
 For [hashed](https://cite-seq.com/cell-hashing/) or [multiplexed](https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/running-pipelines/cr-3p-multi) inputs, this option can also be used. We recommended splitting all of the samples apart into separate Seurat objects even if they are from the same hash / CMO pool.
 
+Note that as of v1.3.1 (released mid May 2025), you can now pre-compute QC-related metrics like "percent.mito", "percent.hemoglobin" or "Phase" in the input Seurat objects, thus allowing you to pass these to the automated QC steps if using Seurat objects as input. Useful for when running organisms besides human/mouse.
 
 <br />
 
@@ -77,7 +79,7 @@ You can use the bash/zsh command `nano` to quickly create and save this file as 
 <br />
 
 
-### 3. `comps`: tell the pipeline which cross-condition comparisons to check
+### 3. `comps`: tell the pipeline which cross-condition comparisons to perform
 
 The parameter `comps` leads to a .csv file that looks like this:
 
@@ -155,16 +157,22 @@ It will produce a log file called `pipeline_runner.Rout`, which you can monitor,
 On HPC, it works by submitting a job, which runs the R script “pipeline_runner.R”, which in turn runs the .Rmd file.
 
 
-Here is an example HPC submission script:
+Here is an example HPC submission script.
+
+Note fields you may want to edit related to cores, time and memory requests of the job. See the bottom of this page for resource requirement estimation for cores, memory, and time.
+- `cpus-per-task`: number of cores for parallelization. Set this equal to `workernum` in the pipeline_runner.R file.
+- `t`: the time you are requesting for the job.
+- `mem`: how much RAM the job should be given.
+- `p`: the name of the SLURM partition you are submitting to. This will vary based on your HPC - see your HPC's guides or ask the admins for advice for how to pick this, based on the requested resources above.
 
 ```
 #!/bin/bash
 #SBATCH -p normal
-#SBATCH --job-name=SDAP
+#SBATCH --job-name=scDAPP
 #SBATCH -N 1
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=150gb
+#SBATCH --mem=100gb
 #SBATCH -t 48:00:00
 #SBATCH -o /path/to/job/report/%x-%A_%a.out
 
@@ -175,12 +183,12 @@ Here is an example HPC submission script:
 # https://docs.conda.io/en/latest/miniconda.html
 source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/conda.sh
 
-#activate r_env
+#activate conda env
 # see detailed install instructions for this conda env
-conda activate r_env
+conda activate 2025scdapp
 
 #run R file 
-# assumes there is the file "pipeline_runner.sh" in the current working directory
+# assumes there is the file "pipeline_runner.R" in the current working directory
 rfile=pipeline_runner.R
 
 echo Submitting $rfile
@@ -198,7 +206,12 @@ echo $SLURM_JOB_ID
 ```
 
 
-### Running on powerful servers
+If you put the script above in a file called submit_scDAPP.sh, you can run it via: `sbatch submit_scDAPP.sh`
+
+Note that this will create a file with extension ".Rout" with a log of the pipeline. The normal sbatch output log files will probably be empty. This is due to the way `R CMD BATCH` works.
+
+
+### Running on powerful servers without HPC
 
 If your computer has high memory and can keep running for hours, you can execute from Unix command line (bash, zsh) like so:
 
@@ -298,6 +311,7 @@ Finally, we use [DoubletFinder](https://github.com/chris-mcginnis-ucsf/DoubletFi
 - `doubletFinder` - T/F, default is T, whether to filter doublets with DoubletFinder
 
 
+Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now possible to pre-calculate some QC values and store them in the Seurat object metadata. These include `percent.mito`, `percent.hemoglobin`, and `Phase` (cell cycle phase). These can be calculated however you wish (such as with `Seurat::AddModuleScore()` or `Seurat::CellCycleScoring()`) and stored with these exact column names in the input Seurat object metadata. This can be useful if working with less common species, where gene names may differ a lot from typical human/mouse symbols for these QC metrics. Make sure to set `input_seurat_obj` to TRUE to use this. Note however that MSIGDBR has a limited set of compatible species with pathway genes. You can run `msigdbr::msigdbr_species()` in R to check the available species. If your species of interest is not on the list, you may consider still using the pipeline and selecting the species / taxon closest to your subject of study, but then using the pipeline outputs to run your own pathway analysis using the DEGs.
 
 
 
@@ -305,10 +319,10 @@ Finally, we use [DoubletFinder](https://github.com/chris-mcginnis-ucsf/DoubletFi
 
 
 - `pcs_indi` integer, default = 30; number of PCs to use in individual sample processing / clustering
-- `res_indi` numeric, default = 0.5; Louvain resolution for individual sample clustering
+- `res_indi` numeric, default = 0.5; Louvain resolution for individual sample clustering via Seurat
 - `pcs_int`  integer, default = 30; number of PCs to use in integrated data processing / clustering
-- `res_int` numeric, default = 0.5 ; Louvain resolution for louvain clustring of RISC integrated dataset; see `SDAP::scCluster_louvain_res()`
-- `RISC_louvain_neighbors` integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()` or `SDAP::scCluster_louvain_res()` where implementation of this is unchanged
+- `res_int` numeric, default = 0.5 ; Louvain resolution for clustering of integrated dataset via RISC
+- `RISC_louvain_neighbors` integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()`
 
 
 - `crossconditionDE_padj_thres` numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if `Pseudobulk_mode` is set to T default is 0.1; if `Pseudobulk_mode` is F default is 0.05
@@ -325,34 +339,34 @@ Running with multiple CPU threads ("workers") can speed up the analysis, *especi
 
 - `workernum` integer, number of CPU threads, default = 1
 
-If on HPC, make sure to also request the appropaite number of CPUs, for example by adding the following two lines to the SBATCH header for 11 cpus:
+If on HPC, make sure to also request the appropriate number of CPUs, for example by adding the following two lines to the SBATCH header for 10 cpus:
 ```
 #SBATCH --tasks-per-node=1
-#SBATCH --cpus-per-task=11
+#SBATCH --cpus-per-task=10
 ```
 
-Equivalent Grid Engine / qsub command:
+Equivalent Sun Grid Engine / qsub command:
 ```
-#$ -pe smp 11
+#$ -pe smp 10
 ```
 
-Paralellization is generally implemented across samples, so do not set `workernum` higher than the number of samples.
+Parallelization is generally implemented across samples, so setting `workernum` higher than the number of samples will give diminishing returns.
 
 
 
-### Memory Allocation
+### Memory and Time Allocation
 
-Memory usage can be high. One run with 11 non-multiplexed samples ran successfully with `workernum` = 11 and SBATCH memory set to 150gb.
+Memory usage can be high. One run with 24 non-hashed samples (~240,000 cells) parallelized across 10 CPUs took ~16 hours and ~150 GB of memory.
 
 Ask for this on SLURM-based HPC schedulers:
 ```
 #SBATCH --mem=150gb
 ```
 
-Equivalent qsub command, need to divide total mem in GB 150 by number of CPUS.
-For 150 over 11 CPUs, ask for 13.64 GB for each CPU.
+Equivalent Sun Grid Engine / qsub command, need to divide total desired memory in GB (150) by number of CPUS.
+For 150GB over 10 CPUs, ask for 15GB for each CPU.
 ```
-#$ -l h_vmem=13.645g
+#$ -l h_vmem=15g
 ```
 
 
@@ -366,7 +380,7 @@ For 150 over 11 CPUs, ask for 13.64 GB for each CPU.
 
 The outputs are shown below:
 
-<img src="../images/scDAPP_F3_outputs.png" width="300" height="300">
+<img src="../images/scDAPP_F3_outputs.png" width="300" height="350">
 
 
 
