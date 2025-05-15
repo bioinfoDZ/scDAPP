@@ -319,10 +319,10 @@ Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now po
 
 
 - `pcs_indi` integer, default = 30; number of PCs to use in individual sample processing / clustering
-- `res_indi` numeric, default = 0.5; Louvain resolution for individual sample clustering
+- `res_indi` numeric, default = 0.5; Louvain resolution for individual sample clustering via Seurat
 - `pcs_int`  integer, default = 30; number of PCs to use in integrated data processing / clustering
-- `res_int` numeric, default = 0.5 ; Louvain resolution for louvain clustring of RISC integrated dataset; see `SDAP::scCluster_louvain_res()`
-- `RISC_louvain_neighbors` integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()` or `SDAP::scCluster_louvain_res()` where implementation of this is unchanged
+- `res_int` numeric, default = 0.5 ; Louvain resolution for clustering of integrated dataset via RISC
+- `RISC_louvain_neighbors` integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()`
 
 
 - `crossconditionDE_padj_thres` numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if `Pseudobulk_mode` is set to T default is 0.1; if `Pseudobulk_mode` is F default is 0.05
@@ -339,34 +339,34 @@ Running with multiple CPU threads ("workers") can speed up the analysis, *especi
 
 - `workernum` integer, number of CPU threads, default = 1
 
-If on HPC, make sure to also request the appropriate number of CPUs, for example by adding the following two lines to the SBATCH header for 11 cpus:
+If on HPC, make sure to also request the appropriate number of CPUs, for example by adding the following two lines to the SBATCH header for 10 cpus:
 ```
 #SBATCH --tasks-per-node=1
-#SBATCH --cpus-per-task=11
+#SBATCH --cpus-per-task=10
 ```
 
-Equivalent Grid Engine / qsub command:
+Equivalent Sun Grid Engine / qsub command:
 ```
-#$ -pe smp 11
+#$ -pe smp 10
 ```
 
 Parallelization is generally implemented across samples, so setting `workernum` higher than the number of samples will give diminishing returns.
 
 
 
-### Memory Allocation
+### Memory and Time Allocation
 
-Memory usage can be high. One run with 11 non-multiplexed samples ran successfully with `workernum` = 11 and SBATCH memory set to 150gb.
+Memory usage can be high. One run with 24 non-hashed samples (~240,000 cells) parallelized across 10 CPUs took ~14 hours and ~150 GB of memory.
 
 Ask for this on SLURM-based HPC schedulers:
 ```
 #SBATCH --mem=150gb
 ```
 
-Equivalent qsub command, need to divide total mem in GB 150 by number of CPUS.
-For 150GB over 11 CPUs, ask for 13.64 GB for each CPU.
+Equivalent Sun Grid Engine / qsub command, need to divide total desired memory in GB (150) by number of CPUS.
+For 150GB over 10 CPUs, ask for 15GB for each CPU.
 ```
-#$ -l h_vmem=13.645g
+#$ -l h_vmem=15g
 ```
 
 
