@@ -1,10 +1,8 @@
 # Installation
 
+If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
-If you have any issues, please email alexanderferrena@gmail.com, or open an issue in this github repo.
 
-
-<br />
 
 ### This guide
 
@@ -15,7 +13,7 @@ The general steps for installation described by this guide are:
 
 
 If using a Linux server / HPC, please use the steps below.
-If installing on Mac, please see the bottom.
+If installing on Mac, the conda steps may be difficult - please see the bottom of this page.
 
 
 <br />
@@ -28,6 +26,17 @@ https://docs.conda.io/en/latest/miniconda.html
 
 You will likely need to restart the terminal for the installation to finish.
 
+#### General SLURM HPC usage:
+
+After installation, you may need to "source" Conda each time you want to use it, for example in submission scripts. Adding a source command to something like your bash_rc.rc file will load it in your login node, but not in submitted jobs.
+
+Example:
+```
+#source the path to your conda.sh file
+source <path/to/your/>conda.sh
+```
+
+
 
 #### Note for Einstein HPC users:
 
@@ -38,9 +47,6 @@ On Einstein HPC, I source my locally installed Conda like this. It will change f
 I do not recommend using the pre-installed conda on HPC, but rather starting from fresh. To use pre-installed conda, simply do not source the newly installed conda.
  
 
-#### General SLURM HPC usage:
-
-You will need to source Conda each time you want to use it, for example in submission scripts. Adding to bash_rc file will load it in your login node, but not in submitted jobs.
 
 
 
@@ -48,28 +54,15 @@ You will need to source Conda each time you want to use it, for example in submi
 
 
 
-### 2. Highly recommended: install mamba: 
-
-This is not necessary but *highly* recommended to speed up the installation.
-
-```
-conda install -c conda-forge mamba
-```
-
-With mamba installed, you can then use "mamba" in place of "conda" for any command for faster execution.
-Without mamba, just use "conda" instead of "mamba" below.
-
-<br />
-
-### 3. Create a conda environment using yaml file:
-Navigate to yaml file: https://github.com/bioinfoDZ/scDAPP/blob/main/conda_env/r_env.yml
+### 2. Create a conda environment using yaml file:
+Navigate to yaml file: https://github.com/bioinfoDZ/scDAPP/blob/main/conda_env/2025scdapp.yml
 
 Then download or copy and paste it into a file on the server / HPC. You can click the file and click on the "overlapping boxes" to copy raw file contents then paste it as a file in your location.
 
 
 Create the environment using the .yml file:
 ```
-mamba env create -f r_env.yml 
+conda env create -f 2025scdapp.yml 
 ```
 
 
@@ -77,21 +70,21 @@ It may ask your permission, just say yes.
 
 It will take a while to install after you give the permissions.
 
-If it still does not work, please write down the packages that give issues and email Alex and/or open an issue in this repo.
+If it still does not work, please write down the dependencies that cause trouble and the error messages, and open an issue in this repo.
 
 
 <br />
 
-### 4. Using R, install the package and dependencies in the conda environment:
+### 3. Using R, install the package and dependencies in the conda environment:
 
 
 
 Activate the conda environment, then within load R:
 ```
-# load conda
-conda activate r_env
+#load conda
+conda activate 2025scdapp
 
-#switch to R
+#activate R
 R
 
 #to quit R, use: 
@@ -99,34 +92,29 @@ R
 ```
 
 
-###  In R, install some dependencies, then scDAPP:
+####  In R, install scDAPP:
 
-1. First **install Matrix and irlba** from source. Installing irlba from source after Matrix will prevent [this common error](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md#1-function-as_cholmod_sparse-not-provided-by-package-matrix).
+
+You can then install this package and its dependencies from Github with:
+
 ```
-install.packages("Matrix", type = "source")
-install.packages("irlba", type = "source")
-```
-
-2. You can then install this package and its dependencies from Github with:
-
-``` r
 # install.packages("devtools")
 devtools::install_github("bioinfoDZ/scDAPP")
 ```
 
-It will ask your permissions, just say yes.
+It will ask your permission, just say yes.
 
 It will take a while to install all the dependencies and this package.
 
-Some packages (such as "XML") may be present due to Conda, but cannot be updated in R. It is okay, you can ignore it.
+Some packages (such as "XML") may already be present due to Conda, but cannot be updated in R. It is okay, you can ignore it.
 
-It may not work with some packages causing errors. R packages can be installed manually with R. If you used the conda virtual environment steps, many R packages are also available via conda/mamba (just google package name + conda).
+It may not work with some packages causing errors. R packages can be installed manually from within R or from conda. If you used the conda virtual environment steps, many R packages are also available via conda (just google package name + "conda") which may be a lot easier than manual installation.
 
-If you run into any issues, please open an issue in the github issues page for this repo or email Alex.
+If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
 
 
-Finally, if you did not get any errors during the package installation steps, you can test the installation by running:
+Finally, if you did not get any errors during the package installation steps, you can test the installation by running in R:
 
 ```
 scDAPP::r_package_test()
@@ -154,7 +142,7 @@ You should see messages about packages being activated followed by a data.frame 
 17         scDAPP  1.0.0
 ```
 
-You may need to exit R (via `q('no')`) and reload and rerun this if it does not work.
+You may need to exit R (via `q('no')`) and reload and rerun this if it does not work immediately following installation.
 
 
 <br />
@@ -164,10 +152,10 @@ You may need to exit R (via `q('no')`) and reload and rerun this if it does not 
 
 # If using Mac, start from here
 
-If using Mac, the conda virtual environment steps will likely not work. Instead, just skip the conda virtual environment steps and go directly to R. As long as you can get R >= v4.0, Seurat >= v4.0 or v5.0, and RISC >= v1.6 working, you should not have problems running the pipeline.
+If using Mac, the conda virtual environment steps will likely not work. Instead, just skip the conda virtual environment steps and go directly to R. As long as you can get R >= v4.0, Seurat >= v5.0, and RISC >= v1.7 working, you should not have problems running the pipeline.
 
 If on Mac then very likely, what you will need to do is install Apple Xcode from the app store, then open a terminal and run the following:
-- `xcode-select --install `
+- `xcode-select --install`
 - `sudo xcodebuild -license accept`
 
 You may also need to download the GNU Fortan compiler, accessible from this website: 
@@ -182,8 +170,20 @@ Then, in R, you can then install scDAPP with:
 devtools::install_github("bioinfoDZ/scDAPP")
 ```
 
+<br />
+<br />
 
 
+# Development branch
+
+There is also a development branch of this package where new features / big fixes are first pushed and tested before release. 
+In case of any breaking errors from upstream dependencies, if you are in a time crunch, you can try checking out the [dev branch changelog](https://github.com/bioinfoDZ/scDAPP/blob/dev/Documentation/Changelog.md) and installing like below:
+
+```
+devtools::install_github("bioinfoDZ/scDAPP@dev")
+```
+
+Note the dev branch may not be 100% stable and can subject to frequent updates.
 
 
 

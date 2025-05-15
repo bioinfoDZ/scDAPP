@@ -14,7 +14,8 @@ If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeli
 # Usage
 
 
-If you have any issues, please email alexanderferrena@gmail.com, or open an issue in this github repo.
+If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
+
 
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
@@ -46,6 +47,7 @@ Save each Seurat object as individual .rds files using the `saveRDS()` R command
 
 For [hashed](https://cite-seq.com/cell-hashing/) or [multiplexed](https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/running-pipelines/cr-3p-multi) inputs, this option can also be used. We recommended splitting all of the samples apart into separate Seurat objects even if they are from the same hash / CMO pool.
 
+Note that as of v1.3.1 (released mid May 2025), you can now pre-compute QC-related metrics like "percent.mito", "percent.hemoglobin" or "Phase" in the input Seurat objects, thus allowing you to pass these to the automated QC steps if using Seurat objects as input. Useful for when running organisms besides human/mouse.
 
 <br />
 
@@ -77,7 +79,7 @@ You can use the bash/zsh command `nano` to quickly create and save this file as 
 <br />
 
 
-### 3. `comps`: tell the pipeline which cross-condition comparisons to check
+### 3. `comps`: tell the pipeline which cross-condition comparisons to perform
 
 The parameter `comps` leads to a .csv file that looks like this:
 
@@ -155,16 +157,22 @@ It will produce a log file called `pipeline_runner.Rout`, which you can monitor,
 On HPC, it works by submitting a job, which runs the R script “pipeline_runner.R”, which in turn runs the .Rmd file.
 
 
-Here is an example HPC submission script:
+Here is an example HPC submission script.
+
+Note fields you may want to edit related to cores, time and memory requests of the job. See the bottom of this page for resource requirement estimation for cores, memory, and time.
+- `cpus-per-task`: number of cores for parallelization. Set this equal to `workernum` in the pipeline_runner.R file.
+- `t`: the time you are requesting for the job.
+- `mem`: how much RAM the job should be given.
+- `p`: the name of the SLURM partition you are submitting to. This will vary based on your HPC - see your HPC's guides or ask the admins for advice for how to pick this, based on the requested resources above.
 
 ```
 #!/bin/bash
 #SBATCH -p normal
-#SBATCH --job-name=SDAP
+#SBATCH --job-name=scDAPP
 #SBATCH -N 1
 #SBATCH --tasks-per-node=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=150gb
+#SBATCH --mem=100gb
 #SBATCH -t 48:00:00
 #SBATCH -o /path/to/job/report/%x-%A_%a.out
 
@@ -175,12 +183,12 @@ Here is an example HPC submission script:
 # https://docs.conda.io/en/latest/miniconda.html
 source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/conda.sh
 
-#activate r_env
+#activate conda env
 # see detailed install instructions for this conda env
-conda activate r_env
+conda activate 2025scdapp
 
 #run R file 
-# assumes there is the file "pipeline_runner.sh" in the current working directory
+# assumes there is the file "pipeline_runner.R" in the current working directory
 rfile=pipeline_runner.R
 
 echo Submitting $rfile
@@ -198,7 +206,12 @@ echo $SLURM_JOB_ID
 ```
 
 
-### Running on powerful servers
+If you put the script above in a file called submit_scDAPP.sh, you can run it via: `sbatch submit_scDAPP.sh`
+
+Note that this will create a file with extension ".Rout" with a log of the pipeline. The normal sbatch output log files will probably be empty. This is due to the way `R CMD BATCH` works.
+
+
+### Running on powerful servers without HPC
 
 If your computer has high memory and can keep running for hours, you can execute from Unix command line (bash, zsh) like so:
 
@@ -337,7 +350,7 @@ Equivalent Grid Engine / qsub command:
 #$ -pe smp 11
 ```
 
-Parallelization is generally implemented across samples, so do not set `workernum` higher than the number of samples.
+Parallelization is generally implemented across samples, so setting `workernum` higher than the number of samples will give diminishing returns.
 
 
 
