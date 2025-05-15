@@ -356,7 +356,7 @@ Parallelization is generally implemented across samples, so setting `workernum` 
 
 ### Memory and Time Allocation
 
-Memory usage can be high. One run with 24 non-hashed samples (~240,000 cells) parallelized across 10 CPUs took ~14 hours and ~150 GB of memory.
+Memory usage can be high. One run with 24 non-hashed samples (~240,000 cells) parallelized across 10 CPUs took ~16 hours and ~150 GB of memory.
 
 Ask for this on SLURM-based HPC schedulers:
 ```
