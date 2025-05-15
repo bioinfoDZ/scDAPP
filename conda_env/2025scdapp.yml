@@ -1,0 +1,25 @@
+name: 2025scdapp
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - bioconductor-sparsematrixstats
+  - ca-certificates
+  - cxx-compiler
+  - jags
+  - leidenalg
+  - numpy
+  - openssl
+  - pandas
+  - pip
+  - r
+  - r-devtools
+  - r-hdf5r
+  - r-matrix.utils
+  - r-sf
+  - r-units
+  - r-seurat
+  - bioconductor-fgsea
+  - bioconductor-summarizedexperiment
+  - bioconductor-glmgampoi
