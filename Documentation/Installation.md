@@ -7,8 +7,8 @@ If you run into any issues, you can check the [common bugs and fixes FAQ](https:
 ### This guide
 
 The general steps for installation described by this guide are:
- 1. install R and non-R dependencies within a conda virtual environment (steps 1-3, for Linux systems)
- 2. install R dependencies and the pipeline itself in R (step 4)
+ 1. install non-R and some R dependency packages within a Conda virtual environment
+ 2. install R dependencies and the pipeline itself in R
 
 
 
@@ -26,9 +26,9 @@ https://docs.conda.io/en/latest/miniconda.html
 
 You will likely need to restart the terminal for the installation to finish.
 
-#### General SLURM HPC usage:
+#### Using Conda on HPC:
 
-After installation, you may need to "source" Conda each time you want to use it, for example in submission scripts. Adding a source command to something like your bash_rc.rc file will load it in your login node, but not in submitted jobs.
+After installation, you may need to "source" Conda each time you want to use it, for example in submission scripts. Adding a source command to something like your bash_rc file will load it in your login node, but may not work in submitted jobs.
 
 Example:
 ```
@@ -113,6 +113,7 @@ It may not work with some packages causing errors. R packages can be installed m
 If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
 
+####  Test installation:
 
 Finally, if you did not get any errors during the package installation steps, you can test the installation by running in R:
 
@@ -183,7 +184,7 @@ In case of any breaking errors from upstream dependencies, if you are in a time 
 devtools::install_github("bioinfoDZ/scDAPP@dev")
 ```
 
-Note the dev branch may not be 100% stable and can subject to frequent updates.
+Note the dev branch may not be 100% stable and can be subject to frequent updates.
 
 
 

@@ -2,6 +2,10 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
+## 1.3.3
+2025.05.18
+- apptainer-related update: copy the .rmd file from the package to outdir so tmp file creation and rendering happens in a executable dir (since apptainer is strict with read-only once made)
+
 ## 1.3.1
 2025.05.14
 - add a fix for the MSIGDBR v10 to v24 update: remove "msigdbdf" from remotes imports
