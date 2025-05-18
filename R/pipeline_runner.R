@@ -357,12 +357,14 @@ scRNAseq_pipeline_runner <- function(  datadir,
   
   ## update 2025.03.18; try copying the rmd file to outdir first and rendering there
   # this is to make things work nicely with singularity
-  tmp_rmd <- tempfile(tmpdir = outdir, fileext = ".Rmd")
-  file.copy(rmdfile, tmp_rmd)
-  
-  message('Placing copy of .rmd file in outdir:\n',
+  # tmp_rmd <- tempfile(tmpdir = outdir, fileext = ".Rmd")
+  tmp_rmd <- paste0(outdir, '/', basename(rmdfile))
+
+  message('Placing runnable copy of .rmd file in outdir:\n',
           tmp_rmd,
           '\n\n')
+  dir.create(outdir, recursive = T)
+  file.copy(rmdfile, tmp_rmd)
   
   
   
