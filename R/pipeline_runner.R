@@ -296,12 +296,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
   
   
   
-  #locate the pipeline file
-  rmdfile <- system.file("rmd", "scRNAseq_clustering_integration.Rmd", package = "scDAPP")
-  
-  message('Will run rmd file at:\n',
-          rmdfile,
-          '\n\n')
+
   
   
   
@@ -352,7 +347,26 @@ scRNAseq_pipeline_runner <- function(  datadir,
   ####
   
   
-  rmarkdown::render(rmdfile,
+  
+  #locate the pipeline file
+  rmdfile <- system.file("rmd", "scRNAseq_clustering_integration.Rmd", package = "scDAPP")
+  
+  message('Found rmd file at:\n',
+          rmdfile,
+          '\n\n')
+  
+  ## update 2025.03.18; try copying the rmd file to outdir first and rendering there
+  # this is to make things work nicely with singularity
+  tmp_rmd <- tempfile(tmpdir = outdir, fileext = ".Rmd")
+  file.copy(rmdfile, tmp_rmd)
+  
+  message('Placing copy of .rmd file in outdir:\n',
+          tmp_rmd,
+          '\n\n')
+  
+  
+  
+  rmarkdown::render(tmp_rmd,
                     params=list(
                       datadir = datadir,
                       outdir = outdir,
@@ -400,7 +414,11 @@ scRNAseq_pipeline_runner <- function(  datadir,
                     ),
                     
                     #this line ensures html prints to outdir folder
-                    output_dir = outdir
+                    output_dir = outdir,
+                    
+                    #update 2025.03.18 below lines will hopefully write tmp files to outdir to help with singularity read-only restrictions
+                    intermediates_dir = outdir,
+                    knit_root_dir = outdir
                     
   )
   
