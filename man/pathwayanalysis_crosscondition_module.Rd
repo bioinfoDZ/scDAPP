@@ -5,7 +5,7 @@
 \title{GSEA analysis for cross condition DE analysis}
 \usage{
 pathwayanalysis_crosscondition_module(
-  m_bycluster_crosscondition_de_comps,
+  de_results,
   pathways,
   sample_metadata,
   comps,
@@ -17,7 +17,7 @@ pathwayanalysis_crosscondition_module(
 )
 }
 \arguments{
-\item{m_bycluster_crosscondition_de_comps}{the output of \code{scDAPP::de_across_conditions_module()}.}
+\item{de_results}{harmonized data.frame from \code{scDAPP::de_across_conditions_module()}.}
 
 \item{pathways}{data.frame, the output of \code{scDAPP::preppathways_pathwayanalysis_crosscondition_module()}}
 
@@ -36,7 +36,9 @@ pathwayanalysis_crosscondition_module(
 \item{cp.font.size}{numeric. size of pathway name test in summary plots. larger than 5 will likely result in name overlap and unreadable plots, currently not easy to solve}
 }
 \value{
-a list with two elements. First contains the raw results and plots as a nested loop: first level is A vs B comparison, then category-by-category of MSIGDB database, then cluster-by-cluster. The second list element is similar but just has a summary plot showing top pathways across clusters.
+A list with \code{pathway_results} (flat data.frame), \code{pathwaysummplots_comps}
+(summary plots per comparison), and \code{pathway_cluster_plots} (nested gseares/dotplot
+objects per cluster for HTML reporting; not a tabular API).
 }
 \description{
 This function is a modular component of the scRNAseq pipeline. Perform GSEA analysis via the FGSEA package on the results of differential expression (DE) analysis for cross-condition comparison. Multiple conditions are supported. Plots and tables are saved.
@@ -54,7 +56,7 @@ outdir_int = outdir_int)
 # THIRD: run the pathway analysis.
 # see `scDAPP::de_across_conditions_module()` for a description of the sample_metadata and comps files.
 pways_output_list <- pathwayanalysis_crosscondition_module(
-m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+de_results = de_results,
 pathways = pathways,
 sample_metadata = sample_metadata,
 comps = comps,
@@ -62,13 +64,9 @@ workernum = 6,
 outdir_int = outdir_int
 )
 
-# Access the output files
-# note that all results will be saved to outdir_int.
-pathway_analysis_mainlist_comps <- pways_output_list$pathway_analysis_mainlist_comps
+# Access the output files (also saved under outdir_int):
+pathway_results <- pways_output_list$pathway_results
 pathwaysummplots_comps <- pways_output_list$pathwaysummplots_comps
-
-#these are both lists that contain the raw tables and per-cluster plots (first object);
-# and summaryplots that show pathway enrichment across clusters (second object).
 
 }
 }

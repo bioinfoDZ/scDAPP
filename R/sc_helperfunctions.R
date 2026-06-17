@@ -13,7 +13,7 @@
 #' @param repel T/F, whether to repel the labels, default = T
 #' @param nudge_x numeric, default nudge to the left and right of the repel labels, default 0.2
 #' @param ggfittext T/F - whether to use ggfittext, to try to squeeze or remove tiny stratum labels
-#' @param ...
+#' @param ... additional arguments passed to \code{ggalluvial::geom_alluvium()}.
 #'
 #' @return a ggplot object
 #' @export
@@ -137,6 +137,8 @@ alluvialplot <- function(labelsdf, repel, nudge_x, ggfittext, ...){
 #' @param yaxis.fontsize numeric, fontsize default 12
 #' @param yaxis.cluster T/F, default F, cluster the rows
 #' @param cell.fontsize numeric, default 7, size of the numbers inside the cells
+#' @param color_by string, how to color cells: `"row_prop"` (within-row proportion, default), `"count"` (raw counts), or `"row_scaled"` (row-wise z-score)
+#' @param title optional string, panel title passed to ComplexHeatmap `column_title`
 #'
 #' @return a ComplexHeatmap object
 #' @export
@@ -161,7 +163,9 @@ twt_colored_heatmap <- function(labelsdf,
                                 yaxis.fontsize = 12,
                                 yaxis.cluster = F,
                                 
-                                cell.fontsize = 7
+                                cell.fontsize = 7,
+                                color_by = c("row_prop", "count", "row_scaled"),
+                                title = NULL
                                 
                                 
 ){
@@ -169,42 +173,83 @@ twt_colored_heatmap <- function(labelsdf,
   require(ComplexHeatmap)
   require(grid)
   
-  #two way table of counts of the values
-  twt <- as.matrix(table(labelsdf[,2], labelsdf[,1]))
+  color_by <- match.arg(color_by)
   
-  #scale the 
-  twt_scale <- scale(twt)
+  labelsdf2 <- lapply(labelsdf, function(i) {
+    if (!is.factor(i)) {
+      factor(i, levels = names(sort(table(i), decreasing = TRUE)))
+    } else {
+      i
+    }
+  })
+  labelsdf <- data.frame(labelsdf2, row.names = rownames(labelsdf))
   
+  # two way table of counts; rows = col2, columns = col1
+  twt_counts <- as.matrix(table(labelsdf[, 2], labelsdf[, 1]))
   
-  #plot
-  twt <- ComplexHeatmap::Heatmap(twt_scale, 
-                                 
-                                 rect_gp = grid::gpar(col = "white", lwd = 0.5),
-                                 border_gp = grid::gpar(col = "black", lwd = 2),
-                                 
-                                 
-                                 column_title_side = 'bottom',
-                                 column_title = xaxis.title, 
-                                 column_names_gp = grid::gpar(fontsize = xaxis.fontsize),
-                                 column_names_rot = xaxis.rotate_angle,
-                                 cluster_columns = xaxis.cluster, 
-                                 
-                                 
-                                 row_names_side = 'left',
-                                 row_title = yaxis.title,
-                                 row_names_gp = grid::gpar(fontsize = yaxis.fontsize),
-                                 cluster_rows = yaxis.cluster, 
-                                 
-                                 
-                                 show_heatmap_legend = F,
-                                 
-                                 cell_fun = function(j, i, x, y, width, height, fill) {
-                                   grid::grid.text(sprintf("%.0f", twt[i, j]), x, y, gp = gpar(fontsize = cell.fontsize, col = 'white'))
-                                 })
+  twt_color <- switch(
+    color_by,
+    row_prop = {
+      rs <- rowSums(twt_counts)
+      rs[rs == 0] <- 1
+      twt_counts / rs
+    },
+    count = twt_counts,
+    row_scaled = scale(twt_counts)
+  )
   
+  .twt_text_color <- function(val) {
+    if (is.na(val)) return("black")
+    if (color_by == "row_scaled") {
+      if (val > 0.5) "white" else "black"
+    } else if (color_by == "row_prop") {
+      if (val > 0.55) "white" else "black"
+    } else {
+      rng <- range(twt_color, na.rm = TRUE)
+      mid <- mean(rng)
+      if (val > mid) "white" else "black"
+    }
+  }
   
-  #return plot
-  twt
+  col_fun <- if (color_by == "row_scaled") {
+    circlize::colorRamp2(c(-2, 0, 2), c("#2166AC", "#F7F7F7", "#B2182B"))
+  } else if (color_by == "row_prop") {
+    circlize::colorRamp2(c(0, 1), c("#F7F7F7", "#B2182B"))
+  } else {
+    circlize::colorRamp2(c(0, max(twt_color, na.rm = TRUE)), c("#F7F7F7", "#B2182B"))
+  }
+  
+  panel_title <- if (!is.null(title)) title else xaxis.title
+  
+  twt_hm <- ComplexHeatmap::Heatmap(
+    twt_color,
+    col = col_fun,
+    rect_gp = grid::gpar(col = "white", lwd = 0.5),
+    border_gp = grid::gpar(col = "black", lwd = 2),
+    column_title_side = "bottom",
+    column_title = panel_title,
+    column_names_gp = grid::gpar(fontsize = xaxis.fontsize),
+    column_names_rot = xaxis.rotate_angle,
+    cluster_columns = xaxis.cluster,
+    row_names_side = "left",
+    row_title = yaxis.title,
+    row_names_gp = grid::gpar(fontsize = yaxis.fontsize),
+    cluster_rows = yaxis.cluster,
+    show_heatmap_legend = FALSE,
+    cell_fun = function(j, i, x, y, width, height, fill) {
+      count_val <- twt_counts[i, j]
+      color_val <- twt_color[i, j]
+      txt_col <- .twt_text_color(color_val)
+      grid::grid.text(
+        sprintf("%.0f", count_val),
+        x,
+        y,
+        gp = grid::gpar(fontsize = cell.fontsize, col = txt_col)
+      )
+    }
+  )
+  
+  twt_hm
   
 }
 
@@ -232,6 +277,9 @@ twt_colored_heatmap <- function(labelsdf,
 #' @export
 #'
 #' @examples
+#' \dontrun{
+#' pb <- pseudobulk(sobj, grouping_colname_in_md = "seurat_clusters")
+#' }
 pseudobulk <- function(obj, grouping_colname_in_md, metadata, rawh5_path, assay, slot, min_cells){
 
   if(missing(assay)){assay = 'RNA'}
@@ -274,7 +322,7 @@ pseudobulk <- function(obj, grouping_colname_in_md, metadata, rawh5_path, assay,
               '\n - Assay = ', assay,
               '\n - Slot = ', slot)
 
-      mat <- Seurat::GetAssayData(sobj, assay=assay, slot=slot)
+      mat <- Seurat::GetAssayData(sobj, assay = assay, layer = slot)
     }
   } else{
     message('Assuming input is matrix-like')
@@ -397,10 +445,15 @@ calculate_percent.hemoglobin <- function(sobj, hemoglobin.features){
 #' @param titlesize title font size, default is 15
 #' @param padding whitespace between title and table, default=1
 #'
-#' @return
+#' @return Invisibly, the drawn grid table on the current graphics device.
 #' @export
 #'
 #' @examples
+#' \dontrun{
+#' pdf("table.pdf")
+#' pdftable(data.frame(x = 1:3, y = letters[1:3]), title = "Example")
+#' dev.off()
+#' }
 pdftable <- function(tabledf, title, titlesize, padding){
   
   require(grid)
@@ -457,7 +510,7 @@ pdftable <- function(tabledf, title, titlesize, padding){
 #'
 #' @param titlesize numeric, size of font
 #'
-#' @return
+#' @return A \code{ggplot2} theme object.
 #' @export
 #'
 #' @examples
@@ -496,6 +549,9 @@ theme_dimplot <- function(titlesize = 15) {
 #' @export
 #'
 #' @examples
+#' \dontrun{
+#' scores <- fix_underflow(scores, logFC_vec)
+#' }
 fix_underflow <- function(scores,
                           logFC_vec){
 

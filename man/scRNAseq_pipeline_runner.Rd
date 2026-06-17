@@ -24,18 +24,31 @@ scRNAseq_pipeline_runner(
   autofilter_medianabsolutedev_threshold,
   autofilter_loess_negative_residual_threshold,
   doubletFinder,
+  cluster_unfiltered,
   pcs_indi,
   res_indi,
   pcs_int,
   res_int,
+  stability_outdir,
+  stability_numreps,
+  stability_sweep_maxPCs,
+  stability_sweep_res,
+  stability_propcells.perrep,
   RISC_louvain_neighbors,
+  integration_method,
   DE_test,
   crossconditionDE_padj_thres,
   crossconditionDE_lfc_thres,
+  crossconditionDE_min.pct,
   pathway_padj_thres,
   species,
+  msigdbr_cache_dir,
   workernum,
+  stability_workernum,
   run_ORA,
+  run_msigdb_celltype_ora,
+  msigdb_celltype_ora_marker_padj_thres,
+  msigdb_celltype_ora_top_markers,
   input_seurat_obj,
   title,
   author,
@@ -56,7 +69,7 @@ scRNAseq_pipeline_runner(
 
 \item{sample_metadata}{string, path to a .csv file containing at least two columns: "Sample", matching exactly the sample names in \code{datadir}, and "Condition", giving the experiment status of that sample, such as WT or KO, Case vs Control, etc. Optionally, can provide a third column "Code" giving a nickname for each sample; this is set to "Sample_Condition" for each sample if not.}
 
-\item{comps}{string, path to a .csv file containing two columns called "c1" and "c2". Each row will be used to compare conditions from the "sample_metadata" csv; multiple comparisons are supported.}
+\item{comps}{string, path to a .csv file with columns c0 (reference), c1 (test), and optional formula, contrast, label. Legacy c2 is accepted as alias for c0. Multiple comparisons are supported.}
 
 \item{Pseudobulk_mode}{T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the \code{prop.test()} function for compositional analysis.}
 
@@ -82,29 +95,56 @@ scRNAseq_pipeline_runner(
 
 \item{doubletFinder}{T/F, default is T, whether to filter doublets with \code{DoubletFinder}}
 
+\item{cluster_unfiltered}{logical, default FALSE. If TRUE, run SCT and Louvain clustering
+on the full unfiltered matrix before autofilter (for cluster-level QC diagnostics).}
+
 \item{pcs_indi}{integer, default = 30; number of PCs to use in individual sample processing / clustering}
 
 \item{res_indi}{numeric, default = 0.5; Louvain resolution for individual sample clustering}
 
-\item{pcs_int}{integer, default = 30; number of PCs to use in integrated data processing / clustering}
+\item{pcs_int}{integer or \code{"auto"}, default = 30; number of PCs for integrated clustering, or automatic selection via bootstrap cluster stability}
 
-\item{res_int}{numeric, default = 0.5 ; Louvain resolution for louvain clustring of RISC integrated dataset; see \code{scDAPP::scCluster_louvain_res()}}
+\item{res_int}{numeric or \code{"auto"}, default = 0.5; Louvain resolution for integrated clustering, or \code{"auto"} (see \code{auto_integration_cluster_params()})}
+
+\item{stability_outdir}{optional path for stability sweep outputs when \code{pcs_int} or \code{res_int} is \code{"auto"} (default: \code{outdir/integrated_analysis/cluster_stability})}
+
+\item{stability_numreps}{bootstrap replicates for auto tuning (default 50)}
+
+\item{stability_sweep_maxPCs}{PC grid when \code{pcs_int = "auto"}}
+
+\item{stability_sweep_res}{resolution grid when \code{res_int = "auto"}}
+
+\item{stability_propcells.perrep}{cell fraction per bootstrap replicate (default 0.8)}
 
 \item{RISC_louvain_neighbors}{integer, default = 10; number of nearest neighbors to consider during clustering; see \code{RISC::scCluster()} or \code{scDAPP::scCluster_louvain_res()} where implementation of this is unchanged}
+
+\item{integration_method}{character; sample integration backend. One of \code{RISC} (default) or Seurat v5 \code{IntegrateLayers} methods (\code{CCAIntegration}, \code{RPCAIntegration}, \code{CCAIntegration_SCT}, \code{RPCAIntegration_SCT}, \code{HarmonyIntegration}). See \code{integration_method_choices()}.}
 
 \item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
 
 \item{crossconditionDE_padj_thres}{numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if \code{Pseudobulk_mode} is set to T default is 0.1; if \code{Pseudobulk_mode} is F default is 0.05}
 
-\item{crossconditionDE_lfc_thres}{numeric, absolute value of LFC threshold for significant DE genes in cross condition DE; if \code{Pseudobulk_mode} is set to F default is 0 (no minimum lFC); if \code{Pseudobulk_mode} is F default is 0.25}
+\item{crossconditionDE_lfc_thres}{numeric, absolute value of LFC threshold for significant DE genes in cross condition DE; if \code{Pseudobulk_mode} is T default is 0 (no minimum LFC); if \code{Pseudobulk_mode} is F default is 0.25}
+
+\item{crossconditionDE_min.pct}{numeric, minimum expression fraction for DEG counting and ORA (\code{pct.1} if up, \code{pct.2} if down); if \code{Pseudobulk_mode} is T default is 0.1; if F default is 0. Pass \code{NULL} to use mode defaults via \code{crosscondition_de_threshold_defaults()}.}
 
 \item{pathway_padj_thres}{numeric, threshold for significant DE pathways via GSEA test; default is 0.1}
 
 \item{species}{string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see \code{msigdbr::msigdbr_species()}}
 
-\item{workernum}{integer, number of CPU threads, default = 1}
+\item{msigdbr_cache_dir}{optional string, directory for cached MSigDB pathway tables prepared by \code{preppathways_pathwayanalysis_crosscondition_module()}. When NULL, uses \code{XDG_CACHE_HOME/scDAPP} if set, else \code{tools::R_user_dir("scDAPP", "cache")}. Falls back to a subfolder of the pipeline output directory with a warning if those locations are not writable.}
+
+\item{workernum}{integer, number of CPU threads for final RISC integration, default = 1}
+
+\item{stability_workernum}{integer or NULL; parallel workers for auto stability sweep (NULL uses workernum)}
 
 \item{run_ORA}{T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in \code{clusterProfiler::enricher()}. clusterProfiler must be installed for this. Will save table outputs.}
+
+\item{run_msigdb_celltype_ora}{T/F, default is TRUE. Whether to run ORA of cluster markers against MSigDB cell-type signature gene sets on individual and integrated marker tables. clusterProfiler must be installed.}
+
+\item{msigdb_celltype_ora_marker_padj_thres}{numeric, adjusted p-value cutoff for cluster marker genes included in MSigDB cell-type ORA (default 0.05).}
+
+\item{msigdb_celltype_ora_top_markers}{integer, max markers per cluster after padj filter, ranked by score (default 100).}
 
 \item{input_seurat_obj}{T/F. If true, will read in Seurat objects from \code{datadir} with names matching the sample column of \code{sample_metadata}. Ie, if datadir contains objects called "Sample1.rds", "Sample2.rds", and psuedobulk_metadata has "Sample1" in the Sample column, only Sample1.rds will be read in. Useful for data with some preprocessing or hashed data input.}
 

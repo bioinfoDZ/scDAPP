@@ -133,7 +133,7 @@ scConf[20,c('fCL')] <- paste(colscodes, collapse = '|')
 makeShinyApp(seu, scConf, gene.mapping = TRUE,
              shiny.title = "Example_Shiny_App_Title",
              shiny.dir = 'apps_ShinyCellExample/',
-             gex.assay = 'RISC',
+             gex.assay = 'Integrated_RISC',
              default.gene1 = 'PTPRC', default.gene2 = 'CD3E',
              default.multigene = c('PTPRC', 'CD3E', 'MS4A1', 'CD68')
              )

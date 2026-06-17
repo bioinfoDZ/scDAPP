@@ -13,7 +13,9 @@ twt_colored_heatmap(
   yaxis.title = colnames(labelsdf)[2],
   yaxis.fontsize = 12,
   yaxis.cluster = F,
-  cell.fontsize = 7
+  cell.fontsize = 7,
+  color_by = c("row_prop", "count", "row_scaled"),
+  title = NULL
 )
 }
 \arguments{
@@ -34,6 +36,10 @@ twt_colored_heatmap(
 \item{yaxis.cluster}{T/F, default F, cluster the rows}
 
 \item{cell.fontsize}{numeric, default 7, size of the numbers inside the cells}
+
+\item{color_by}{string, how to color cells: \code{"row_prop"} (within-row proportion, default), \code{"count"} (raw counts), or \code{"row_scaled"} (row-wise z-score)}
+
+\item{title}{optional string, panel title passed to ComplexHeatmap \code{column_title}}
 }
 \value{
 a ComplexHeatmap object

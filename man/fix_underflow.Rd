@@ -17,3 +17,8 @@ a vector of P value scores, where underflow -logP values have been ranked approp
 \description{
 Given a list of P values from Seurat Wilcox or EdgeR test, one should multiply P values times -log10 times sign of lfc. With this input, sometimes underflow occurs. This function will fix this underflow (ie for input to GSEA) by adding +1 to all Inf values and -1 to all -Inf values.
 }
+\examples{
+\dontrun{
+scores <- fix_underflow(scores, logFC_vec)
+}
+}

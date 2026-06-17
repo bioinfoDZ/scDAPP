@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+tests/
+Documentation/Testing.md
+inst/scripts/
+.lintr
+R/TestNewFunctions/

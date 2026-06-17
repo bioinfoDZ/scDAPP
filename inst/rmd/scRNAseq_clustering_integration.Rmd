@@ -27,19 +27,32 @@ params:
   autofilter_medianabsolutedev_threshold: 3
   autofilter_loess_negative_residual_threshold: -5
   doubletFinder: TRUE
+  cluster_unfiltered: FALSE
   pcs_indi: 30
   res_indi: 0.5
   pcs_int: 30
   res_int: 0.5
+  stability_outdir: NULL
+  stability_numreps: 50
+  stability_sweep_maxPCs: !expr c(5, 10, 15, 20, 25, 30, 40, 50)
+  stability_sweep_res: !expr seq(0.1, 1.5, by = 0.2)
+  stability_propcells.perrep: 0.8
   RISC_louvain_neighbors: 10
+  integration_method: RISC
   Pseudobulk_mode: NULL
   DE_test: NULL
   crossconditionDE_padj_thres: NULL
   crossconditionDE_lfc_thres: NULL
+  crossconditionDE_min.pct: NULL
   pathway_padj_thres: 0.1
   species: 'Homo sapiens'
+  msigdbr_cache_dir: NULL
   workernum: 1
+  stability_workernum: null
   run_ORA: FALSE
+  run_msigdb_celltype_ora: TRUE
+  msigdb_celltype_ora_marker_padj_thres: 0.05
+  msigdb_celltype_ora_top_markers: 100
   input_seurat_obj: FALSE
   title: scDAPP Report
   author: Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues
@@ -268,6 +281,7 @@ autofilter_medianabsolutedev_threshold = params$autofilter_medianabsolutedev_thr
 autofilter_loess_negative_residual_threshold = params$autofilter_loess_negative_residual_threshold
 
 doubletFinder = params$doubletFinder
+cluster_unfiltered = params$cluster_unfiltered
 
 # #check package versions and add warnings
 # if( (packageVersion('DoubletFinder') == "2.0.3") & (packageVersion('Seurat') >= "5.0.0") ){
@@ -293,53 +307,41 @@ pcs_indi <- params$pcs_indi
 res_indi <- params$res_indi
 pcs_int <- params$pcs_int
 res_int <- params$res_int
+stability_outdir <- params$stability_outdir
+stability_numreps <- params$stability_numreps
+stability_sweep_maxPCs <- params$stability_sweep_maxPCs
+stability_sweep_res <- params$stability_sweep_res
+stability_propcells.perrep <- params$stability_propcells.perrep
+stability_workernum <- params$stability_workernum
 RISC_louvain_neighbors <- params$RISC_louvain_neighbors
+
+.pcs_int_auto <- is.character(pcs_int) && length(pcs_int) == 1L && tolower(pcs_int) == "auto"
+.res_int_auto <- is.character(res_int) && length(res_int) == 1L && tolower(res_int) == "auto"
+
+integration_method <- params$integration_method
+if (is.null(integration_method) || !nzchar(as.character(integration_method))) {
+  integration_method <- "RISC"
+}
+int_config <- scDAPP::resolve_integration_config(
+  integration_method,
+  pcs_int,
+  res_int
+)
 
 
 # DE test
 DE_test <- params$DE_test
 
-#for these, defaults will be null, then set to lenient if pseudobulk and strict if wilcox
-
-crossconditionDE_padj_thres <- params$crossconditionDE_padj_thres
-crossconditionDE_lfc_thres <- params$crossconditionDE_lfc_thres
-crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
-
-if(Pseudobulk_mode == T){
-  
-  if(is.null(crossconditionDE_padj_thres)){
-    crossconditionDE_padj_thres <- 0.1
-  }
-  
-  if(is.null(crossconditionDE_lfc_thres)){
-    crossconditionDE_lfc_thres <- 0
-  }
-  
-  
-  # if(is.null(crossconditionDE_lfc_thres)){
-  #   crossconditionDE_min.pct <- 0.1
-  # }
-  
-  
-}
-
-if(Pseudobulk_mode == F){
-  
-  if(is.null(crossconditionDE_padj_thres)){
-    crossconditionDE_padj_thres <- 0.05
-  }
-  
-  if(is.null(crossconditionDE_lfc_thres)){
-    crossconditionDE_lfc_thres <- 0.25
-  }
-  
-  
-  # if(is.null(crossconditionDE_lfc_thres)){
-  #   crossconditionDE_min.pct <- 0
-  # }
-  
-  
-}
+# DEG counting thresholds (lenient pseudobulk vs strict Wilcox); see crosscondition_de_threshold_defaults()
+de_th <- scDAPP::crosscondition_de_threshold_defaults(
+  Pseudobulk_mode,
+  padj = params$crossconditionDE_padj_thres,
+  lfc = params$crossconditionDE_lfc_thres,
+  min_pct = params$crossconditionDE_min.pct
+)
+crossconditionDE_padj_thres <- de_th$padj
+crossconditionDE_lfc_thres <- de_th$lfc
+crossconditionDE_min.pct <- de_th$min_pct
 
 
 pathway_padj_thres <- params$pathway_padj_thres
@@ -347,9 +349,14 @@ pathway_padj_thres <- params$pathway_padj_thres
 
 # pwaycats: NULL
 species <- params$species
+msigdbr_cache_dir <- params$msigdbr_cache_dir
 
 ## use ORA
 run_ORA <- params$run_ORA
+
+run_msigdb_celltype_ora <- params$run_msigdb_celltype_ora
+msigdb_celltype_ora_marker_padj_thres <- params$msigdb_celltype_ora_marker_padj_thres
+msigdb_celltype_ora_top_markers <- params$msigdb_celltype_ora_top_markers
 
 
 
@@ -408,24 +415,21 @@ if(!('Code' %in% colnames(sample_metadata))){
 #comparisons
 comps <- params$comps
 
-if(!is.null(comps)){ comps <- read.csv(comps) }
-if(is.null(comps)){
-  
-  
+if(!is.null(comps)){
+  comps <- read.csv(comps)
+} else {
   if( length(levels(sample_metadata$Condition)) > 2 ){
-    
     warning('"comps" data.frame not provided, will try to guess from sample_metadata')
-    comps <- data.frame(c1 = levels(sample_metadata$Condition)[1],
-                        c2 = levels(sample_metadata$Condition)[2])
-    
-  } else{
-    
-    stop('Please set comps, path to csv file c1 and c2 column defining comparisons of conditions to use')
-    
+    comps <- data.frame(
+      c0 = levels(sample_metadata$Condition)[2],
+      c1 = levels(sample_metadata$Condition)[1],
+      stringsAsFactors = FALSE
+    )
+  } else {
+    stop('Please set comps, path to csv file with c0 and c1 columns defining comparisons of conditions to use')
   }
-  
-  
 }
+comps <- scDAPP::normalize_comps(comps)
 
 
 
@@ -436,7 +440,7 @@ if(is.null(comps)){
 
 
 ## make sure all comps are in sample_metadata
-compscheck <- unique(c(comps$c1, comps$c2))
+compscheck <- unique(c(comps$c0, comps$c1))
 
 if( any(!(compscheck %in% sample_metadata$Condition)) ){
   
@@ -446,6 +450,17 @@ if( any(!(compscheck %in% sample_metadata$Condition)) ){
   stop("Some conditions in the comps.csv file are missing from sample_metadata.csv. Please make sure all comparisons in comps.csv are present in the Condition column of sample_metadata.csv and spelled correctly.\nThe following conditions are present in comps.csv but missing from the sample_metadata.csv file's Condition column: ", paste(missingcomps, collapse = ', '))
   
   
+}
+
+## make sure design formula variables are in sample_metadata
+for (i in seq_len(nrow(comps))) {
+  fchr <- trimws(as.character(comps$formula[i]))
+  if (!startsWith(fchr, "~")) fchr <- paste("~", fchr)
+  fvars <- all.vars(as.formula(fchr))
+  miss <- setdiff(fvars, colnames(sample_metadata))
+  if (length(miss)) {
+    stop("sample_metadata missing variable(s) for comps formula: ", paste(miss, collapse = ", "))
+  }
 }
 
 
@@ -475,6 +490,7 @@ pl <- list(datadir = datadir,
            autofilter_medianabsolutedev_threshold = autofilter_medianabsolutedev_threshold,
            autofilter_loess_negative_residual_threshold = autofilter_loess_negative_residual_threshold,
            doubletFinder = doubletFinder,
+           cluster_unfiltered = cluster_unfiltered,
            
            risc_reference = ifelse(is.null(risc_reference), 'auto', risc_reference) ,
            
@@ -483,14 +499,19 @@ pl <- list(datadir = datadir,
            pcs_int = pcs_int,
            res_int = res_int,
            RISC_louvain_neighbors = RISC_louvain_neighbors,
+           integration_method = integration_method,
            
            Pseudobulk_mode = Pseudobulk_mode,
            DE_test = DE_test,
            crossconditionDE_padj_thres = crossconditionDE_padj_thres,
            crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
+           crossconditionDE_min.pct = crossconditionDE_min.pct,
            pathway_padj_thres = pathway_padj_thres,
            species = species,
            run_ORA = run_ORA,
+           run_msigdb_celltype_ora = run_msigdb_celltype_ora,
+           msigdb_celltype_ora_marker_padj_thres = msigdb_celltype_ora_marker_padj_thres,
+           msigdb_celltype_ora_top_markers = msigdb_celltype_ora_top_markers,
            
            workernum = workernum,
            input_seurat_obj = input_seurat_obj
@@ -512,7 +533,7 @@ write.csv(pldf, paste0(outdir, '/pipeline_parameters.csv'), quote = F, row.names
 
 
 
-This report summarizes analysis of single-cell RNA-sequencing (scRNA-seq) data including single sample analysis, label transfer from a cell-type annotated reference (optional), integration with batch correction, differential expression with support for pseudobulk and multi-condition comparisons, and pathway analysis. All plots, tables, markers, Seurat objects, RISC object, DE results, and pathway analysis results are stored in the output folder.
+This report summarizes analysis of single-cell RNA-sequencing (scRNA-seq) data including single sample analysis, label transfer from a cell-type annotated reference (optional), integration with batch correction, differential expression with support for pseudobulk and multi-condition comparisons, and pathway analysis. All plots, tables, markers, Seurat objects, integration outputs (and the native RISC object when RISC integration is used), DE results, pathway analysis results, and MSigDB cell-type marker predictions (`celltype_marker_prediction/`) are stored in the output folder.
 
 This analysis used the [single cell Differential Analysis and Processing Pipeline (scDAPP)](https://github.com/bioinfoDZ/scDAPP), developed by Alexander Ferrena and colleagues in the lab of Dr. Deyou Zheng at Albert Einstein College of Medicine.
 
@@ -521,25 +542,49 @@ This analysis used the [single cell Differential Analysis and Processing Pipelin
 Below is a short methods-section style description of the pipeline. More detailed information can be found in each sub-section. If required, software versions of all R packages can be found at the bottom of the document in the SessionInfo section. The version of Cellranger can be found in the web_summary.html files provided with the data release. Please read carefully and adjust accordingly before using for manuscripts or applications.
 
 ```{r methods_intro, results='asis'}
-text1 <- 
-  '
-Sequencing data from the 10x Chromium samples were first analyzed with Cellranger to generate cell-level gene expression data [(10X Genomics)](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger). Data was analyzed using the Single cell Differential Analysis and Processing Pipeline (scDAPP) [(Ferrena et al 2024)](https://github.com/bioinfoDZ/scDAPP) including the following steps. Cells with fewer than 500 Unique Molecular Identifiers (UMIs) detected, fewer than 200 unique genes detected, more than 25% mitochondrial content, or more than 25% hemoglobin gene expression were filtered out (unless otherwise specified). An automated filtering approach to detect outliers of these variables based on median absolute deviation above 3 was also applied. Furthermore, complexity analysis based on the expected number of genes given the number of UMIs per cell was also used to filter out poor quality cells. Samples were analyzed using the Seurat workflow [(Hao et al 2021)](https://doi.org/10.1016/j.cell.2021.04.048). Each sample was normalized using the SingleCellTransform pipeline [(Hafemeister & Satija 2019)](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1874-1) with method set to "glmGamPoi" [(Ahlmann-Eltze & Huber 2020)](https://academic.oup.com/bioinformatics/article/36/24/5701/6028985). 30 principal components were used for graph construction and resolution was set to 0.5 for Louvain clustering (unless otherwise specified). Marker analysis was performed using the Wilcoxon Rank Sum Test as implemented in the Seurat FindAllMarkers() function with "only.pos" set to True. To identify cell types present in each sample, the Seurat anchor-based Label Transfer method was used, based on a single-cell RNA-seq dataset from similar tissue (unless otherwise specified).
+text1_start <- '
+Sequencing data from the 10x Chromium samples were first analyzed with Cellranger to generate cell-level gene expression data [(10X Genomics)](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger). Data was analyzed using the Single cell Differential Analysis and Processing Pipeline (scDAPP) [(Ferrena et al 2024)](https://github.com/bioinfoDZ/scDAPP) including the following steps. Cells with fewer than 500 Unique Molecular Identifiers (UMIs) detected, fewer than 200 unique genes detected, more than 25% mitochondrial content, or more than 25% hemoglobin gene expression were filtered out (unless otherwise specified). An automated filtering approach to detect outliers of these variables based on median absolute deviation above 3 was also applied. Furthermore, complexity analysis based on the expected number of genes given the number of UMIs per cell was also used to filter out poor quality cells.'
+text1_cluster <- if (cluster_unfiltered) {
+  ' Each sample was clustered on the full unfiltered matrix (SCT, resolution 0.1) before filtering for cluster-level QC diagnostics.'
+} else {
+  ''
+}
+text1_end <- '
+Samples were analyzed using the Seurat workflow [(Hao et al 2021)](https://doi.org/10.1016/j.cell.2021.04.048). Each sample was normalized using the SingleCellTransform pipeline [(Hafemeister & Satija 2019)](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1874-1) with method set to "glmGamPoi" [(Ahlmann-Eltze & Huber 2020)](https://academic.oup.com/bioinformatics/article/36/24/5701/6028985). 30 principal components were used for graph construction and resolution was set to 0.5 for Louvain clustering (unless otherwise specified). Marker analysis was performed using the Wilcoxon Rank Sum Test as implemented in the Seurat FindAllMarkers() function with "only.pos" set to True. To identify cell types present in each sample, the Seurat anchor-based Label Transfer method was used, based on a single-cell RNA-seq dataset from similar tissue (unless otherwise specified).
 
 
 '
+text1 <- paste0(text1_start, text1_cluster, text1_end)
 
+int_report <- int_config$report_label
+text2_pcs_res <- if (.pcs_int_auto || .res_int_auto) {
+  'Principal components and/or Louvain resolution for integration were selected automatically via bootstrap cluster stability (see the Integration section for chosen values). '
+} else {
+  paste0(
+    pcs_int, ' principal components were used for integration and Louvain clustering (resolution ',
+    res_int, '), unless otherwise specified. '
+  )
+}
+text2_common <- paste0(
+  'Samples were integrated using ', int_report,
+  '. ', text2_pcs_res
+)
 
 if(Pseudobulk_mode == T){
-  
-  text2 <- 'Samples were integrated using the RISC package [(Liu, Zheng et al Nat Biotech 2021)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8456427/). 30 PCs were used for integration as well as for post-clustering analysis including Louvain clustering, unless otherwise specified. Compositional analysis to compare proportional abundance of clusters between conditions was performed via the Propeller test as implemented in the speckle package [(Phipson et al 2022)](https://academic.oup.com/bioinformatics/article/38/20/4720/6675456). Differential expression analysis across conditions followed a pseudobulking approach based on the EdgeR-Likelihood Ratio Test (LRT) method for each cluster [(Robinson et al 2010)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2796818/). Pathway analysis on the differentially expressed genes was performed using Gene Set Enrichment Analysis (GSEA) as implemented in the FGSEA package [(Subramanian et al 2005)](https://www.pnas.org/doi/10.1073/pnas.0506580102), [(Korotkevich et al 2021)](https://www.biorxiv.org/content/10.1101/060012v3). Pathways were downloaded from the Molecular Signatures Database using the R package msigdbr [(Liberzon et al 2015)](https://academic.oup.com/bioinformatics/article/27/12/1739/257711), [(Dolgalev 2022)](https://github.com/igordot/msigdbr).
-'
-  
+  text2 <- paste0(
+    text2_common,
+    'Compositional analysis used the Propeller test (speckle package). ',
+    'Cross-condition differential expression used a pseudobulk EdgeR-LRT approach per cluster. ',
+    'Pathway analysis used FGSEA; gene sets from msigdbr.'
+  )
 }
 if(Pseudobulk_mode == F){
-  
-  text2 <- 'Samples were integrated using the RISC package [(Liu, Zheng et al Nat Biotech 2021)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8456427/). 30 PCs were used for integration as well as for post-clustering analysis including Louvain clustering, unless otherwise specified. Compositional analysis to compare proprotional abundance of clusters between conditions was performed via the 2-sample Z test as implemented in the R prop.test() function. Differential expression analysis across conditions used the Wilcoxon test as implemented in the Seurat FindMarkers() function. Pathway analysis on the differentially expressed genes was performed using Gene Set Enrichment Analysis (GSEA) as implemented in the FGSEA package [(Subramanian et al 2005)](https://www.pnas.org/doi/10.1073/pnas.0506580102), [(Korotkevich et al 2021)](https://www.biorxiv.org/content/10.1101/060012v3). Pathways were downloaded from the Molecular Signatures Database using the R package msigdbr [(Liberzon et al 2015)](https://academic.oup.com/bioinformatics/article/27/12/1739/257711), [(Dolgalev 2022)](https://github.com/igordot/msigdbr).
-'
-  
+  text2 <- paste0(
+    text2_common,
+    'Compositional analysis used a 2-sample Z test (prop.test). ',
+    'Cross-condition differential expression used the Wilcoxon test (Seurat FindMarkers). ',
+    'Pathway analysis used FGSEA; gene sets from msigdbr.'
+  )
 }
 
 
@@ -583,7 +628,7 @@ plotlab <- '
 
 ### Comparisons to perform
 
-We set up a cross-condition comparison using each row of the table below. For example, for each row, the "c1" column is compared with the "c2" column in differential expression analysis.
+We set up a cross-condition comparison using each row of the table below. For each row, c1 (test) is compared with c0 (reference); positive log2FC means higher expression or abundance in c1.
 
 
 
@@ -633,40 +678,9 @@ After the analysis of individual samples, we will do an integrated analysis.
 
 ```{r load_libs_and_functions }
 
-### load packages, set seed
-
-library(tidyverse)
-library(patchwork)  # combine plots
-library(RISC)
-library(Seurat)
-library(scDAPP)
-library(DoubletFinder)
-
-library(future)
-library(parallel)
-library(foreach)
-
-library(glmGamPoi)  # for faster SCT
-library(ComplexHeatmap) # for heatmaps
-library(ggdendro)       #for clustering dendrograms
-
-library(ggridges) # qc ridgeplots
-
-library(edgeR)
-
-library(msigdbr)          #get pathways (cross species) from msigdb
-
-library(hdf5r) # HARD TO INSTALL: installed thru mamba
-library(ggalluvial) # part of alluvial plot
-library(ggfittext) # part of alluvial plot
-library(ggrepel) # part of alluvial plot
-
-
-set.seed(2022)
-
-
-
-
+scDAPP::attach_scDAPP_pipeline_libraries(
+  load_risc = int_config$engine == "RISC"
+)
 
 ```
 
@@ -804,36 +818,7 @@ if(input_seurat_obj == T){## read in
 
 
 
-#add in qc values for mito and hemoglobin
-
-sobjlist <- lapply(sobjlist, function(sobj){
-  
-  
-  #Nov 14 2024: check if objects already have "percent.mito" and "percent.hemo" and "Phase", thus allowing user to pass these if using seurat objects as input
-  
-  #mito content, add to metadata
-  if(!('percent.mito' %in% colnames(sobj@meta.data))){
-    mito.features <- grep(pattern = "^mt-", x = rownames(x = sobj), value = TRUE, ignore.case = T)
-    sobj[["percent.mito"]] <- Seurat::PercentageFeatureSet(sobj, features = mito.features)
-  }
-  
-  #hemoglobin content, add to metadata
-  if(!('percent.hemoglobin' %in% colnames(sobj@meta.data))){
-    sobj$percent.hemoglobin <- scDAPP::calculate_percent.hemoglobin(sobj)
-  }
-  
-  #calculate phase (if possible, sometimes it fails)
-  if(!('Phase' %in% colnames(sobj@meta.data))){
-    try(
-      sobj <- CellCycleScoring(sobj,
-                               s.features = Seurat::cc.genes.updated.2019$s.genes,
-                               g2m.features = Seurat::cc.genes.updated.2019$g2m.genes)
-    )
-  }
-  
-  sobj
-  
-})
+sobjlist <- lapply(sobjlist, scDAPP::add_per_sample_qc_metadata)
 
 
 
@@ -892,326 +877,33 @@ codes <- sample_metadata$Code
 # af_md_list <- lapply(codes, function(code){
 af_md_list <- foreach(code = sample_metadata$Code,
                       .packages = c('Seurat', 'ggplot2', 'dplyr',
-                                    'scDAPP','grid', 'irlba', 'Matrix'), .verbose = T) %dopar%
-  {
-    
-    
-    message(code)
-    
-    # as of Aug 4th, we set this INSIDE the loop, since future seems to throw various errors... unfortunate
-    options(future.globals.maxSize = 15000 * 1024^2) # 15 GB 
-    
-    #read in sobj 
-    sobj <- readRDS(paste0(qctmpdir, '/', code, '.rds'))
-    
-    
-    #1. normalize and cluster raw data w/o filter
-    
-    #normalize and cluster
-    suppressWarnings(sobj <- Seurat::SCTransform(sobj, verbose = T, method="glmGamPoi"))
-    #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
-    
-    # sobj <- Seurat::SCTransform(sobj, verbose = F)
-    # UPDATE AGAIN AUG 12; glmgampoi did not seem to cause the memory problem
-    
-    sobj <- Seurat::RunPCA(object = sobj, verbose = F)
-    
-    sobj <- Seurat::FindNeighbors(object = sobj, dims = 1:30, verbose = F)
-    sobj <- Seurat::FindClusters(object = sobj, resolution = 0.1, verbose = F, algorithm = 1)
-    
-    sobj <- Seurat::RunUMAP(sobj, dims = 1:30)
-    
-    
-    
-    
-    #2. apply autofilter 
-    af <- scDAPP::autofilter(sobj, 
-                             min_num_UMI = min_num_UMI,
-                             min_num_Feature = min_num_Feature,
-                             max_perc_mito = max_perc_mito,
-                             max_perc_hemoglobin = max_perc_hemoglobin,
-                             globalfilter.complexity = autofilter_complexity,
-                             globalfilter.mito = autofilter_mito,
-                             globalfilter.libsize = autofilter_nUMI,
-                             mad.score.threshold = autofilter_medianabsolutedev_threshold,
-                             loess_negative_residual_threshold = autofilter_loess_negative_residual_threshold
-    )
-    
-    
-    
-    
-    
-    #3. filter out initial auto filter 
-    
-    #name unfiltered object as sobjraw, and filtered as sobj for now and sobjsave after
-    
-    sobjraw <- sobj
-    
-    
-    cellstatus <- af$cellstatus
-    
-    goodcells <- cellstatus[cellstatus$filteredout==F,"barcodes"]
-    
-    sobj <- sobj[,goodcells]
-    
-    
-    
-    
-    #4. IF DF == T: renormalize, recluster, apply doubletfinder, refilter
-    
-    if(doubletFinder == T){
-      #filter, re-proc
-      
-      
-      ### temporary fix for doubletfinder v2.0.3 and Seurat v5: coerce seurat to "v3" instead of v5 object
-      if( (packageVersion('DoubletFinder') == "2.0.3") & (packageVersion('Seurat') >= "5.0.0") ){
-        
-        ## try to make it a old seurat object...
-        sobj_df <- GetAssayData(sobj, assay = 'SCT', layer = 'data')
-        sobj_df <- CreateAssayObject(sobj_df)
-        sobj_df <- CreateSeuratObject(sobj_df)
-        
-        warning('Will attempt to coerce v5 Seurat object to work with DoubletFinder v2.0.3; this is unstable and does not always work! If any errors arise, set doubletFinder to FALSE in pipeline runner')
-        
-      } else{sobj_df <- sobj}
-      
-      
-      #normalize and cluster
-      suppressWarnings(sobj_df <- Seurat::SCTransform(sobj_df, verbose = T, method="glmGamPoi"))
-      #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
-      # sobj_df <- Seurat::SCTransform(sobj_df, verbose = F)
-      # UPDATE AGAIN AUG 12; glmgampoi did not seem to cause the memory problem
-      
-      sobj_df <- Seurat::RunPCA(object = sobj_df, verbose = F)
-      
-      sobj_df <- Seurat::FindNeighbors(object = sobj_df, dims = 1:30, verbose = F)
-      sobj_df <- Seurat::FindClusters(object = sobj_df, resolution = 0.1, verbose = F, algorithm = 1)
-      
-      sobj_df <- RunUMAP(sobj_df, dims = 1:30)
-      
-      
-      try(expr = {
-        ### run DF
-        af <- scDAPP::doubletfinderwrapper(sobj_df, 
-                                           autofilterres = af, 
-                                           num.cores = 1)
-        
-        
-        
-        
-        #filter, re-proc
-        cellstatus <- af$cellstatus
-        
-        goodcells <- cellstatus[cellstatus$filteredout==F,"barcodes"]
-        
-        sobj <- sobj[,goodcells]
-      })
-      
-      rm(sobj_df); gc(full = T)
-      
-      
-      
-      
-    }
-    
-    
-    
-    
-    
-    
-    #previously we did main analysis here, for ease of code reading
-    # we'll do it later in the clustering section
-    
-    # MAKE SURE RAW PREFILT CLUSTERS ARE LABELLED APPROPRIATELY IN SOBJSAVE 
-    
-    colnames(sobj@meta.data)[grepl('SCT_snn_res.0.1', colnames(sobj@meta.data))] <- 'PREFILTER_SCT_snn_res.0.1'
-    
-    #name filtered object as sobjsave
-    sobjsave <- sobj ; rm(sobj)
-    
-    
-    
-    #7. do some analysis on raw and save it
-    
-    #do a bit of analysis
-    #add af cell status to sobjraw md
-    sobjraw@meta.data <- cbind(sobjraw@meta.data, af$cellstatus[,-1])
-    
-    #find markers; do not futurize, it breaks everything
-    
-    m <- FindAllMarkers(sobjraw, only.pos = T)
-    # as of Nov 9 2023 (Seurat v5): add score to markers
-    m$score <- (m$pct.1 - m$pct.2) * m$avg_log2FC
-    
-    
-    #prep genes
-    if(length(levels(sobjraw$seurat_clusters)) > 1){
-      n <- 5
-      top <- m %>% group_by(cluster) %>% top_n(n = n, wt = score)
-    }
-    
-    #make some plots
-    d_rawclust <- DimPlot(sobjraw, group.by = 'seurat_clusters', label = T, repel = T)+ggtitle('Unfiltered data clusters', subtitle = 'Louvain res = 0.1')
-    
-    d_raw_filt <- DimPlot(sobjraw, group.by = 'filteredout', label = F, repel = T)
-    
-    
-    sobjraw$filterreason <- factor(sobjraw$filterreason, levels = names(sort(table(sobjraw$filterreason), decreasing = T)))
-    d_raw_filt_reason <- DimPlot(sobjraw, group.by = 'filterreason', label = F, repel = T)
-    
-    fp_raw_qc <- FeaturePlot(sobjraw, c('nCount_RNA', 'nFeature_RNA', 
-                                        'percent.mito', 'percent.hemoglobin'),
-                             order = T)
-    
-    #prep per-cluster filter numbers
-    tab_filt_by_clust <- table(sobjraw$filterreason, sobjraw$seurat_clusters)
-    tab_filt_by_clust <- t(tab_filt_by_clust)
-    rownames(tab_filt_by_clust) <- paste0('cluster_', rownames(tab_filt_by_clust))
-    colnames(tab_filt_by_clust) <- gsub(x = colnames(tab_filt_by_clust),
-                                        pattern = '\\.', '\n')
-    
-    
-    if(length(levels(sobjraw$seurat_clusters)) > 1){
-      hm_raw <- DoHeatmap(sobjraw, top$gene, raster = F)+NoLegend() + labs(title = "Pre-filter cluster markers")
-    } else{hm_raw <- NULL}
-    
-    # d_filt_clust <- DimPlot(sobjraw, group.by = newclustname, label = T, repel = T)+ggtitle('Filtered data clusters')
-    
-    
-    #alluvial plot: prep colors and make sure order is hi to lo
-    sobjraw$filterreason <- factor(sobjraw$filterreason, levels = names(sort(table(sobjraw$filterreason), decreasing = T)))
-    pal <- grDevices::colorRampPalette(RColorBrewer::brewer.pal('Dark2', n = 8))(length(levels(sobjraw$seurat_clusters))) 
-    
-    
-    ap_filt <- alluvialplot(sobjraw@meta.data[,c('seurat_clusters', 'filteredout')])+
-      scale_fill_manual(values = pal)+
-      labs(title = 'Cluster filtering')
-    
-    ap_filt_reason <- alluvialplot(sobjraw@meta.data[,c('seurat_clusters', 'filterreason')])+
-      scale_fill_manual(values = pal)+
-      labs(title = 'Cluster filtering reason')
-    
-    
-    #add some basic filter vln plots
-    comm <- af$allcommands
-    rownames(comm) <- comm$Command
-    
-    af$vln_umi <- VlnPlot(sobjraw, 'nCount_RNA', group.by = 'orig.ident')+
-      scale_y_log10(labels = scales::label_comma())+
-      geom_hline(yintercept = comm['min_num_UMI', 2], 
-                 linetype = 'dotted')+
-      labs(caption = paste0("cutoff = ", comm['min_num_UMI', 2]))
-    
-    af$vln_feature <- VlnPlot(sobjraw, 'nFeature_RNA', group.by = 'orig.ident')+
-      scale_y_log10(labels = scales::label_comma())+
-      geom_hline(yintercept = comm['min_num_Feature', 2], 
-                 linetype = 'dotted')+
-      labs(caption = paste0("cutoff = ", comm['min_num_Feature', 2]))
-    
-    
-    af$vln_mito <- VlnPlot(sobjraw, 'percent.mito', group.by = 'orig.ident')+
-      geom_hline(yintercept = comm['max_perc_mito', 2], 
-                 linetype = 'dotted')+
-      labs(caption = paste0("cutoff = ", comm['max_perc_mito', 2]))
-    
-    af$vln_hemo  <- VlnPlot(sobjraw, 'percent.hemoglobin', group.by = 'orig.ident')+
-      geom_hline(yintercept = comm['max_perc_hemoglobin', 2], 
-                 linetype = 'dotted')+
-      labs(caption = paste0("cutoff = ", comm['max_perc_hemoglobin', 2]))
-    
-    
-    #add to autofilter
-    af$d_rawclust <- d_rawclust
-    af$d_raw_filt <- d_raw_filt
-    af$d_raw_filt_reason <- d_raw_filt_reason
-    
-    af$fp_raw_qc <- fp_raw_qc
-    
-    af$tab_filt_by_clust <- tab_filt_by_clust
-    
-    af$hm_raw <- hm_raw
-    #af$d_filt_clust <- d_filt_clust
-    
-    
-    af$ap_filt <- ap_filt
-    af$ap_filt_reason <- ap_filt_reason
-    
-    
-    #change colnames for baseline sumary
-    colnames(af$baseline_qc_summary) <- gsub("summary_", "summary\n", colnames(af$baseline_qc_summary))
-    
-    
-    
-    #save it all
-    
-    
-    # save the raw objects
-    saveRDS(sobjraw, paste0(rawobjsdir, '/Unfiltered-SeuratObject-', code, '.rds'))
-    
-    #save the autofilter as a nice pdf
-    afpdf <- paste0(qcdir, '/QC_autofilter_summary-', code,'.pdf')
-    
-    pdf(afpdf, height = 10, width = 10)
-    
-    
-    
-    pdftable(af$filtersummary, title = 'Cell Filtering Summary')
-    
-    pdftable(af$allcommands, title = 'Filter parameters')
-    
-    pdftable(round(af$baseline_qc_summary, 2), title = 'QC summary stats')
-    
-    
-    
-    
-    print(af$vln_umi)
-    print(af$vln_feature)
-    print(af$vln_mito)
-    print(af$vln_hemo)
-    
-    print(af$globalfilter.complexity)
-    print(af$globalfilter.libsize)
-    print(af$globalfilter.mito)
-    
-    
-    print(af$d_rawclust)
-    print(af$d_raw_filt)
-    print(af$d_raw_filt_reason)
-    print(af$fp_raw_qc)
-    
-    
-    pdftable(af$tab_filt_by_clust, title = 'Cell filtering per cluster')
-    
-    print(af$hm_raw)
-    
-    # print(af$d_filt_clust)
-    
-    print(af$ap_filt)
-    print(af$ap_filt_reason)
-    
-    
-    
-    
-    dev.off()
-    
-    
-    #8. save procesed object
-    #code <- sobj@project.name
-    sobjfile <- paste0(qctmpdir, '/', code, '.rds')
-    
-    saveRDS(sobjsave, sobjfile)
-    
-    
-    #9. return autofilter and raw md
-    rawmd <- sobjraw@meta.data
-    rm(sobjsave, sobjraw)
-    invisible(gc(full = T, reset = F, verbose = F))
-    
-    
-    list(af, rawmd)
-    
-    
-  } # for foreach
+                                    'scDAPP', 'grid', 'irlba', 'Matrix'),
+                      .verbose = TRUE) %dopar% {
+  options(future.globals.maxSize = 15000 * 1024^2)
+
+  sobj <- readRDS(paste0(qctmpdir, '/', code, '.rds'))
+
+  res <- scDAPP::per_sample_qc_module(
+    sobj = sobj,
+    code = code,
+    min_num_UMI = min_num_UMI,
+    min_num_Feature = min_num_Feature,
+    max_perc_mito = max_perc_mito,
+    max_perc_hemoglobin = max_perc_hemoglobin,
+    autofilter_complexity = autofilter_complexity,
+    autofilter_mito = autofilter_mito,
+    autofilter_nUMI = autofilter_nUMI,
+    autofilter_medianabsolutedev_threshold = autofilter_medianabsolutedev_threshold,
+    autofilter_loess_negative_residual_threshold = autofilter_loess_negative_residual_threshold,
+    doubletFinder = doubletFinder,
+    cluster_unfiltered = cluster_unfiltered,
+    qctmp_path = paste0(qctmpdir, '/', code, '.rds'),
+    rawobj_path = paste0(rawobjsdir, '/Unfiltered-SeuratObject-', code, '.rds'),
+    qc_pdf_path = paste0(qcdir, '/QC_autofilter_summary-', code, '.pdf')
+  )
+
+  list(res$af, res$rawmd)
+}
 # }) # for lapply
 
 
@@ -1959,6 +1651,31 @@ mlist_individualsamples_clusters <- lapply(sample_metadata$Code, function(code){
 
 names(mlist_individualsamples_clusters) <- sample_metadata$Code
 
+if (run_msigdb_celltype_ora) {
+  if (!("clusterProfiler" %in% rownames(utils::installed.packages()))) {
+    stop("run_msigdb_celltype_ora is set to TRUE. Please install clusterProfiler first.")
+  }
+  pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(
+    species = species,
+    outdir_int = outdir_int,
+    msigdbr_cache_dir = msigdbr_cache_dir
+  )
+  msigdb_celltype_ora_indi_results <- scDAPP::ORA_cluster_markers_msigdb_celltype_batch_module(
+    marker_results_list = mlist_individualsamples_clusters,
+    pathways = pathways,
+    outdir = outdir_indi,
+    marker_padj_thres = msigdb_celltype_ora_marker_padj_thres,
+    top_markers_per_cluster = msigdb_celltype_ora_top_markers,
+    pathway_padj_thres = pathway_padj_thres,
+    dotplot_top_n = 5L,
+    workernum = workernum
+  )
+  msigdb_celltype_ora_indi_plots <- lapply(msigdb_celltype_ora_indi_results, `[[`, "dotplot")
+  names(msigdb_celltype_ora_indi_plots) <- names(msigdb_celltype_ora_indi_results)
+} else {
+  msigdb_celltype_ora_indi_plots <- list()
+}
+
 
 
 # future::plan(strategy = 'sequential')
@@ -2361,6 +2078,11 @@ lapply(names(summaryplots_individualsamples), function(sampname){
   
   print( summaryplots_individualsamples[[sampname]]$d1_a )
   print( summaryplots_individualsamples[[sampname]]$hm )
+  if (run_msigdb_celltype_ora &&
+      !is.null(msigdb_celltype_ora_indi_plots[[sampname]]) &&
+      inherits(msigdb_celltype_ora_indi_plots[[sampname]], "ggplot")) {
+    print(msigdb_celltype_ora_indi_plots[[sampname]])
+  }
   print( summaryplots_individualsamples[[sampname]]$d0 )
   
   dev.off()
@@ -2656,6 +2378,7 @@ if(use_labeltransfer == T){
     ap <- wrap_plots( alluvialplot(labelsdf, repel = T, direction='y')
     ) + plot_annotation(title = sampname)
     
+    twt <- twt_colored_heatmap(labelsdf, title = sampname)
     
     
     ## read in cluster CT mapping
@@ -2690,6 +2413,7 @@ if(use_labeltransfer == T){
          d2_a=d2_a,
          d2_b=d2_b,
          ap=ap,
+         twt=twt,
          
          d3 = d3,
          clustmaxdf=clustmaxdf,
@@ -2843,8 +2567,27 @@ Here we plot the top 5 marker genes of each cluster as identified by Wilcoxon te
   
   cat( plotlab )
   print( sampsumplots$hm )
-  
-  
+
+  if (run_msigdb_celltype_ora) {
+    plotlab <- "
+
+
+### MSigDB cell-type signature enrichment
+
+Over-representation analysis (ORA) of cluster marker genes against MSigDB cell-type signature gene sets. For each cluster, up to the top 100 markers passing adjusted p < threshold are tested. The dotplot shows the top 5 enriched cell-type gene sets per cluster (inclusive: shared gene sets appear across clusters). Full tables are saved under `celltype_marker_prediction/`.
+
+
+"
+    cat(plotlab)
+    ora_dotplot <- msigdb_celltype_ora_indi_plots[[sampname]]
+    if (!is.null(ora_dotplot) && inherits(ora_dotplot, "ggplot")) {
+      print(ora_dotplot)
+    } else {
+      cat("\n\nNo significant MSigDB cell-type enrichments were detected for this sample.\n\n")
+    }
+  }
+
+
   plotlab <- "
 
 
@@ -3074,6 +2817,23 @@ The top-scoring cell type is plotted, but some cells and clusters may contain a 
     
     
     
+    plotlab <- "
+
+
+### Two-way table heatmap: clusters vs top celltypes
+
+This heatmap shows the same cluster-to-celltype membership as the alluvial plot above, as cell counts in a matrix. Rows and columns are colored by within-row proportion, which is often easier to read when many categories are present.
+
+
+"
+    
+    cat( plotlab )
+    
+    
+    print(ctplotlist$twt)
+    
+    
+    
     plotlab <- '
 
 
@@ -3167,599 +2927,118 @@ Here we plot a violin plot for each cell type to analyze the label transfer scor
 
 Here, we combine all of the samples into a single unified dataset.
 
-“Integration” refers to the process of combining together the data from individual samples with batch correction. Typically, library prep is done one sample at a time, which may introduce bias due to technical artifacts associated with processing for that sample, i.e., particular reagent lot used, slightly longer incubation periods, slightly more reads sequenced, etc. To combine samples, we thus apply special batch-correction procedures. The method for doing that here relies on Reference Principal Component Integration, implemented in the RISC package [(Liu, Zheng et al Nat Biotech 2021)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8456427/). This approach exploits the fact that cells from the same type typically have similar transcriptomic patterns, and then tries to match the patterns.
+```{r integration_intro_prose, results='asis'}
+if (int_config$engine == "RISC") {
+  cat('
+Integration refers to the process of combining together the data from individual samples with batch correction. Typically, library prep is done one sample at a time, which may introduce bias due to technical artifacts associated with processing for that sample. To combine samples, we apply batch-correction using Reference Principal Component Integration (RISC) [(Liu, Zheng et al Nat Biotech 2021)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8456427/). This approach matches transcriptomic patterns across samples while preserving cell-type structure.
+')
+} else {
+  cat(sprintf('
+Integration refers to combining individual samples with batch correction. For this analysis, samples were integrated using **%s**. Seurat v5 stores the batch-corrected embedding in reductions `%s` (clustering) and `%s` (UMAP). Expression for plotting and Wilcox DE uses the `%s` assay; pseudobulk DE uses raw UMI counts on the joined `RNA` assay.
+',
+    int_config$report_label,
+    int_config$cluster_reduction,
+    int_config$umap_reduction,
+    int_config$plot_assay
+  ))
+}
+cat('
 
 Ultimately, the goal of integration is to minimize technical noise and maximize shared biological signals, the strongest of which is typically cell type.
 
-Integration can be contrasted with “concatenation,” which involves simply merging the samples without any batch correction. If there are strong batch effects in the data, this method may result in clusters driven not by cell type but by the sample of origin (i.e., cluster 1 is all cells from sample 1, cluster 2 is all cells from sample 2).
+Integration can be contrasted with concatenation (merging without batch correction), which can yield sample-driven clusters when batch effects are strong.
+')
+```
 
 
 
 
 
-```{r integration_riscprep, message=F, results='hide', warning=F}
 
-
-# before integrating, add a few important columns to each sobj metadata
-# "sample" column --> switch to Code
-# "condition" column
-# barcode column
-
-
-#add sample to each sobj
-codes <- sample_metadata$Code
-
-sobjlist <- lapply(codes, function(code){
-  
-  sample_metadata_code <- sample_metadata[sample_metadata$Code == code,]
-  
-  sobj <- sobjlist[[code]]
-  sobj$orig.ident <- code
-  sobj$Code <- code
-  sobj$Sample <- sample_metadata_code$Sample
-  sobj
-})
-
-names(sobjlist) <- codes
-
-
-#add a condition column
-sobjlist <- lapply(names(sobjlist), function(sampname){
-  
-  cond <- sample_metadata[sample_metadata$Code == sampname,"Condition"]
-  
-  sobj <- sobjlist[[sampname]]
-  sobj$Condition <- cond
-  sobj
-  
-})
-
-names(sobjlist) <- codes
-
-
-#add a barcode column
-sobjlist <- lapply(names(sobjlist), function(sampname){
-  
-  
-  sobj <- sobjlist[[sampname]]
-  md <- sobj@meta.data
-  md <- cbind(rownames(md), md)
-  colnames(md)[1] <- 'Barcode'
-  sobj@meta.data <- md
-  sobj
-  
-  
-})
-
-names(sobjlist) <- codes
-
-
-
-
+```{r integration_prep_and_run, message=F, results='hide', warning=F}
 
 # clean up env before doing this
 rm(ctplotlist, ctplots_individualsamples, elbowplots, m_reference,
-   cutoffplots, cutoffs, sampsumplots, 
+   cutoffplots, cutoffs, sampsumplots,
    elbowplots,
-   mlist_individualsamples_clusters, 
+   mlist_individualsamples_clusters,
    qc_vln_feature, qc_vln_umi,
    summaryplots_individualsamples)
 
-
-
 invisible(gc(full = T, reset = F, verbose = F))
 
+scDAPP::check_integration_dependencies(int_config, pcs_int = pcs_int, res_int = res_int)
 
-
-
-#### save each object and get the metadata
-
-#add clusters to each sobjlist object and then save each object
-tmpobjdir <- paste0(outdir_indi, '/.tmp_Seurat_objects/')
-dir.create(tmpobjdir, recursive = T)
-
-mdlist <- lapply(sample_metadata$Code, function(code){
-  
-  sobj <- sobjlist[[code]]
-  saveRDS(sobj, paste0(tmpobjdir, '/', code, '.rds'))
-  
-  md <- sobj@meta.data
-  
-  return(md)
-  
-})
-
-
-names(mdlist) <- sample_metadata$Code
-
-
-
-### qc purposes, read in  --> keep commented
-# sobjlist <- lapply(sample_metadata$Code, function(code){
-#   
-#   message(code)
-#   sobj <- readRDS( paste0(tmpobjdir, '/', code, '.rds') )
-#   
-#   sobj
-#   
-# })
-# names(sobjlist) <- sample_metadata$Code
-
-
-
-#remove gene list and seurat objects form env and purge
+prep <- scDAPP::prepare_integration_inputs(
+  sobjlist = sobjlist,
+  sample_metadata = sample_metadata,
+  outdir_indi = outdir_indi,
+  datadir = if (isTRUE(input_seurat_obj)) NULL else datadir,
+  outdir_int = outdir_int,
+  input_seurat_obj = input_seurat_obj
+)
+mdlist <- prep$mdlist
+tmpobjdir <- prep$tmpobjdir
 rm(sobjlist)
-invisible(gc(full = T, reset = F, verbose = F))
+invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
 
-
-#read in raw seurat objects, filter using mdlist
-if(input_seurat_obj == T){
-  
-  matlist <- lapply(sample_metadata$Code, function(code){
-    
-    #get md for this object
-    md <- mdlist[[code]]
-    
-    #read raw matrix
-    samp <- sample_metadata[sample_metadata$Code == code,'Sample']
-    
-    #for HTO, we will assume saved objects
-    sobjfile <- paste0(datadir, '/', samp, '.rds')
-    sobj <- readRDS(sobjfile)
-    
-    #get RNA counts matrix
-    # mat0 <- sobj@assays$RNA@counts
-    mat0 <- GetAssayData(sobj, assay = 'RNA', layer = 'counts')
-    
-    
-    #filter using sobj metadata
-    mat0 <- mat0[,match(rownames(md), colnames(mat0))]
-    
-    
-    return(mat0)
-    
-  })
-} else{
-  
-  
-  
-  
-  matlist <- lapply(sample_metadata$Code, function(code){
-    
-    #get md for this object
-    md <- mdlist[[code]]
-    
-    #read raw matrix
-    samp <- sample_metadata[sample_metadata$Code == code,'Sample']
-    datafp <- paste0(datadir, '/', samp)
-    # if on hpc, use below
-    # datafp <- paste0(datadir, '/', samp, '/outs/')
-    
-    # for the dl data, we need to find the filepath
-    h5_filename <- grep(pattern = 'filtered_feature_bc_matrix.h5',
-                        list.files(datafp, recursive = T, full.names = T),
-                        value = T)
-    
-    #get RNA counts matrix
-    mat0 <- Read10X_h5(h5_filename)
-    
-    #filter using sobj metadata
-    mat0 <- mat0[,match(rownames(md), colnames(mat0))]
-    
-    
-    return(mat0)
-    
-  })
-  
+if (is.null(risc_reference) || risc_reference == "auto") {
+  risc_reference <- NULL
 }
 
-names(matlist) <- sample_metadata$Code
+int_res <- scDAPP::run_integration(
+  integration_method = integration_method,
+  sample_metadata = sample_metadata,
+  mdlist = mdlist,
+  tmpobjdir = tmpobjdir,
+  datadir = if (isTRUE(input_seurat_obj)) NULL else datadir,
+  outdir_int = outdir_int,
+  outdir_indi = outdir_indi,
+  pcs_int = pcs_int,
+  res_int = res_int,
+  risc_reference = risc_reference,
+  RISC_louvain_neighbors = RISC_louvain_neighbors,
+  workernum = workernum,
+  stability_workernum = stability_workernum,
+  input_seurat_obj = input_seurat_obj,
+  stability_outdir = stability_outdir,
+  stability_numreps = stability_numreps,
+  stability_sweep_maxPCs = stability_sweep_maxPCs,
+  stability_sweep_res = stability_sweep_res,
+  stability_propcells.perrep = stability_propcells.perrep
+)
 
-# keep intersect genes; will only remove genes if aligned with different GTFs
-var0 <- Reduce(intersect, lapply(matlist, FUN = rownames))
-matlist <- lapply(matlist, function(mat){ mat[match(var0, rownames(mat)), ] })
-rm(var0)
+sobjint <- int_res$sobjint
+int_clust_lab <- int_res$int_clust_lab
+clustname <- int_clust_lab
+ip <- int_res$ip
+refscore <- int_res$refscore
+selected_risc_reference <- int_res$selected_risc_reference
+maxautoscore <- if (!is.null(refscore) && length(refscore)) {
+  names(refscore)[which.max(refscore)]
+} else {
+  NULL
+}
+int_config <- int_res$config
+pcs_int <- int_config$pcs_int
+res_int <- int_config$res_int
+int_auto_selection <- int_res$auto_selection
+int_umap_reduction <- if (int_config$engine == "Seurat") int_config$umap_reduction else "umap"
 
-#join matrices, filter genes from joint mat and proceed with union
-bigmat <- do.call(cbind, matlist)
+rm(mdlist, prep, int_res)
+invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
 
-#get num cells expressing
-num_nonzeros <- tabulate(bigmat@i + 1)
-
-#get joint filtered genes as those exp by  >= 3 cells
-joint_filt_genes <- rownames(bigmat)[num_nonzeros >= 3]
-
-
-
-# prep the risc objects #
-risclist <- lapply(sample_metadata$Code, function(code){
-  
-  #get md and mat0
-  md <- mdlist[[code]]
-  mat0 <- matlist[[code]]
-  
-  #subset matrix using jointly filtered genes
-  mat0 <- mat0[rownames(mat0) %in% joint_filt_genes,]
-  mat0 <- mat0[match(joint_filt_genes, rownames(mat0)),]
-  
-  
-  #prep metadata for risc
-  coldata0 <- md
-  rm(md)
-  
-  #get barcodes, strip numeric suffix, and add samplename prefix
-  barcodes <- stringr::str_split_fixed(rownames(coldata0), '-', 2)[,1]
-  barcodes <- paste0(coldata0$orig.ident, '.',barcodes)
-  
-  coldata0 <- cbind(barcodes, coldata0)
-  rm(barcodes)
-  
-  
-  #make the rowdatadf...
-  rowdata0 = data.frame(Symbol = rownames(mat0), row.names = rownames(mat0))
-  
-  #make the risc object
-  ### make sure to set is.filter = F or it will still use sample-specific filtering
-  dat0 = readsc(mat0, coldata0, rowdata0, is.filter = F)
-  
-  rm(mat0, rowdata0, coldata0)
-  
-  return(dat0)
-})
-
-names(risclist) <- sample_metadata$Code
-
-
-## save matlist, we will add it to RNA assay later ##
 outdir_int_objects <- paste0(outdir_int, '/data_objects/')
-dir.create(outdir_int_objects, recursive = T)
-saveRDS(matlist, paste0(outdir_int_objects, '/.concatmatrix.rds'))
-
-#clean env
-rm(bigmat, num_nonzeros, joint_filt_genes, matlist, mdlist)
-invisible(gc(full = T, reset = F, verbose = F))
-
-
-
-
-
-
-#### process each sample ####
-# make sure to set ncore to 1 for all; we'll parallelize across samples for this
-
-#prepare the RISC functions
-process0 <- function(obj0){
-  
-  # Filter cells and genes
-  message('scFilter')
-  obj0 = RISC::scFilter(obj0, min.UMI = 0, max.UMI = Inf, min.gene = 0, min.cell = 0, is.filter = F)
-  
-  # Normalize the raw counts
-  message('scNormalize')
-  obj0 = RISC::scNormalize(obj0, ncore = 1)
-  
-  # Find highly variable genes
-  message('scDisperse')
-  obj0 = RISC::scDisperse(obj0)
-  
-  return(obj0)
-}
-
-
-
-
-### process each sample with RISC functions, in parallel
-cl <- parallel::makeCluster(workernum)
-doParallel::registerDoParallel(cl)
-
-risclist <- foreach(dat0 = risclist,
-                    .packages = c('RISC')) %dopar% 
-  {
-    return( process0(dat0) )
-  }
-
-
-parallel::stopCluster(cl)
-invisible(gc(full = T, reset = F, verbose = F))
-names(risclist) <- sample_metadata$Code
-
-
-
-## variable genes - we still use all genes.
-#get the intersect of gene names
-var0 <- Reduce(intersect, lapply(risclist, FUN = function(x){x@rowdata$Symbol}))
-
-
-
-
-#run inplot - just to show the plot later
-#pdf null prevents premature plot showing
-pdf( NULL )
-
-ip <- InPlot(risclist, var.gene = var0, Std.cut = 0.95, ncore = workernum) 
-ip <- patchwork::wrap_plots(ip)
-
-dev.off()
-
-
-
-### reference- either user-defined, or guess
-
-if( !(is.null(risc_reference)) ){
-  
-  
-  
-  #write some text about which one was selected
-  #cat()
-  
-  
-  #if provided, we need the numeric index of which sample was given
-  
-  #it can be either sample or code name
-  if(any(risc_reference %in% sample_metadata$Code)){
-    ref <- grep(risc_reference, sample_metadata$Code)
-  }
-  
-  #it can be either sample or code name
-  if(any(risc_reference %in% sample_metadata$Sample)){
-    ref <- grep(risc_reference, sample_metadata$Code)
-  }
-  
-} 
-
-
-#if not provided, still do automated guess but just use the provided one
-# inplot is not automated and does not suggest which sample to use.
-# instead, we use the one with most clusters, given that
-# all samples were processed otherwise identically (same PCs and resolution)
-
-
-# get num clusters from each sample
-numclusts <- sapply(risclist, function(dat0){
-  length(unique(dat0@coldata$seurat_clusters))
-})
-
-# get cell num score; higher cell num is prioritized
-numcells_per_sample <- sapply(risclist, function(dat0){
-  nrow(dat0@coldata)
-})
-numcells_per_sample <- numcells_per_sample / max(numcells_per_sample)
-
-#multipy number of cluste4rs by cell num score
-numclusts <- numclusts * numcells_per_sample
-
-#average each cluster and get averaged variance?
-# do NOT use pseudobulk, which adds up
-pbvar <- sapply(risclist, function(dat0){
-  
-  mat <- dat0@assay$logcount
-  md <- dat0@coldata
-  
-  #pseudobulk
-  pb <- scDAPP::pseudobulk(obj = mat, metadata = md, grouping_colname_in_md = 'seurat_clusters')
-  
-  #average: divide pseudobulk columns by num cells
-  numcells <- table(md$seurat_clusters)
-  pb <- sweep(pb, 2, numcells, FUN = '/')
-  
-  clustervar <- apply(pb, 2, function(x){var(x)})
-  
-  mean(clustervar)
-  
-})
-
-#multiply number of clusts * average of cluster variance
-refscore <- numclusts * pbvar
-
-
-
-### try to divide by KS? ###
-
-
-
-#autoselect ref
-maxautoscore <- which.max(refscore)
-
-# set reference as autoselected; only if not provided
-if( is.null(risc_reference) ){
-  ref <- maxautoscore
-}
-
-
-
-#need to rearrange the list...
-# the reference must be the first list element...
-if(ref != 1){
-  
-  data0 <- list(risclist[[ref]])
-  names(data0) <- names(risclist)[ref]
-  
-  for(i in 1:length(risclist)){
-    if(i != ref){
-      name = names(risclist)[i]
-      data0[[name]] <- risclist[[i]]
-    }
-    
-  }
-  
-} else{
-  data0 <- risclist
-}
-
-rm(risclist)
-invisible(gc(full = T, reset = F, verbose = F))
-
-
-```
-
-
-```{r integration_multiint, message=F, results='hide', warning=F}
-
-
-
-### actual integration ###
-#set "eigens", num PCs to use for integration
-eigens <- pcs_int
-
-#actually integrate
-data0 = scMultiIntegrate(
-  objects = data0, eigens = eigens, add.Id = NULL, var.gene = var0,
-  # method = "RPCI", 
-  align = 'OLS', npc = 50, adjust = TRUE,
-  ncore = workernum, 
-  #do.fast = "AUTO"
-)
-
-
-rm(var0)
-invisible(gc(full = T, reset = F, verbose = F))
-
-
-```
-
-
-
-
-
-
-```{r integration_postproc, message=F, results='hide', warning=F}
-
-
-
-
-# integrated UMAP
-data0 = scUMAP(data0, npc = eigens, use = "PLS")
-
-### integrated clustering ####
-## AS OF JUL 5 2023 USE scDAPP::scCluster_louvain_res()
-# UPDATE MAR 14 2024 - RISC 1.7 NOW USES RESOLUTION PARAMETER
-# ALSO RISC AND MY SCDAPP FUNCTION BROKE WITH IGRAPH UPDATE, FIXED IN 1.7
-# integrated clustering
-# neighbor = 10 is default... maybe make it a variable too...?
-data0 <- scCluster(data0,
-                   slot = "cell.pls",
-                   method = 'louvain',
-                   npc = eigens,
-                   res = res_int,
-                   neighbor = RISC_louvain_neighbors
-)
-
-### remap clust, biggest to smallest...
-#get risc clust
-rc <- data0@coldata$Cluster
-
-#sort by biggest to smallest
-bs <- sort(table(rc), decreasing = T)
-rc <- plyr::mapvalues(rc, from = names(bs), to = c(1:length(bs)) )
-rc <- factor(rc, levels = 1:length(bs))
-
-#set to object
-data0@coldata$Cluster <- rc
-rm(rc,bs)
-
-# data0 = scDAPP::scCluster_louvain_res(object = data0,
-#                                       slot = "cell.pls",
-#                                       # method = 'louvain',
-#                                       npc = eigens,
-#                                       resolution = res_int,
-#                                       neighbor = RISC_louvain_neighbors,
-# )
-
-
-
-
-
-
-
-
-#save it
-outdir_int_objects <- paste0(outdir_int, '/data_objects/')
-dir.create(outdir_int_objects)
-saveRDS(data0, paste0(outdir_int_objects, '/RISC-object_integrated.rds'))
-
-
-
-#cluster markers --> do this with seurat instead
-# riscmarkertime <- proc.time()
-# risc_clustermarkers = AllMarker(data0, ncore = workernum)
-# riscmarkertime <- proc.time() - riscmarkertime
-# takes about an hour, even with parallelization
-
-#get matrix, umap, md, pca, etc; then put into seurat object
-
-mat <- do.call(cbind, data0@assay$logcount)
-md <- data0@coldata
-umap <- data0@DimReduction$cell.umap
-pca <- data0@DimReduction$cell.pls
-
-
-#rename "Cluster" to "RISC cluster"
-risc_clust_lab <- paste0('RISC_Louvain_npc', pcs_int, '_res', res_int)
-colnames(md)[ncol(md)] <- risc_clust_lab
-clustname <- risc_clust_lab
-
-#make obj
-sobjint <- CreateSeuratObject(counts = CreateAssayObject(data=mat),
-                              assay = 'RISC', project = 'Integrated',
-                              meta.data = md
-)
-
-#add dim reducs
-sobjint[['umap']] <-  CreateDimReducObject(umap, assay = 'RISC', key = 'UMAP_')
-sobjint[['pca']] <-  CreateDimReducObject(pca, assay = 'RISC', key = 'PCA_')
-
-
-
-
-
-#clean env
-rm(umap,pca,mat,md, data0)
-invisible(gc(full = T, reset = F, verbose = F))
 
 ### find markers ###
+DefaultAssay(sobjint) <- int_config$plot_assay
 
-#set default levels
-sobjint <- SetIdent(sobjint, value = sobjint@meta.data[,risc_clust_lab])
-sobjint$seurat_clusters <- sobjint@meta.data[,risc_clust_lab]
-
-
-#save object
-saveRDS(sobjint, paste0(outdir_int_objects, '/Seurat-object_integrated.rds'))
-
-
-#save markers
 intmarkersdir <- paste0(outdir_int, '/markergenes_intclusters/')
-dir.create(intmarkersdir, recursive = T)
-intmarkersfile <- paste0(intmarkersdir, '/intmarkers-npc', pcs_int, '-res', res_int,  '.csv')
-
-#get markers, parallelized
-# TURN OFF PAR FOR NOW, it seems to break things
-# ALSO MAKE SURE NOT TO DO READ IN THING IN CASE OF CLUSTERING DIFFS
-# future::plan('multisession', workers=workernum)
-
-# if(!file.exists(intmarkersfile)){
-#   
-#   #Seurat clusters
-#   seuratmarkertime <- proc.time()
-# m_integrated_clusters <- FindAllMarkers(sobjint,
-#                                         only.pos = T)
-#   seuratmarkertime <- proc.time() - seuratmarkertime
-#   
-#   
-#   # future::plan(strategy = 'sequential')
-#   
-#   # takes about an hour, future parallel is not stable and cause memory crash
-#   
-#   
-# write.csv(m_integrated_clusters, intmarkersfile, quote = F, row.names = F)
-#   
-#   
-# } else{
-# m_integrated_clusters <- read.csv(intmarkersfile)
-# 
-# }
-
-
+dir.create(intmarkersdir, recursive = TRUE)
+intmarkersfile <- paste0(intmarkersdir, '/intmarkers-npc', pcs_int, '-res', res_int, '.csv')
+if (int_config$de_wilcox_assay == "SCT" && "SCT" %in% Seurat::Assays(sobjint)) {
+  sobjint <- Seurat::PrepSCTFindMarkers(sobjint)
+}
 m_integrated_clusters <- FindAllMarkers(sobjint,
                                         only.pos = T)
 
@@ -3769,7 +3048,52 @@ m_integrated_clusters$score <- (m_integrated_clusters$pct.1 - m_integrated_clust
 
 write.csv(m_integrated_clusters, intmarkersfile, quote = F, row.names = F)
 
+if (run_msigdb_celltype_ora) {
+  if (!exists("pathways")) {
+    pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(
+      species = species,
+      outdir_int = outdir_int,
+      msigdbr_cache_dir = msigdbr_cache_dir
+    )
+  }
+  msigdb_celltype_ora_int_result <- scDAPP::ORA_cluster_markers_msigdb_celltype_module(
+    marker_results = m_integrated_clusters,
+    pathways = pathways,
+    context_label = "integrated",
+    outdir = outdir_int,
+    marker_padj_thres = msigdb_celltype_ora_marker_padj_thres,
+    top_markers_per_cluster = msigdb_celltype_ora_top_markers,
+    pathway_padj_thres = pathway_padj_thres,
+    dotplot_top_n = 5L,
+    workernum = workernum
+  )
+  msigdb_celltype_ora_int_dotplot <- msigdb_celltype_ora_int_result$dotplot
+} else {
+  msigdb_celltype_ora_int_dotplot <- NULL
+}
 
+
+```
+
+```{r integration_auto_params_note, results='asis', eval=!is.null(int_auto_selection)}
+cat(sprintf(
+  '**Automatic integration parameters:** %d principal components and Louvain resolution %s were selected via bootstrap cluster stability (combined ARI/Jaccard score). Full stability tables are in `%s`.\n',
+  int_auto_selection$pcs_int,
+  int_auto_selection$res_int,
+  int_auto_selection$sweep_dir
+))
+```
+
+```{r integration_stability_plots, fig.width=10, fig.height=6, eval=!is.null(int_auto_selection)}
+stab_mod <- scDAPP::integration_stability_plots_module(
+  stability_dir = int_auto_selection$sweep_dir,
+  selected_params_i = int_auto_selection$selected_params_i,
+  label_top_k = 10L,
+  save = FALSE
+)
+for (p in stab_mod$plots) {
+  print(p)
+}
 ```
 
 
@@ -3930,57 +3254,8 @@ rm(predictionmats, intmd)
 invisible(gc(full = T, reset = F, verbose = F))
 
 
-## readin concat matrix with raw counts and put in seurat object ##
-matlist <- readRDS( paste0(outdir_int_objects, '/.concatmatrix.rds') )
-
-#for each matrix, change cell names to match seurat object
-set_code <- paste0(sobjint$Set, '_', sobjint$Code)
-set_code <- unique(set_code)
-set_code <- str_split_fixed(set_code,pattern =  '_', n=2)
-matlist <- lapply(1:length(matlist), function(i){
-  mat <- matlist[[i]]
-  code <- names(matlist)[i]
-  set <- set_code[set_code[,2] == code,1]
-  colnames(mat) <- paste0(set, '_', colnames(mat))
-  mat
-  
-})
-
-#join matrices, filter genes from joint mat and proceed with union
-bigmat <- do.call(cbind, matlist)
-
-#get num cells expressing
-num_nonzeros <- tabulate(bigmat@i + 1)
-
-#get joint filtered genes as those exp by  >= 3 cells
-joint_filt_genes <- rownames(bigmat)[num_nonzeros >= 3]
-
-# filter by these
-bigmat <- bigmat[rownames(bigmat) %in% joint_filt_genes,]
-
-# filter cells and match order to seurat
-bigmat <- bigmat[,match(colnames(sobjint), colnames(bigmat))]
-colnames(bigmat) <- colnames(sobjint)
-
-#add as RNA assay
-rnaassay <- Seurat::CreateAssayObject(counts = bigmat)
-sobjint[['RNA']] <- rnaassay
-DefaultAssay(sobjint) <- 'RNA'
-sobjint <- NormalizeData(sobjint, assay = 'RNA')
-DefaultAssay(sobjint) <- 'RISC'
-
-#add in expm1 risc values to counts slot of risc assay
-sobjint@assays$RISC@counts <- expm1(sobjint@assays$RISC@data)
-
-#unlink temp concat mat
-unlink( paste0(outdir_int_objects, '/.concatmatrix.rds') )
-
-#clean env
-invisible(gc(full = T, reset = F, verbose = F))
-rm(bigmat, joint_filt_genes, num_nonzeros, matlist)
-
-
-
+# RNA counts assay attached in run_integration(); restore plot/default assay
+DefaultAssay(sobjint) <- int_config$default_assay
 
 #factorize sample column to make sure it's the right order...
 sobjint$Code <- factor(sobjint$Code, levels = sample_metadata$Code)
@@ -4010,12 +3285,12 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 ## Selection of reference sample for integration
 
-RISC requires the selection of a reference sample from among the input datasets. The optimal reference sample is one that has the most diversity of celltypes.
+```{r integration_riscref_ip, eval=(int_config$engine == "RISC"), results='asis', fig.height=10, fig.width=10}
+
+cat('RISC requires the selection of a reference sample from among the input datasets. The optimal reference sample is one that has the most diversity of celltypes.
 
 
-```{r integration_riscref_ip, results='asis', fig.height=10, fig.width=10}
-
-
+')
 
 plotlab <- '
 One way to select the reference sample is manual inspection of the "InPlot". This plot consists of three panels. The top panel is the most important and shows the number of clusters detected in each sample across a range of different PC values. Essentially, this is a proxy of the number of cell types detected in the dataset, and the sample with most clusters should be selected as the reference. The second panel allows selection of the optimal PC value to use and the amount of variance each PC has for each sample, with good samples having a higher score (indicating more diversity). The third panel shows distributional divergence of the samples, where a high score is "bad" and indicates that the sample is potentially composed of quite different celltypes from the rest of the dataset, and can potentially indicate some issue in data generation, for example that some incorrect tissue was sampled during data generation.
@@ -4026,7 +3301,7 @@ One way to select the reference sample is manual inspection of the "InPlot". Thi
 
 cat(plotlab)
 
-print(ip)
+if (!is.null(ip)) print(ip)
 
 
 
@@ -4050,23 +3325,18 @@ In this dataset, sample **%s** would be selected as the reference.
 
 '
 
-cat(sprintf(plotlab, names(maxautoscore)))
+cat(sprintf(plotlab, maxautoscore))
 
-#format ref scores as data.frame
-refscoredf <- data.frame('RefScore' = refscore)
+refscoredf <- data.frame(
+  Code = names(refscore),
+  RefScore = as.numeric(refscore),
+  stringsAsFactors = FALSE
+)
 refscoredf$Max <- ''
-refscoredf[maxautoscore,'Max'] <- '*'
+refscoredf$Max[refscoredf$Code == maxautoscore] <- '*'
 refscoredf$RefScore <- round(refscoredf$RefScore, 5)
-
-#add "set"
-refscoredf$Set <- paste0("Set-", 1:nrow(refscoredf))
-
-#add sample and remove rownames
-refscoredf$Code <- rownames(refscoredf)
-rownames(refscoredf) <- NULL
-
-#reorder
-refscoredf <- refscoredf[,c('Code', 'Set', 'RefScore', 'Max')]
+refscoredf$Set <- paste0("Set-", seq_len(nrow(refscoredf)))
+refscoredf <- refscoredf[, c("Code", "Set", "RefScore", "Max")]
 
 
 knitr::kable(refscoredf)
@@ -4097,6 +3367,15 @@ In this analysis, sample %s was manually selected as the reference sample. Sampl
 
 
 
+```{r integration_seurat_note, eval=(int_config$engine == "Seurat"), results='asis'}
+cat(sprintf('
+## Batch integration (%s)
+
+Reference-sample selection and RISC InPlot diagnostics do not apply to this integration backend. Clustering and UMAP use the `%s` and `%s` reductions from Seurat v5 `IntegrateLayers`. Raw UMI counts for pseudobulk DE are available on the joined `RNA` assay (`counts` layer) attached after integration.
+', int_config$report_label, int_config$cluster_reduction, int_config$umap_reduction))
+```
+
+
 ```{r integration_plots, results='hide', message=FALSE, warning=F}
 
 
@@ -4107,26 +3386,27 @@ outdir_int_plots <- paste0(outdir_int, '/integration_summaryplots/')
 dir.create(outdir_int_plots)
 
 
-#first, plot the ref selection stuff: inplot and autoselect
+#first, plot the ref selection stuff: inplot and autoselect (RISC only)
 
-pdf( paste0(outdir_int_plots, 'RISC_reference_selection.pdf'), height = 8, width = 6  )
-print(ip)
-if( !is.null(risc_reference) ){
-  print(
-    pdftable(refscoredf, 
-             title = paste0('Manual reference selected\nSample: ',
-                            risc_reference)
+if (int_config$engine == "RISC") {
+  pdf(paste0(outdir_int_plots, 'RISC_reference_selection.pdf'), height = 8, width = 6)
+  if (!is.null(ip)) print(ip)
+  if (!is.null(risc_reference)) {
+    print(
+      pdftable(refscoredf,
+               title = paste0('Manual reference selected\nSample: ',
+                              risc_reference)
+      )
     )
-  )
-} else{
-  print(
-    pdftable(refscoredf, 
-             title = paste0('RISC reference\nautoselection')
+  } else {
+    print(
+      pdftable(refscoredf,
+               title = paste0('RISC reference\nautoselection')
+      )
     )
-  )
+  }
+  dev.off()
 }
-
-dev.off()
 
 
 ## for each sample get int clusters for alluvial plot
@@ -4136,27 +3416,33 @@ mdint <- sobjint@meta.data
 ## plots of the integrated data
 
 #umap of clusters
-clustname <- risc_clust_lab
-d1_int <- DimPlot(sobjint, label = T, repel = T, group.by = clustname)
+clustname <- int_clust_lab
+.dimplot_int <- function(...) {
+  if (int_config$engine == "Seurat") {
+    DimPlot(sobjint, reduction = int_umap_reduction, ...)
+  } else {
+    DimPlot(sobjint, ...)
+  }
+}
+d1_int <- .dimplot_int(label = T, repel = T, group.by = clustname)
 
 #umap of samples
-d2_int <- DimPlot(sobjint, group.by = 'Code', split.by = 'Condition', ncol = 2) + 
+d2_int <- .dimplot_int(group.by = 'Code', split.by = 'Condition', ncol = 2) +
   theme(panel.border = element_rect(colour = "black", fill=NA, size=1.1))
 
-
 #conditions
-dcond <- DimPlot(sobjint, group.by = 'Condition')
+dcond <- .dimplot_int(group.by = 'Condition')
 
 #split by conditions
-dcond_split <- DimPlot(sobjint, label = T, repel = T, 
+dcond_split <- .dimplot_int(label = T, repel = T,
                        group.by = clustname,
                        split.by = 'Condition',
-                       ncol=2)+
+                       ncol = 2) +
   theme(panel.border = element_rect(colour = "black", fill=NA, size=1.1))
 
 #heatmap of cluster markers
 
-DefaultAssay(sobjint) <- 'RISC'
+DefaultAssay(sobjint) <- int_config$plot_assay
 
 n <- 5
 top <- m_integrated_clusters %>% group_by(cluster) %>% top_n(n = n, wt = score)
@@ -4164,7 +3450,7 @@ top <- m_integrated_clusters %>% group_by(cluster) %>% top_n(n = n, wt = score)
 genes <- top$gene
 
 #scale the relevant genes
-sobjint <- ScaleData(sobjint, features = genes, verbose = verbose)
+sobjint <- ScaleData(sobjint, assay = int_config$plot_assay, features = genes, verbose = verbose)
 
 
 # #make sure genes are in 
@@ -4190,7 +3476,7 @@ sobjint <- ScaleData(sobjint, features = genes, verbose = verbose)
 
 #prep heatmap
 top <- top[top$gene %in% rownames(sobjint),]
-gem <- sobjint@assays$RISC@scale.data
+gem <- Seurat::GetAssayData(sobjint, assay = int_config$plot_assay, layer = "scale.data")
 gem <- gem[match(top$gene, rownames(gem)),]
 
 #annot for clusters
@@ -4331,6 +3617,7 @@ md <- sobjint@meta.data
 labelsdf <- md[,c("Condition", clustname)]
 
 ap_cond_to_clust <- alluvialplot(labelsdf)
+twt_cond_to_clust <- twt_colored_heatmap(labelsdf)
 
 
 ### alluvial plot of sample to cluster
@@ -4355,6 +3642,14 @@ ap_samp_to_clust_list <- lapply(unique(sample_metadata$Condition), function(cond
 names(ap_samp_to_clust_list) <- unique(sample_metadata$Condition)
 ap_samp_to_clust <- wrap_plots(ap_samp_to_clust_list)
 
+twt_samp_to_clust_list <- lapply(unique(sample_metadata$Condition), function(cond){
+  
+  md <- mdint[mdint$Condition == cond,]
+  labelsdf <- md[,c("Code", clustname)]
+  twt_colored_heatmap(labelsdf, title = cond)
+  
+})
+names(twt_samp_to_clust_list) <- unique(sample_metadata$Condition)
 
 
 
@@ -4365,7 +3660,7 @@ indi_int_clust_ap_list <- lapply(sample_metadata$Code, function(code){
   md <- mdint[mdint$Code == code,]
   
   indiclustname <- paste0("SCT_snn_res.", res_indi)
-  intclustname <- risc_clust_lab <- paste0('RISC_Louvain_npc', pcs_int, '_res', res_int)
+  intclustname <- int_clust_lab
   labelsdf <- md[,c(indiclustname, intclustname)]
   
   labelsdf[,1] <- factor(labelsdf[,1], levels = stringr::str_sort(unique(labelsdf[,1]), numeric = T) )
@@ -4382,17 +3677,34 @@ indi_int_clust_ap_list <- lapply(sample_metadata$Code, function(code){
 })
 names(indi_int_clust_ap_list) <- sample_metadata$Code
 
+indi_int_clust_twt_list <- lapply(sample_metadata$Code, function(code){
+  md <- mdint[mdint$Code == code,]
+  
+  indiclustname <- paste0("SCT_snn_res.", res_indi)
+  intclustname <- int_clust_lab
+  labelsdf <- md[,c(indiclustname, intclustname)]
+  
+  labelsdf[,1] <- factor(labelsdf[,1], levels = stringr::str_sort(unique(labelsdf[,1]), numeric = T) )
+  names(labelsdf)[1] <- 'Individual Clusters'
+  
+  twt_colored_heatmap(labelsdf, title = code)
+})
+names(indi_int_clust_twt_list) <- sample_metadata$Code
+
 
 summaryplots_integrated <- list(dcond=dcond,
                                 d2_int=d2_int,
                                 d1_int=d1_int,
                                 dcond_split=dcond_split,
                                 ap_cond_to_clust=ap_cond_to_clust,
+                                twt_cond_to_clust=twt_cond_to_clust,
                                 ap_samp_to_clust=ap_samp_to_clust,
+                                twt_samp_to_clust_list=twt_samp_to_clust_list,
                                 hm_int=hm_int,
                                 hm_int_avg=hm_int_avg,
                                 int_qc_vln=int_qc_vln,
-                                indi_int_clust_ap_list = indi_int_clust_ap_list)
+                                indi_int_clust_ap_list = indi_int_clust_ap_list,
+                                indi_int_clust_twt_list = indi_int_clust_twt_list)
 
 
 
@@ -4521,7 +3833,7 @@ if(use_labeltransfer == T){
   
   
   #scale the relevant genes
-  sobjint <- ScaleData(sobjint, features = genes, verbose = verbose)
+  sobjint <- ScaleData(sobjint, assay = int_config$plot_assay, features = genes, verbose = verbose)
   
   #make sure genes are in 
   # if( any( !(genes %in% rownames(sobjint@assays$SCT@scale.data)) ) ){
@@ -4531,7 +3843,7 @@ if(use_labeltransfer == T){
   
   #prep heatmap
   top <- top[top$gene %in% rownames(sobjint),]
-  gem <- sobjint@assays$RISC@scale.data
+  gem <- Seurat::GetAssayData(sobjint, assay = int_config$plot_assay, layer = "scale.data")
   gem <- gem[match(top$gene, rownames(gem)),]
   
   #annot for clusters
@@ -4643,6 +3955,7 @@ if(use_labeltransfer == T){
   #alluvial plot, int clusters to cell type
   labelsdf <- mdint[,c('seurat_clusters', 'top_celltype_thresholded')]
   ap_int_celltypes <- alluvialplot(labelsdf)
+  twt_int_celltypes <- twt_colored_heatmap(labelsdf)
   
   
   
@@ -4684,7 +3997,7 @@ if(use_labeltransfer == T){
   
   names(ctplots_int) <- ct_ordered
   
-  DefaultAssay(sobjint) <- 'RISC'
+  DefaultAssay(sobjint) <- int_config$default_assay
   
   
   
@@ -4702,6 +4015,7 @@ if(use_labeltransfer == T){
     d3_int=d3_int,
     d4_int=d4_int,
     ap_int_celltypes=ap_int_celltypes,
+    twt_int_celltypes=twt_int_celltypes,
     
     clustmaxdf = clustmaxdf,
     d5=d5,
@@ -4858,6 +4172,23 @@ cat( plotlab )
 
 print( summaryplots_integrated$hm_int_avg )
 
+if (run_msigdb_celltype_ora) {
+  plotlab <- "
+
+
+## MSigDB cell-type signature enrichment (integrated clusters)
+
+Over-representation analysis (ORA) of integrated cluster marker genes against MSigDB cell-type signature gene sets. For each cluster, up to the top 100 markers passing adjusted p < threshold are tested. The dotplot shows the top 5 enriched cell-type gene sets per cluster (inclusive: shared gene sets appear across clusters). Full tables are saved under `celltype_marker_prediction/`.
+
+
+"
+  cat(plotlab)
+  if (!is.null(msigdb_celltype_ora_int_dotplot) && inherits(msigdb_celltype_ora_int_dotplot, "ggplot")) {
+    print(msigdb_celltype_ora_int_dotplot)
+  } else {
+    cat("\n\nNo significant MSigDB cell-type enrichments were detected for integrated clusters.\n\n")
+  }
+}
 
 
 plotlab <- "
@@ -4900,6 +4231,24 @@ print( summaryplots_integrated$ap_cond_to_clust )
 plotlab <- "
 
 
+## Two-way table heatmap: condition vs integrated clusters
+
+This heatmap shows the same condition-to-cluster membership as the alluvial plot above, as cell counts in a matrix colored by within-row proportion.
+
+
+"
+
+cat( plotlab )
+
+
+print( summaryplots_integrated$twt_cond_to_clust )
+
+
+
+
+plotlab <- "
+
+
 ## Alluvial plot mapping samples to integrated clusters
 
 This alluvial plot allows us to see the contribution of each sample to each cluster. Combined with the condition-focused alluvial plot above, this allows us to verify compositional patterns across biological replicates.
@@ -4911,6 +4260,35 @@ cat( plotlab )
 
 
 print( summaryplots_integrated$ap_samp_to_clust )
+
+
+
+
+plotlab <- "
+
+
+## Two-way table heatmaps: samples vs integrated clusters
+
+These heatmaps show the same sample-to-cluster membership as the alluvial plot above, as cell counts in a matrix colored by within-row proportion. One panel is shown per condition.
+
+
+"
+
+cat( plotlab )
+
+twt_samp_to_clust_list <- summaryplots_integrated$twt_samp_to_clust_list
+
+for (i in seq_along(twt_samp_to_clust_list)) {
+  name <- names(twt_samp_to_clust_list)[i]
+  plotlab <- "
+
+### %s
+
+"
+  cat(sprintf(plotlab, name))
+  print(twt_samp_to_clust_list[[i]])
+}
+rm(twt_samp_to_clust_list)
 
 
 
@@ -4945,6 +4323,8 @@ Individual Clusters (left) mapped to Integrated Clusters (right)
   cat(sprintf(plotlab, name))
   
   print(indi_int_clust_ap_list[[i]])
+  
+  print(summaryplots_integrated$indi_int_clust_twt_list[[i]])
   
 }
 rm(indi_int_clust_ap_list)
@@ -5117,6 +4497,23 @@ This alluvial plot maps cluster labels to top celltype labels for each cell. Thi
   
   
   
+  plotlab <- "
+
+
+## Two-way table heatmap: integrated clusters vs top celltypes
+
+This heatmap shows the same cluster-to-celltype membership as the alluvial plot above, as cell counts in a matrix colored by within-row proportion.
+
+
+"
+  
+  cat( plotlab )
+  
+  print(summaryplots_integrated_ct$twt_int_celltypes)
+  
+  
+  
+  
   plotlab <- '
 
 
@@ -5233,7 +4630,8 @@ comp_result <- compositional_analysis_module(sobjint = sobjint,
                                              compositional_test = compositional_test)
 
 
-composition_comps <- comp_result$composition_comps
+composition_results <- comp_result$composition_results
+composition_plots <- comp_result$composition_plots
 globalcomposition <- comp_result$globalcomposition
 
 rm(comp_result)
@@ -5314,23 +4712,15 @@ cat(plotlab)
 
 
 
-compslen <- 1:nrow(comps)
-compidx = 1 #for testing
-#prep names
-comps$labels <- paste0(comps$c1, '_vs_', comps$c2)
+compslen <- seq_len(nrow(comps))
 
-for(compidx in 1:length(compslen) ){
+for(compidx in compslen){
   
+  c1 <- comps$c1[compidx]
+  c0 <- comps$c0[compidx]
+  lab <- comps$label[compidx]
   
-  #get comparison condition levels
-  c1 <- comps[compidx,1]
-  c2 <- comps[compidx,2]
-  
-  #get comp lab
-  lab <- comps[compidx,3]
-  
-  #get comp analysis
-  diffcomp <- composition_comps[[lab]]
+  compres_sub <- composition_results[composition_results$label == lab, , drop = FALSE]
   
   #get testused
   comptestused <- ifelse(T == T,
@@ -5356,7 +4746,7 @@ Clusters with significant compositional differences are labelled with two asteri
 
 '
   cat(sprintf(plotlab, comptestused))
-  print(diffcomp$hmprop_comp)
+  print(composition_plots[[lab]])
   
   
   
@@ -5374,8 +4764,15 @@ Clusters with significant compositional differences are labelled with two asteri
 '
   
   cat(sprintf(plotlab, comptestused))
-  print_compres <- diffcomp$compres
-  print_compres[,-1] <- round(print_compres[,-1], 3)
+  print_compres <- compres_sub[, c("cluster", "significant", "PropMean_c1", "PropMean_c0",
+                                   "PropRatio", "Tstatistic", "P.Value", "FDR"), drop = FALSE]
+  if (any(compres_sub$significant)) {
+    print_compres$cluster <- ifelse(print_compres$significant,
+                                    paste0("* ", print_compres$cluster, " *"),
+                                    print_compres$cluster)
+  }
+  num_cols <- c("PropMean_c1", "PropMean_c0", "PropRatio", "Tstatistic", "P.Value", "FDR")
+  print_compres[, num_cols] <- round(print_compres[, num_cols], 3)
   print(knitr::kable(print_compres))
   
 }
@@ -5384,7 +4781,7 @@ Clusters with significant compositional differences are labelled with two asteri
 
 
 ### clean up env
-rm(print_compres, diffcomp, composition_comps, globalcomposition)
+rm(print_compres, compres_sub, composition_results, composition_plots, globalcomposition)
 invisible(gc(full = T, reset = F, verbose = F))
 
 ```
@@ -5427,25 +4824,19 @@ cat(detestused_text)
 
 
 
-#prep names
-comps$labels <- paste0(comps$c1, '_vs_', comps$c2)
-
-#read sobjlist back in? keep it in?
-# will need to optimize memory
-
 #get cluster object name
-clustname <- risc_clust_lab
+clustname <- int_clust_lab
 
 
 if(Pseudobulk_mode == T){
   
-  m_bycluster_crosscondition_de_comps <- de_across_conditions_module(
+  de_results <- de_across_conditions_module(
     sobjint = sobjint,
     sample_metadata = sample_metadata,
     comps = comps,
     grouping_variable = clustname,
     outdir_int=outdir_int,
-    assay = 'RNA', slot = 'counts',
+    assay = int_config$de_pseudobulk_assay, slot = int_config$de_pseudobulk_slot,
     Pseudobulk_mode = T,
     DE_test = DE_test,
     cluster_prefix = T,
@@ -5456,13 +4847,13 @@ if(Pseudobulk_mode == T){
   
 } else{
   
-  m_bycluster_crosscondition_de_comps <- de_across_conditions_module(
+  de_results <- de_across_conditions_module(
     sobjint = sobjint,
     sample_metadata = sample_metadata,
     comps = comps,
     grouping_variable = clustname,
     outdir_int=outdir_int,
-    assay = 'RISC', slot = 'data',
+    assay = int_config$de_wilcox_assay, slot = int_config$de_wilcox_slot,
     Pseudobulk_mode = F,
     DE_test = DE_test,
     cluster_prefix = T,
@@ -5496,54 +4887,46 @@ dir.create(outdir_DE_plots, recursive = T)
 DEplots_comps <- lapply(compslen, function(compidx){
   
   
-  #get comparison condition levels
-  c1 <- comps[compidx,1]
-  c2 <- comps[compidx,2]
-  
-  #get comp lab
-  lab <- comps[compidx,3]
+  c1 <- comps$c1[compidx]
+  c0 <- comps$c0[compidx]
+  lab <- comps$label[compidx]
   
   message(lab)
   
-  #get cross conditions res per cluster list
-  m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de_comps[[compidx]]
+  m_bycluster_crosscondition_de <- scDAPP::de_results_by_cluster(de_results, lab)
   
   
-  #get num DEGs
-  # crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
-  numdegs <- sapply(m_bycluster_crosscondition_de, function(m){
-    
-    #normal fdr and padj thresholds
-    m <- m[m$FDR < crossconditionDE_padj_thres,, drop=F]
-    m <- m[abs(m$logFC) > crossconditionDE_lfc_thres,, drop=F]
-    
-    #pct thresholds: +FC, pct1 > 0.1; -FC, pct2 > 0.1
-    
-    upm <- m[m$logFC > 0,,drop=F]
-    upm <- upm[upm$pct.1 > crossconditionDE_min.pct,, drop=F]
-    
-    dnm <- m[m$logFC < 0,,drop=F]
-    dnm <- dnm[dnm$pct.2 > crossconditionDE_min.pct,, drop=F]
-    
-    m <- rbind(upm,dnm)
-    
-    try( table( factor(sign(m$logFC), levels=c(-1,1)) ) )
-  })
-  
-  numdegs <- t(numdegs)
-  colnames(numdegs) <- c(c2, c1)
+  numdegs <- scDAPP::count_crosscondition_degs(
+    m_bycluster_crosscondition_de,
+    padj_thres = crossconditionDE_padj_thres,
+    lfc_thres = crossconditionDE_lfc_thres,
+    min_pct = crossconditionDE_min.pct,
+    c0 = c0,
+    c1 = c1
+  )
   
   #make sure all clusters are shown
   # make a fake df and replace fake with real res
   saved_cluster_levels <- paste0('cluster_',levels(sobjint$seurat_clusters))
   numdegs_all <- data.frame(Cluster = saved_cluster_levels,
-                            c1 = 0, c2 = 0)
-  colnames(numdegs_all) <- c('Cluster', c1, c2)
+                            c1 = 0, c0 = 0)
+  colnames(numdegs_all) <- c('Cluster', c1, c0)
   rownames(numdegs_all) <- numdegs_all$Cluster
   
   numdegs_all[rownames(numdegs), c1] <- numdegs[,c1]
-  numdegs_all[rownames(numdegs), c2] <- numdegs[,c2]
+  numdegs_all[rownames(numdegs), c0] <- numdegs[, c0]
   rownames(numdegs_all) <- NULL
+  
+  numdegs_kable <- numdegs_all
+  colnames(numdegs_kable) <- c("Cluster", paste0(c1, "_high"), paste0(c0, "_high"))
+  
+  deg_count_barplot <- scDAPP::plot_crosscondition_deg_barplot(
+    numdegs = numdegs_all,
+    c0 = c0,
+    c1 = c1,
+    cluster_levels = saved_cluster_levels,
+    title = lab
+  )
   
   
   
@@ -5552,27 +4935,40 @@ DEplots_comps <- lapply(compslen, function(compidx){
   
   
   #make sure all samples from pmd are in the mlist...
-  subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1,c2),]
+  subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1, c0),]
+  
+  summary_genes <- scDAPP::select_top_crosscondition_deg_genes_pooled(
+    m_bycluster_crosscondition_de,
+    n_top = 10L,
+    padj_thres = crossconditionDE_padj_thres,
+    lfc_thres = crossconditionDE_lfc_thres,
+    min_pct = crossconditionDE_min.pct
+  )
+  
+  deg_summary_dotplot <- scDAPP::plot_crosscondition_deg_dotplot(
+    sobj = sobjint,
+    genes = summary_genes$all,
+    sample_codes = subpmd$Code,
+    c0 = c0,
+    c1 = c1,
+    assay = int_config$de_wilcox_assay,
+    slot = int_config$de_wilcox_slot,
+    title = paste0(lab, ": top DEGs (comparison summary)"),
+    cluster_id = NULL,
+    sample_metadata = sample_metadata
+  )
   
   #for each cluster, get the up/dn DEGs
   i = 3
   clustres <- lapply(1:nrow(numdegs), function(i){
     
     clustlab <- rownames(numdegs)[i]
-    m <- m_bycluster_crosscondition_de[[clustlab]]
-    
-    m <- m[m$FDR < crossconditionDE_padj_thres,, drop=F]
-    m <- m[abs(m$logFC) > crossconditionDE_lfc_thres,, drop=F]
-    
-    # crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
-    
-    upm <- m[m$logFC > 0,,drop=F]
-    upm <- upm[upm$pct.1 > crossconditionDE_min.pct,, drop=F]
-    
-    dnm <- m[m$logFC < 0,,drop=F]
-    dnm <- dnm[dnm$pct.2 > crossconditionDE_min.pct,, drop=F]
-    
-    m <- rbind(upm,dnm)
+    m <- scDAPP::filter_significant_de_results(
+      m_bycluster_crosscondition_de[[clustlab]],
+      crossconditionDE_padj_thres,
+      crossconditionDE_lfc_thres,
+      crossconditionDE_min.pct
+    )
     
     
     ### Sep 22 2024
@@ -5663,7 +5059,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
   # 
   # #subset for just these conditions
   # md <- sobjint@meta.data
-  # md <- md[md$Condition %in% c(c1,c2),]
+  # md <- md[md$Condition %in% c(c1, c0),]
   # sobjsub <- sobjint[,rownames(md)]
   # 
   # #scale the relevant genes
@@ -5671,8 +5067,8 @@ DEplots_comps <- lapply(compslen, function(compidx){
   # 
   # 
   # # get the gene matrix
-  # # gem <- sobjsub@assays$RISC@scale.data
-  # gem <- sobjsub@assays$RISC@data
+  # # gem <- Seurat::GetAssayData(sobjsub, assay = int_config$de_wilcox_assay, layer = "scale.data")
+  # gem <- Seurat::GetAssayData(sobjsub, assay = int_config$de_wilcox_assay, layer = int_config$de_wilcox_slot)
   # 
   # 
   # #prep heatmap
@@ -5726,7 +5122,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
   # col_cond <- setNames(set2,
   #                      nm = unique(sample_metadata$Condition) )
   # 
-  # col_cond <- col_cond[names(col_cond) %in% c(c1,c2)]
+  # col_cond <- col_cond[names(col_cond) %in% c(c1, c0)]
   # 
   # 
   # 
@@ -5852,7 +5248,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
   # col_cond <- setNames(set2,
   #                      nm = unique(sample_metadata$Condition) )
   # 
-  # col_cond <- col_cond[names(col_cond) %in% c(c1,c2)]
+  # col_cond <- col_cond[names(col_cond) %in% c(c1, c0)]
   # 
   # 
   # 
@@ -5975,17 +5371,42 @@ DEplots_comps <- lapply(compslen, function(compidx){
     #get cluster without "cluster_" prefix
     cluster_noprefix <- gsub('cluster_', '', cluster)
     
+    cluster_genes <- scDAPP::select_top_crosscondition_deg_genes(
+      m,
+      n_top = 10L,
+      padj_thres = crossconditionDE_padj_thres,
+      lfc_thres = crossconditionDE_lfc_thres,
+      min_pct = crossconditionDE_min.pct
+    )
+    
+    dp_top_degs <- scDAPP::plot_crosscondition_deg_dotplot(
+      sobj = sobjint,
+      genes = cluster_genes$all,
+      sample_codes = subpmd$Code,
+      c0 = c0,
+      c1 = c1,
+      assay = int_config$de_wilcox_assay,
+      slot = int_config$de_wilcox_slot,
+      title = paste0(lab, ": ", cluster),
+      cluster_id = cluster_noprefix,
+      sample_metadata = sample_metadata
+    )
+    
     #get cluster cells; order by c1 then c2
     md <- sobjint@meta.data
     mdclust <- md[md$seurat_clusters == cluster_noprefix,]
-    mdclust <- mdclust[mdclust$Condition %in% c(c1,c2),]
-    mdclust$Condition <- factor(mdclust$Condition, levels = c(c1,c2))
+    mdclust <- mdclust[mdclust$Condition %in% c(c1, c0),]
+    mdclust$Condition <- factor(mdclust$Condition, levels = c(c1, c0))
     mdclust <- mdclust[order(mdclust$Condition), ]
     
     clustcells <- rownames(mdclust)
     
     #get matrix of DEGs of cells from this cluster
-    mat <- sobjint@assays$RISC@data
+    mat <- Seurat::GetAssayData(
+      sobjint,
+      assay = int_config$de_wilcox_assay,
+      layer = int_config$de_wilcox_slot
+    )
     mat <- mat[match(m$gene_symbol, rownames(mat)),clustcells,drop=F]
     
     
@@ -6002,7 +5423,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
                            cluster_column_slices = F, cluster_columns = F,
                            cluster_row_slices = F, cluster_rows = F,
                            show_row_names = ifelse(nrow(mat)<=50, yes = T, no = F), 
-                           name = paste0('Scaled\nRISC\nValues'), 
+                           name = paste0('Scaled\n', int_config$de_wilcox_assay, '\nValues'), 
                            column_split = mdclust$Condition, 
                            row_split = factor(sign(m$logFC), levels = c(1,-1)),
                            border_gp = gpar(col = "black", lwd = 1)
@@ -6036,19 +5457,19 @@ DEplots_comps <- lapply(compslen, function(compidx){
       
       #order md properly
       #get just this comp samples
-      subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1,c2),]
+      subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1, c0),]
       
       
       
       #order columns of heatmap by c1 vs c2
       code_comps_order <- subpmd[subpmd$Condition == c1,"Code"]
-      code_comps_order <- c(code_comps_order, subpmd[subpmd$Condition == c2,"Code"])
+      code_comps_order <- c(code_comps_order, subpmd[subpmd$Condition == c0, "Code"])
       
       #make sure they are in the matrix
       code_comps_order <- code_comps_order[code_comps_order %in% colnames(pb_mat)]
       
       #also prepare factor for ordering of heatmap
-      condition_vector_ordering <- factor(subpmd[match(code_comps_order, subpmd$Code), "Condition"], levels = c(c1,c2))
+      condition_vector_ordering <- factor(subpmd[match(code_comps_order, subpmd$Code), "Condition"], levels = c(c1, c0))
       
       
       pb_mat <- pb_mat[,code_comps_order,drop=F]
@@ -6094,28 +5515,32 @@ DEplots_comps <- lapply(compslen, function(compidx){
       #get cluster cells; order by c1 then c2
       md <- sobjint@meta.data
       mdclust <- md[md$seurat_clusters == cluster_noprefix,]
-      mdclust$Condition <- factor(mdclust$Condition, levels = c(c1,c2))
+      mdclust$Condition <- factor(mdclust$Condition, levels = c(c1, c0))
       mdclust <- mdclust[order(mdclust$Condition), ]
       
       clustcells <- rownames(mdclust)
       
       #get matrix of DEGs of cells from this cluster
-      mat <- sobjint@assays$RISC@data
+      mat <- Seurat::GetAssayData(
+        sobjint,
+        assay = int_config$de_wilcox_assay,
+        layer = int_config$de_wilcox_slot
+      )
       mat <- mat[match(m$gene_symbol, rownames(mat)),clustcells,drop=F]
       
       #order md properly
       #get just this comp samples
-      subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1,c2),]
+      subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1, c0),]
       
       #order columns of heatmap by c1 vs c2
       code_comps_order <- subpmd[subpmd$Condition == c1,"Code"]
-      code_comps_order <- c(code_comps_order, subpmd[subpmd$Condition == c2,"Code"])
+      code_comps_order <- c(code_comps_order, subpmd[subpmd$Condition == c0, "Code"])
       
       #make sure sample is even present in cluster
       code_comps_order <- code_comps_order[code_comps_order %in% mdclust$Code]
       
       #also prepare factor for ordering of heatmap
-      condition_vector_ordering <- factor(subpmd[match(code_comps_order, subpmd$Code), "Condition"], levels = c(c1,c2))
+      condition_vector_ordering <- factor(subpmd[match(code_comps_order, subpmd$Code), "Condition"], levels = c(c1, c0))
       
       
       avg_l <- lapply(code_comps_order, function(code){
@@ -6142,7 +5567,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
                                 cluster_column_slices = F, cluster_columns = F,
                                 cluster_row_slices = F, cluster_rows = F,
                                 show_row_names = ifelse(nrow(mat)<=50, yes = T, no = F), 
-                                name = paste0('Scaled\nMean\nRisc\nValues'),
+                                name = paste0('Scaled\nMean\n', int_config$de_wilcox_assay, '\nValues'),
                                 column_split = condition_vector_ordering, 
                                 row_split = factor(sign(m$logFC), levels = c(1,-1)),
                                 border_gp = gpar(col = "black", lwd = 1)
@@ -6164,7 +5589,8 @@ DEplots_comps <- lapply(compslen, function(compidx){
     
     
     return(list(hm_de_clust = hm_de_clust,
-                hm_de_clust_pb = hm_de_clust_pb))
+                hm_de_clust_pb = hm_de_clust_pb,
+                dp_top_degs = dp_top_degs))
     
   })
   
@@ -6172,10 +5598,17 @@ DEplots_comps <- lapply(compslen, function(compidx){
   
   names(cluster_de_heatmap_l) <- names(clustres)
   
+  cluster_de_dotplot_l <- lapply(cluster_de_heatmap_l, `[[`, "dp_top_degs")
+  names(cluster_de_dotplot_l) <- names(clustres)
+  
   
   deplotlist <- list(#hm_DE = hm_DE,
     #hm_DE_AVG = hm_DE_AVG,
-    cluster_de_heatmap_l = cluster_de_heatmap_l)
+    deg_count_barplot = deg_count_barplot,
+    deg_summary_dotplot = deg_summary_dotplot,
+    numdegs_kable = numdegs_kable,
+    cluster_de_heatmap_l = cluster_de_heatmap_l,
+    cluster_de_dotplot_l = cluster_de_dotplot_l)
   
   
   
@@ -6186,7 +5619,20 @@ DEplots_comps <- lapply(compslen, function(compidx){
   
   # print(deplotlist$hm_DE)
   # print(deplotlist$hm_DE_AVG)
-  invisible(print(deplotlist$cluster_de_heatmap_l))
+  print(deplotlist$deg_count_barplot)
+  if (!is.null(deplotlist$deg_summary_dotplot)) {
+    print(deplotlist$deg_summary_dotplot)
+  }
+  for (i in seq_along(deplotlist$cluster_de_heatmap_l)) {
+    cl <- deplotlist$cluster_de_heatmap_l[[i]]
+    invisible(print(cl$hm_de_clust))
+    if (!is.null(cl$hm_de_clust_pb)) {
+      invisible(print(cl$hm_de_clust_pb))
+    }
+    if (!is.null(cl$dp_top_degs)) {
+      print(cl$dp_top_degs)
+    }
+  }
   
   dev.off()
   
@@ -6231,12 +5677,17 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 
 #prep pathways
-pathways <- preppathways_pathwayanalysis_crosscondition_module(species = species,
-                                                               outdir_int = outdir_int)
+if (!exists("pathways")) {
+  pathways <- preppathways_pathwayanalysis_crosscondition_module(
+    species = species,
+    outdir_int = outdir_int,
+    msigdbr_cache_dir = msigdbr_cache_dir
+  )
+}
 
 ### run main pathway analysis ###
 pways_output_list <- pathwayanalysis_crosscondition_module(
-  m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+  de_results = de_results,
   pathways = pathways,
   sample_metadata = sample_metadata,
   # deg.weight = "pval", #this is deprecated now
@@ -6246,19 +5697,22 @@ pways_output_list <- pathwayanalysis_crosscondition_module(
 )
 
 
-pathway_analysis_mainlist_comps <- pways_output_list$pathway_analysis_mainlist_comps
+pathway_results <- pways_output_list$pathway_results
 pathwaysummplots_comps <- pways_output_list$pathwaysummplots_comps
+pathway_analysis_mainlist_comps <- pways_output_list$pathway_cluster_plots
 
 
 
 ### for easily reproducing plots and etc, save them as R objects...
 
 DE_pathways_plot_objects_list <- list(comps = comps,
-                                      m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
-                                      pathway_analysis_mainlist_comps = pathway_analysis_mainlist_comps,
+                                      de_results = de_results,
+                                      pathway_results = pathway_results,
+                                      pathway_cluster_plots = pathway_analysis_mainlist_comps,
                                       pathwaysummplots_comps = pathwaysummplots_comps,
                                       crossconditionDE_padj_thres = crossconditionDE_padj_thres,
-                                      crossconditionDE_lfc_thres = crossconditionDE_lfc_thres)
+                                      crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
+                                      crossconditionDE_min.pct = crossconditionDE_min.pct)
 
 
 
@@ -6281,7 +5735,7 @@ if(run_ORA == T){
   
   # crossconditionDE_min.pct <- ifelse(Pseudobulk_mode == T, yes = 0.1, no = 0)
   
-  ORA_mainlist_comps <- ORA_crosscondition_module(m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+  ora_results <- ORA_crosscondition_module(de_results = de_results,
                                                   pathways = pathways,
                                                   sample_metadata = sample_metadata,
                                                   comps = comps,
@@ -6294,7 +5748,7 @@ if(run_ORA == T){
   )
   
   
-  rm(ORA_mainlist_comps)
+  rm(ora_results)
   
   
 }
@@ -6320,21 +5774,18 @@ compslen <- nrow(comps)
 for(compidx in c(1:compslen) ){
   
   
-  #get comparison condition levels
-  c1 <- comps[compidx,1]
-  c2 <- comps[compidx,2]
+  c1 <- comps$c1[compidx]
+  c0 <- comps$c0[compidx]
+  lab <- comps$label[compidx]
   
-  #get comp lab
-  lab <- comps[compidx,3]
-  
-  #get cross conditions res per cluster list
-  m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de_comps[[compidx]]
-  
-  #get pway results full list
-  pathway_analysis_mainlist <- pathway_analysis_mainlist_comps[[compidx]]
+  #get pway results full list (nested cluster plots; tables are in pathway_results)
+  pathway_analysis_mainlist <- pathway_analysis_mainlist_comps[[lab]]
+  if (is.null(pathway_analysis_mainlist)) {
+    pathway_analysis_mainlist <- list()
+  }
   
   #get pway summary plots
-  summplots_cats <- pathwaysummplots_comps[[compidx]]
+  summplots_cats <- pathwaysummplots_comps[[lab]]
   
   
   
@@ -6369,9 +5820,9 @@ Here we check number of differentially expressed genes (DEGs) after applying som
 
 * Log Fold Change > +/- %s
 
-* Proportion of cells expressing gene in condition A > 0.1 if LFC is positive
+* Proportion of cells expressing gene in condition A > %s if LFC is positive
 
-* Proportion of cells expressing gene in condition B > 0.1 if LFC is negative
+* Proportion of cells expressing gene in condition B > %s if LFC is negative
 
 Differential expression compares genes in condition A (left) versus condition B (right). The left column indicates the number of genes upregulated in the left condition, while the right column indicates genes upregulated in the right condition.
 
@@ -6379,47 +5830,8 @@ Finally, the thresholds above do not affect downstream results from pathway anal
 
 "
     
-    cat( sprintf(plotlab, crossconditionDE_padj_thres, crossconditionDE_lfc_thres) )
-    
-    
-    numdegs <- sapply(m_bycluster_crosscondition_de, function(m){
-      
-      #normal fdr and padj thresholds
-      m <- m[m$FDR < crossconditionDE_padj_thres,, drop=F]
-      m <- m[abs(m$logFC) > crossconditionDE_lfc_thres,, drop=F]
-      
-      #pct thresholds: +FC, pct1 > 0.1; -FC, pct2 > 0.1
-      
-      upm <- m[m$logFC > 0,,drop=F]
-      upm <- upm[upm$pct.1 > 0.1,, drop=F]
-      
-      dnm <- m[m$logFC < 0,,drop=F]
-      dnm <- dnm[dnm$pct.2 > 0.1,, drop=F]
-      
-      m <- rbind(upm,dnm)
-      
-      try( table( factor(sign(m$logFC), levels=c(-1,1)) ) )
-    })
-    
-    numdegs <- t(numdegs)
-    colnames(numdegs) <- c(c2, c1)
-    
-    #make sure all clusters are shown
-    # make a fake df and replace fake with real res
-    saved_cluster_levels_withlab <- paste0('cluster_', saved_cluster_levels)
-    numdegs_all <- data.frame(Cluster = saved_cluster_levels_withlab,
-                              c1 = 0, c2 = 0)
-    colnames(numdegs_all) <- c('Cluster', c1, c2)
-    rownames(numdegs_all) <- numdegs_all$Cluster
-    
-    numdegs_all[rownames(numdegs), c1] <- numdegs[,c1]
-    numdegs_all[rownames(numdegs), c2] <- numdegs[,c2]
-    rownames(numdegs_all) <- NULL
-    
-    #rename colnames to have high
-    colnames(numdegs_all) <- c('Cluster', paste0(c1, '_high'), paste0(c2, '_high'))
-    
-    print(knitr::kable(numdegs_all))
+    cat( sprintf(plotlab, crossconditionDE_padj_thres, crossconditionDE_lfc_thres,
+                 crossconditionDE_min.pct, crossconditionDE_min.pct) )
     
   }
   
@@ -6445,50 +5857,42 @@ Finally, the thresholds above do not affect downstream results from pathway anal
     
     cat( sprintf(plotlab, crossconditionDE_padj_thres, crossconditionDE_lfc_thres) )
     
-    
-    
-    numdegs <- sapply(m_bycluster_crosscondition_de, function(m){
-      
-      #normal fdr and padj thresholds
-      m <- m[m$FDR < crossconditionDE_padj_thres,, drop=F]
-      m <- m[abs(m$logFC) > crossconditionDE_lfc_thres,, drop=F]
-      
-      #pct thresholds for pb_edgeR only: +FC, pct1 > 0.1; -FC, pct2 > 0.1
-      
-      upm <- m[m$logFC > 0,,drop=F]
-      
-      dnm <- m[m$logFC < 0,,drop=F]
-      
-      m <- rbind(upm,dnm)
-      
-      try( table( factor(sign(m$logFC), levels=c(-1,1)) ) )
-    })
-    
-    numdegs <- t(numdegs)
-    colnames(numdegs) <- c(c2, c1)
-    
-    #make sure all clusters are shown
-    # make a fake df and replace fake with real res
-    saved_cluster_levels_withlab <- paste0('cluster_', saved_cluster_levels)
-    numdegs_all <- data.frame(Cluster = saved_cluster_levels_withlab,
-                              c1 = 0, c2 = 0)
-    colnames(numdegs_all) <- c('Cluster', c1, c2)
-    rownames(numdegs_all) <- numdegs_all$Cluster
-    
-    numdegs_all[rownames(numdegs), c1] <- numdegs[,c1]
-    numdegs_all[rownames(numdegs), c2] <- numdegs[,c2]
-    rownames(numdegs_all) <- NULL
-    
-    #rename colnames to have high
-    colnames(numdegs_all) <- c('Cluster', paste0(c1, '_high'), paste0(c2, '_high'))
-    
-    print(knitr::kable(numdegs_all))
-    
-    
-    
-    
   }
   
+  print(knitr::kable(deplotlist$numdegs_kable))
+  
+  
+  plotlab <- "
+
+
+### Diverging barplot of DEG counts per cluster
+
+This barplot summarizes the same DEG counts as the table above. Bars extending to the left (negative) indicate genes higher in %s; bars extending to the right (positive) indicate genes higher in %s. All integrated clusters are shown, including those with zero significant DEGs.
+
+
+"
+  
+  cat(sprintf(plotlab, c0, c1))
+  
+  print(deplotlist$deg_count_barplot)
+  
+  
+  
+  plotlab <- "
+
+
+### Top DEG DotPlot (comparison summary)
+
+This dotplot shows the top 10 upregulated and top 10 downregulated significant DEGs pooled across all clusters (deduplicated by gene). Expression is summarized across all cells in the comparison samples; sample Code is on the X axis and genes on the Y axis. Dot size reflects the fraction of cells expressing each gene; color reflects average expression.
+
+
+"
+  
+  cat(plotlab)
+  
+  if (!is.null(deplotlist$deg_summary_dotplot)) {
+    print(deplotlist$deg_summary_dotplot)
+  }
   
   
   
@@ -6546,6 +5950,7 @@ To ensure the differential expression results are robust, it is helpful to inspe
   cat(sprintf(plotlab))
   
   cluster_de_heatmap_l <- deplotlist$cluster_de_heatmap_l
+  cluster_de_dotplot_l <- deplotlist$cluster_de_dotplot_l
   
   
   for(i in 1:length(cluster_de_heatmap_l) ){
@@ -6613,12 +6018,27 @@ Here, we plot all significant DEGs after averaging the RISC-transformed values f
     
     
     
+    plotlab <- '
+##### Top DEG DotPlot by sample (Code)
+
+This dotplot shows the top 10 upregulated and top 10 downregulated significant DEGs for this cluster. Sample Code is on the X axis and genes on the Y axis.
+
+
+'
+    
+    cat(plotlab)
+    
+    if (!is.null(cluster_de_dotplot_l[[i]])) {
+      print(cluster_de_dotplot_l[[i]])
+    }
+    
+    
     cat('\n\n\n')
     
     
   }
   
-  rm(cluster_de_heatmap_l, clustplots)
+  rm(cluster_de_heatmap_l, cluster_de_dotplot_l, clustplots)
   
   
   
@@ -6665,7 +6085,7 @@ The pathways we choose in pathway analysis are derived from the Molecular Signat
   # 3. cluster by cluster, up tables, up dotplots
   # 4. cluster by cluster, dn tables, dn dotplots
   
-  for(i in 1:length(pathway_analysis_main_nonull) ){
+  for(i in seq_along(pathway_analysis_main_nonull)){
     
     #get category name
     cat <- names(pathway_analysis_main_nonull)[i]
@@ -6694,7 +6114,7 @@ The pathways we choose in pathway analysis are derived from the Molecular Signat
     #loop through each cluster's results; this list contains up/down for each pathway
     # j is the cluster index
     #for(j in 1:length(pwaycat) ){
-    clustlist <- lapply( c( 1:length(pwaycat) ), function(j){
+    clustlist <- lapply(seq_along(pwaycat), function(j){
       
       
       #get cluster name
@@ -6810,9 +6230,9 @@ The pathways we choose in pathway analysis are derived from the Molecular Signat
     
     
     
-    for(condidx in 1:length(c(c1,c2)) ){
+    for(condidx in 1:length(c(c1, c0)) ){
       
-      cond <- c(c1,c2)[condidx]
+      cond <- c(c1, c0)[condidx]
       
       
       summplot <- summplots_conds[[condidx]]
@@ -6880,7 +6300,7 @@ If a cluster is missing, it indicates no pathways were significantly differentia
 
 "
     
-    cat(sprintf(clustlab, c1, c2, c1, c2))
+    cat(sprintf(clustlab, c1, c0, c1, c0))
     
     
     #for each cluster, print out the dotplot and table,

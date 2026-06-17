@@ -5,7 +5,7 @@
 \title{Overrepresentation analysis for cross condition pathway analysis}
 \usage{
 ORA_crosscondition_module(
-  m_bycluster_crosscondition_de_comps,
+  de_results,
   pathways,
   sample_metadata,
   comps,
@@ -19,7 +19,7 @@ ORA_crosscondition_module(
 )
 }
 \arguments{
-\item{m_bycluster_crosscondition_de_comps}{the output of \code{scDAPP::de_across_conditions_module()}.}
+\item{de_results}{harmonized data.frame from \code{scDAPP::de_across_conditions_module()}.}
 
 \item{pathways}{data.frame, the output of \code{scDAPP::preppathways_pathwayanalysis_crosscondition_module()}}
 
@@ -36,7 +36,8 @@ ORA_crosscondition_module(
 \item{outdir_int}{string, directory to save pathways to. Will create a sub-directory called "overrepresentation_pathway_analysis" and save inside of there.}
 }
 \value{
-a list that contains the raw results and plots as a nested loop: first level is A vs B comparison, then category-by-category of MSIGDB database, then a data.frame of cluster-by-cluster results
+Flat \code{ora_results} data.frame (pathway x cluster x category x comparison x direction).
+Per-cluster CSVs are still written under \code{outdir_int}.
 }
 \description{
 This function is a modular component of the scRNAseq pipeline. Perform OverRepresentation Analysis (ORA) via the ClusterProfiler package on the results of differential expression (DE) analysis for cross-condition comparison. Multiple conditions are supported. ClusterProfiler objects and tables are saved.
@@ -54,7 +55,7 @@ outdir_int = outdir_int)
 # THIRD: run the pathway analysis.
 # see `scDAPP::de_across_conditions_module()` for a description of the sample_metadata and comps files.
 pways_output_list <- scDAPP::ORA_crosscondition_module(
-m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+de_results = de_results,
 pathways = pathways,
 sample_metadata = sample_metadata,
 comps = comps,
@@ -64,11 +65,8 @@ outdir_int = outdir_int
 
 # Access the output files
 # note that all results will be saved to outdir_int.
-pathway_analysis_mainlist_comps <- pways_output_list$pathway_analysis_mainlist_comps
-pathwaysummplots_comps <- pways_output_list$pathwaysummplots_comps
-
-#these are both lists that contain the raw tables and per-cluster plots (first object);
-# and summaryplots that show pathway enrichment across clusters (second object).
+ora_results <- ORA_crosscondition_module(...)
+subset(ora_results, label == "KO1_vs_Control")
 
 }
 }

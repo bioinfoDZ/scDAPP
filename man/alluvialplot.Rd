@@ -15,7 +15,7 @@ alluvialplot(labelsdf, repel, nudge_x, ggfittext, ...)
 
 \item{ggfittext}{T/F - whether to use ggfittext, to try to squeeze or remove tiny stratum labels}
 
-\item{...}{}
+\item{...}{additional arguments passed to \code{ggalluvial::geom_alluvium()}.}
 }
 \value{
 a ggplot object

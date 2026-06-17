@@ -134,7 +134,7 @@ sobjint_SUBSETTED_C1only <- sobjint[,rownames(md)]
 
 
 #set RISC assay as default.
-DefaultAssay(sobjint_SUBSETTED_C1only) <- 'RISC'
+DefaultAssay(sobjint_SUBSETTED_C1only) <- 'Integrated_RISC'
 
 
 # find new HVGs of subsetted object
@@ -179,7 +179,7 @@ After sub-clustering, you can do other types of analysis, such as marker analysi
 ```
 #check assay; set to RISC if not RISC
 DefaultAssay(sobjint_SUBSETTED_C1only)
-DefaultAssay(sobjint_SUBSETTED_C1only) <- 'RISC'
+DefaultAssay(sobjint_SUBSETTED_C1only) <- 'Integrated_RISC'
 
 #find markers
 m <- FindAllMarkers(sobjint_SUBSETTED_C1only, only.pos = T)
@@ -226,6 +226,8 @@ comp_result <- scDAPP::compositional_analysis_module(sobjint,
                                                      compositional_test = 'propeller', #'propeller' if pseudobulk; 'chisq' if non-pseudobulk
                                                      outdir_int = outdir_int
 )
+# Flat table: comp_result$composition_results
+# Heatmaps: comp_result$composition_plots[[comps$label[1]]]
 ```
 
 
@@ -271,11 +273,11 @@ DE analysis be run with something like below. The most important things to decid
 Below is how we can run DE analysis for Example A (Celltype re-mapping):
 
 ```
-m_bycluster_crosscondition_de_comps <- scDAPP::de_across_conditions_module(sobjint,
+de_results <- scDAPP::de_across_conditions_module(sobjint,
                                                                            grouping_variable = 'Celltype', ## grouping variable is the most important thing to change.
                                                                            sample_metadata=sample_metadata, comps=comps,
                                                                            Pseudobulk_mode = T, #set to F if no replicates
-                                                                           assay = 'RNA', slot = 'counts', #we use raw counts for pseudobulk analysis; set to normalized RISC values (assay = 'RISC' and slot = 'data') for non-pseudobulk analysis
+                                                                           assay = 'RNA', slot = 'counts', #we use raw counts for pseudobulk analysis; set to normalized Integrated_RISC values (assay = 'Integrated_RISC' and slot = 'data') for non-pseudobulk analysis
                                                                            cluster_prefix = F, #if set to T, will append the prefix "cluster_" to each `grouping_variable` level
                                                                            outdir_int = outdir_int
 )
@@ -286,51 +288,36 @@ For Example C, we can change "sobjint" to "sobjint_SUBSETTED_C1only"; and we can
 
 ### 5.2 - Prep pathways
 
-The scDAPP pipeline downloads a pathways database (Molecular Signatures Database, MSIGDB) using the "msigdbr" package. You can re-use the downloaded copy from your prior scDAPP pipeline run (preferred), or just re-download from scratch.
-
-To re-use the downloaded one: read it in from the pipeline output, as shown below. However, note that you may need to do a quick and easy pre-processing if the pipeline was run on older versions. This involves sub-selecting some pathways and changing the pathway table format slightly. Prior to scDAPP v1.2.0 we used to save the whole raw pathway table (but in new versions, the subsetted/reformatted table is saved).
+The scDAPP pipeline loads MSigDB gene sets via the [msigdbr](https://cran.r-project.org/package=msigdbr) package. Prepared pathways are cached on disk (user cache, `XDG_CACHE_HOME/scDAPP`, or R's cache directory) and reused across runs. You do **not** need to read a copy from the pipeline output folder.
 
 ```
-#read in pathway table
-pathways <- readRDS("PATH/TO/PIPELINE/OUTPUT/multisample_integration/pathwayanalysis_crosscondition/msigdb_pathways.rds")
-pathways <- as.data.frame(pathways)
+species <- "Homo sapiens"  # see msigdbr::msigdbr_species()
+outdir_int <- "PATH/TO/PIPELINE/OUTPUT/multisample_integration"
 
-
-#test if need to pre-process:
-'HALLMARK' %in% pathways$gs_subcat
-
-#if TRUE, you can proceed to the next step.
-
-#if FALSE, you need to run the lines below:
-
-
-#if so, just copy and run the following lines:
-#it needs to be subsetted and formatted a bit
-pwaycats <- c("HALLMARK", "GO_BP", "GO_MF", "GO_CC", "CP_REACTOME",
-              "CP_KEGG", "TFT_GTRD", "TFT_TFT_Legacy")
-pwaycats <- gsub(":", "_", pwaycats)
-names(pwaycats) <- pwaycats
-pathways$gs_subcat <- gsub(":", "_", pathways$gs_subcat)
-pathways[pathways$gs_cat == "H", "gs_subcat"] <- "HALLMARK"
-pathways <- as.data.frame(pathways[pathways$gs_subcat %in%
-                                     pwaycats, ])
-pathways <- pathways[table(pathways$gs_name) <= 500, ]
-pathways <- pathways[table(pathways$gs_name) >= 3, ]
-invisible(gc(full = T, reset = F, verbose = F))
-
+pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(
+  species = species,
+  outdir_int = outdir_int
+)
 ```
 
-
-
-Or, you can just re-download the pathways (not preferred, since the pathways database changes over time):
+Optional: set a custom cache directory when running the full pipeline or the prep function:
 
 ```
-#Set species
-# see `msigdbr::msigdbr_species()` for a list of usable species
-species = 'Homo sapiens'
-
-pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(species = species, outdir_int = outdir_int)
+pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(
+  species = species,
+  outdir_int = outdir_int,
+  msigdbr_cache_dir = "/path/to/my/scDAPP_cache"
+)
 ```
+
+To inspect where the cache would be written:
+
+```
+scDAPP::resolve_msigdbr_cache_dir(fallback_dir = outdir_int)
+scDAPP::msigdbr_cache_path("Homo sapiens", fallback_dir = outdir_int)
+```
+
+Force re-download when calling prep directly: `refresh_msigdbr_cache = TRUE`.
 
 
 
@@ -341,14 +328,16 @@ pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(species =
 Above, we ran DE analysis and prepared the pathways from a database. We will use both of these to run pathway analysis using GSEA.
 
 ```
-pathway_analysis_mainlist_comps <- pathwayanalysis_crosscondition_module(
-  m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps, #output of DE analysis
+pways_output_list <- pathwayanalysis_crosscondition_module(
+  de_results = de_results,
   pathways = pathways, #the prepped pathways
   sample_metadata = sample_metadata,
   comps = comps,
   workernum = 1, # number of CPUs you want to use.
   outdir_int = outdir_int
 )
+pathway_results <- pways_output_list$pathway_results
+pathwaysummplots_comps <- pways_output_list$pathwaysummplots_comps
 
 ```
 
@@ -370,19 +359,18 @@ DE_pathways_plot_objects_list <- readRDS('PATH/TO/SAVED/OUTPUTS/pathwayanalysis_
 
 # DE tables are here:
 #check the names here, it will show comparisons
-names( DE_pathways_plot_objects_list$m_bycluster_crosscondition_de_comps ) 
+head(DE_pathways_plot_objects_list$de_results) 
 
 #nesting levels are:
 #1. comparisons; 2. grouping_variable levels.
 
 
 
-# DE pathways detailed analysis is here:
-#check the names here, it will show comparisons
-names( DE_pathways_plot_objects_list$pathway_analysis_mainlist_comps  )
+# Flat pathway GSEA table (all comparisons):
+head(DE_pathways_plot_objects_list$pathway_results)
 
-#nesting levels are:
-# 1. comparisons; 2. pathway database categories; 3. grouping_variable levels; 4. pathway table, and pathway plot (two elements)
+# Per-cluster dotplots (nested, for reporting only):
+names(DE_pathways_plot_objects_list$pathway_cluster_plots)
 
 
 
@@ -405,8 +393,8 @@ If you are interested, you can use the new pathway results for aPEAR analysis. R
 #read in all DE and pathway results:
 DE_pathways_plot_objects_list <- readRDS('PATH/TO/SAVED/OUTPUTS/pathwayanalysis_crosscondition/DE_pathways_plot_objects_list.rds')
 
-#get pathways result list:
-pathway_analysis_mainlist_comps <- DE_pathways_plot_objects_list$pathway_analysis_mainlist_comps
+# For aPEAR, pass the full saved list (contains flat pathway_results):
+apear_input_list <- scDAPP::apear_data_prep(DE_pathways_plot_objects_list)
 
 
 ```
@@ -424,13 +412,13 @@ The ORA module is similar to the GSEA module.
 You must define some cutoffs:
 - `crossconditionDE_padj_thres`: adjusted pvalue cutoff. In the pipeline, we set this to 0.1 for pseudobulk, and 0.05 for non-pseudobulk.
 - `crossconditionDE_lfc_thres`: log fold change cutoff, provided as an absolute value. In the pipeline, we use no cutoff (set to 0) for pseudobulk, and set this to 0.25 (it will select +/-0.25 l2fc) for non-pseudobulk.
-- `crossconditionDE_min.pct`: numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Only used for counting DEGs. In the pipeline, we set this to 0.1 if pseudobulk is used; and 0 if wilcox is used.
+- `crossconditionDE_min.pct`: numeric; minimum `pct.1` (up) or `pct.2` (down) for DEG counting and ORA gene sets. Pipeline defaults: 0.1 if pseudobulk, 0 if Wilcox. Use `crosscondition_de_threshold_defaults()` for mode-specific defaults.
 
 To run the module, you can use something like below:
 
 ```
-ORA_analysis_mainlist_comps <- scDAPP::ORA_crosscondition_module(
-m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+ora_results <- scDAPP::ORA_crosscondition_module(
+de_results = de_results,
 pathways = pathways,
 sample_metadata = sample_metadata,
 comps = comps,

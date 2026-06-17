@@ -49,3 +49,8 @@ a data.frame. if grouping_colname_in_md is provided, each celltype will have a p
 \description{
 Pseudobulking is performed adding up gene expression values for each cell, for either cell types or whole sample.
 }
+\examples{
+\dontrun{
+pb <- pseudobulk(sobj, grouping_colname_in_md = "seurat_clusters")
+}
+}

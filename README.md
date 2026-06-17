@@ -1,6 +1,6 @@
 # Single cell Differential Analysis and Processing Pipeline (scDAPP)
 
-This package contains an automated pipeline for scRNA-seq that includes individual and integrated data analysis as well as comparative compositional analysis and DE analysis.
+This package contains an automated pipeline for scRNA-seq that includes individual and integrated data analysis as well as comparative compositional analysis and DE analysis. **v2.0** supports multiple sample-integration backends via `integration_method` (default `RISC`; Seurat v5 CCA, RPCA, Harmony, and SCT variants also supported). See the [usage instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md) for integration options and parameters.
 
 
 ![](images/scDAPP_F1_overview.png)
@@ -51,14 +51,14 @@ Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 file
 ##### Make a file called pipeline_runner.R containing the following:
 
 ```
-#test packages
+# test packages (attach_scDAPP_pipeline_libraries + version table)
 scDAPP::r_package_test()
 
-#run pipeline with options
+# run pipeline with options
 scDAPP::scRNAseq_pipeline_runner(
                datadir = 'path/to/cellranger/outputs',
                outdir = 'path/to/output/folder',
-               sample_metadata = 'path/to/sample_metadata.csv'
+               sample_metadata = 'path/to/sample_metadata.csv',
                comps = 'path/to/comps.csv',
                Pseudobulk_mode = T, #set to F if no replicates
 
@@ -67,6 +67,9 @@ scDAPP::scRNAseq_pipeline_runner(
                m_reference = 'path/to/reference/reference_FindAllMarkers.rds',
 
                species = 'Mus musculus',
+
+               # integration_method = 'RISC',  # or CCAIntegration, HarmonyIntegration, etc.
+               # run_msigdb_celltype_ora = TRUE,  # requires clusterProfiler (default TRUE)
 
                workernum = 1,
                input_seurat_obj = F
@@ -102,11 +105,13 @@ Minimally, you just need Sample and Condition. Sample should match the folders c
 `comps.csv` will tell the pipeline which cross-condition comparison(s) to perform, and it should be a file like this:
 
 ```
-c1,c2
-KO1,Control
-KO2,Control
+c0,c1
+Control,KO1
+Control,KO2
 KO1,KO2
 ```
+
+Optional columns: `formula` (e.g. `~ Condition + Batch`), `contrast`, `label`. Legacy `c1,c2` CSVs still work (`c2` is renamed to `c0`).
 
 <br />
 
@@ -174,9 +179,21 @@ nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 <br />
 <br />
 
+## Upgrading from v1.3
+
+If you used scDAPP v1.3.x, note these **v2.0** breaking changes (full detail in [Usage — Upgrading from v1.3](Documentation/Usage.md#upgrading-from-v13) and the [Changelog](Documentation/Changelog.md)):
+
+- **`comps.csv`:** use `c0` (reference) and `c1` (test); legacy `c2` is auto-renamed to `c0`.
+- **Integrated assay:** batch-corrected RISC expression is stored in Seurat assay **`Integrated_RISC`** (formerly `"RISC"`).
+- **MSigDB cache:** prepared pathway tables are cached under the user/R cache, not `multisample_integration/pathwayanalysis_crosscondition/msigdb_pathways.rds`.
+- **`cluster_unfiltered`:** default is `FALSE`; unfiltered Seurat RDS files are written only when set to `TRUE`.
+- **Module return types:** cross-condition modules return flat tables; see the Changelog if you call modules programmatically (the subclustering vignette is not yet fully updated).
+
+<br />
+
 ## Outputs and downstream
 
-A diagram showing the output files is shown below:
+A diagram showing the output files is shown below (the figure may not yet show all v2 folders such as `celltype_marker_prediction/`):
 
 <img src="images/scDAPP_F3_outputs.png" width="300" height="350">
 
@@ -184,10 +201,22 @@ A diagram showing the output files is shown below:
 
 The .HTML file contains a report summarizing all steps and results of the analysis. The folders contain information including plots, marker .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
 
-Assays and layers / slots of the integrated Seurat object found at `multisample_integration/data_objects/Seurat-object_integrated.rds` are as follows:
-- RISC assay: "data" layer contains normalized, batch-corrected matrix direct and unmodified from RISC, which is in natural log space (log1p). "counts" layer contains antilog to "count" space, "batch corrected counts". Data layer is most useful.
-- RNA assay: "counts" layer contains a concatenated matrix of raw UMI counts (non-normalized, non-batch corrected) from all samples. "data" layer contains something similar to Log1p counts (the output of `Seurat::NormalizeData()`).
-- Predictions assay: [label transfer](https://satijalab.org/seurat/articles/integration_mapping) scores from Seurat.
+Assays and layers in the integrated Seurat object at `multisample_integration/data_objects/Seurat-object_integrated.rds` depend on `integration_method`:
+
+**All methods**
+- **RNA** assay: `counts` = concatenated raw UMI counts from all samples (used for pseudobulk DE). `data` = log-normalized values from `NormalizeData()`.
+- **predictions** assay (optional): [label transfer](https://satijalab.org/seurat/articles/integration_mapping) scores when `use_labeltransfer = TRUE`.
+
+**`integration_method = "RISC"`**
+- **Integrated_RISC** assay: `data` = batch-corrected log-normalized matrix from RISC; `counts` ≈ `expm1(data)`. Primary assay for plotting and Wilcox DE.
+- **RISC-object_integrated.rds** in the same folder holds the native RISC object.
+
+**Seurat integration methods** (`CCAIntegration`, `RPCAIntegration`, `HarmonyIntegration`, `*_SCT`)
+- Batch correction lives in **reductions** (not a merged expression assay). See [Usage — Integration assays and reductions](Documentation/Usage.md#integration-assays-and-reductions).
+
+**New v2 output folders**
+- `celltype_marker_prediction/` under individual and integrated analysis (MSigDB cell-type ORA; on by default).
+- `integrated_analysis/cluster_stability/` when `pcs_int` or `res_int` is `"auto"`.
 
 
 For downstream analysis tips including using aPEAR for network enrichment analysis, ShinyCell for making an exploratory analysis app, or strategies to re-run the DE analysis after calling celltypes or sub-clustering, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).

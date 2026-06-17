@@ -49,130 +49,123 @@ apear_data_prep <- function(object,
     stop("An pathway list object is not provided. Please provide an pathway list object .")
   }
   
-  if (!is.list(object) || is.null(object$pathway_analysis_mainlist_comps) || length(object$pathway_analysis_mainlist_comps) == 0) {
-    stop("An pathway list object does not have the expected structure or is empty. Please check!")
+  has_flat <- is.list(object) && !is.null(object$pathway_results) &&
+    is.data.frame(object$pathway_results) && nrow(object$pathway_results) > 0
+  has_legacy <- is.list(object) && !is.null(object$pathway_analysis_mainlist_comps) &&
+    length(object$pathway_analysis_mainlist_comps) > 0
+
+  if (!has_flat && !has_legacy) {
+    stop("Pathway object must contain non-empty pathway_results (flat) or pathway_analysis_mainlist_comps (legacy).", call. = FALSE)
   }
-  ############################################################################ 
-  
-  
-  
-  
-  ##############################Create a map###################################
-  #create a map/dataframe to keep track of different layers of the object
-  map_list <- vector("list", length = length(object$pathway_analysis_mainlist_comps))
-  
-  # loop through comparison conditions e.g. "YoungKO_vs_YoungWT"
-  for(x in 1:length(object$pathway_analysis_mainlist_comps)){
-    tmp_comps <- object$pathway_analysis_mainlist_comps[[x]]
-    
-    tmp_map <- data.frame() # create a tmp dataframe that will summarize the pathway layers and cluster sub-layers
-    
-    # loop through pathways e.g. "HALLMARK" and make a summary of pathway names and cluster names
-    for (y in 1:length(tmp_comps)) {
-      tmp_pathway <- data.frame(pathway = rep(names(tmp_comps)[y],length(tmp_comps[[y]])),
-                                cluster = names(tmp_comps[[y]]))
-      tmp_map <- rbind(tmp_map,tmp_pathway)
-    }
-    map_list[[x]] <- tmp_map # add the dataframe to a list for each comparison
-  }
-  names(map_list) <- names(object$pathway_analysis_mainlist_comps) # give the dataframe the same name as the comparison
-  
-  unique_clusters <- lapply(map_list, function(df) unique(df$cluster)) # go through the list to identify unique clusters
-  
-  
-  
-  # Create a function to add a column with the name of the list element
-  add_name_column <- function(df, name) {
-    df <- df %>%
-      mutate(category = name)
-    return(df)
-  }
-  ############################################################################
-  
-  
-  
-  
-  #################Convert the data for apear input##########################
-  
-  # create an empty list for aPEAR inputs
-  apear_input_list <- vector("list", length = length(map_list))
-  
-  
-  # Auxiliary function to clean pathway names based on the show_Category parameter
+
   clean_pathway_names <- function(pathway) {
     string_removal <- c("HALLMARK_", "GOCC_", "GOBP_", "GOMF_", "KEGG_", "REACTOME_")
     if (show_Category) {
       return(str_replace_all(pathway, "_", " "))
     } else {
-      return(pathway %>% 
+      return(pathway %>%
                str_replace_all(paste(string_removal, collapse = "|"), "") %>%
                str_replace_all("_", " "))
     }
   }
-  
-  # Auxiliary function to prepare aPEAR input from result_combined
+
   prepare_apear_input <- function(result_combined) {
+    if (!"category" %in% colnames(result_combined) && "pathway_category" %in% colnames(result_combined)) {
+      result_combined$category <- result_combined$pathway_category
+    }
+    core_enr <- if ("leadingEdge" %in% colnames(result_combined)) {
+      if (is.list(result_combined$leadingEdge)) {
+        vapply(result_combined$leadingEdge, function(les) paste(les, collapse = "/"), character(1))
+      } else {
+        as.character(result_combined$leadingEdge)
+      }
+    } else {
+      NA_character_
+    }
     result_combined %>%
-      mutate(Description = clean_pathway_names(pathway),
-             Des_Full = pathway,
-             Category = category,
-             setSize = size,
-             enrichmentScore = ES,
-             NES = NES,
-             pvalue = pval,
-             p.adjust = padj,
-             core_enrichment = sapply(leadingEdge, function(les) paste(les, collapse = "/"))) %>%
+      mutate(
+        Description = clean_pathway_names(pathway),
+        Des_Full = pathway,
+        Category = category,
+        setSize = size,
+        enrichmentScore = ES,
+        NES = NES,
+        pvalue = pval,
+        p.adjust = padj,
+        core_enrichment = core_enr
+      ) %>%
       select(Description, Category, setSize, enrichmentScore, NES, pvalue, p.adjust, core_enrichment, Des_Full)
   }
-  
-  
-  # loop through the map to pullout the information
-  for (x in 1:length(map_list)) {
-    tmp_map <-  map_list[[x]] # pull out pathway and cluster info from each comparison 
-    tmp_uniq_cluster <- unique_clusters[[x]] #pull out unique cluster info for each comparison 
-    
-    #create a tmp list for the result after we integrate the info from above
-    tmp_result_list <- vector("list", length = length(tmp_uniq_cluster))
-    
-    #loop through each unique cluster
-    for (y in 1:length(tmp_uniq_cluster)) {
-      tmp_pathway <- tmp_map$pathway[tmp_map$cluster %in% tmp_uniq_cluster[y]] #pull out only the pathways that contain each unique cluster
-      
-      #for each of these pathways extract their gsea results 
-      result_list <- lapply(tmp_pathway, function(pathway) {
-        object$pathway_analysis_mainlist_comps[[x]][[pathway]][[tmp_uniq_cluster[y]]][["gseares"]]
-      }) 
-      names(result_list) <- tmp_pathway
-      
-      #Apply the function to each element in the list
-      result_list <- Map(add_name_column, result_list, names(result_list))
-      
-      
-      #combine their gsea results into a dataframe 
-      result_combined <- do.call(rbind, result_list)
-      rownames(result_combined) <- NULL
-      
-      # transform the result_combined dataframe into apear acceptable format
-      aPEAR_input<- prepare_apear_input(result_combined)
-      
-      dup_description <- unique(aPEAR_input$Description[duplicated(aPEAR_input$Description)]) 
-      aPEAR_input[aPEAR_input$Description %in% dup_description,]$Description <- aPEAR_input[aPEAR_input$Description %in% dup_description,]$Des_Full %>% gsub("_"," ",.) 
-      
-      
-      #save the aPEAR_input to the a tmp_result_list
-      tmp_result_list[[y]] <- aPEAR_input
-      
-    } 
-    
-    #name the tmp_result_list with same unique cluster 
-    names(tmp_result_list) <- tmp_uniq_cluster
-    
-    #store tmp_result_list into apear_input_list
-    apear_input_list[[x]] <- tmp_result_list
+
+  finalize_apear_cluster <- function(aPEAR_input) {
+    dup_description <- unique(aPEAR_input$Description[duplicated(aPEAR_input$Description)])
+    if (length(dup_description)) {
+      aPEAR_input[aPEAR_input$Description %in% dup_description, "Description"] <-
+        gsub("_", " ", aPEAR_input[aPEAR_input$Description %in% dup_description, "Des_Full"])
+    }
+    aPEAR_input
   }
-  
-  #name the tmp_result_list with same comparison
-  names(apear_input_list) <- names(map_list)
+
+  if (has_flat) {
+    pathway_results <- object$pathway_results
+    labels <- unique(pathway_results$label)
+    apear_input_list <- lapply(labels, function(lab) {
+      sub_lab <- pathway_results[pathway_results$label == lab, , drop = FALSE]
+      clusters <- unique(sub_lab$cluster)
+      cluster_list <- lapply(clusters, function(cl) {
+        sub_cl <- sub_lab[sub_lab$cluster == cl, , drop = FALSE]
+        finalize_apear_cluster(prepare_apear_input(sub_cl))
+      })
+      names(cluster_list) <- clusters
+      cluster_list
+    })
+    names(apear_input_list) <- labels
+  } else {
+    warning(
+      "Using legacy nested pathway_analysis_mainlist_comps; re-run pathway analysis for flat pathway_results.",
+      call. = FALSE
+    )
+    map_list <- vector("list", length = length(object$pathway_analysis_mainlist_comps))
+    for (x in seq_along(object$pathway_analysis_mainlist_comps)) {
+      tmp_comps <- object$pathway_analysis_mainlist_comps[[x]]
+      tmp_map <- data.frame()
+      for (y in seq_along(tmp_comps)) {
+        tmp_pathway <- data.frame(
+          pathway = rep(names(tmp_comps)[y], length(tmp_comps[[y]])),
+          cluster = names(tmp_comps[[y]])
+        )
+        tmp_map <- rbind(tmp_map, tmp_pathway)
+      }
+      map_list[[x]] <- tmp_map
+    }
+    names(map_list) <- names(object$pathway_analysis_mainlist_comps)
+    unique_clusters <- lapply(map_list, function(df) unique(df$cluster))
+
+    add_name_column <- function(df, name) {
+      df %>% mutate(category = name)
+    }
+
+    apear_input_list <- vector("list", length = length(map_list))
+    for (x in seq_along(map_list)) {
+      tmp_map <- map_list[[x]]
+      tmp_uniq_cluster <- unique_clusters[[x]]
+      tmp_result_list <- vector("list", length = length(tmp_uniq_cluster))
+      for (y in seq_along(tmp_uniq_cluster)) {
+        tmp_pathway <- tmp_map$pathway[tmp_map$cluster %in% tmp_uniq_cluster[y]]
+        result_list <- lapply(tmp_pathway, function(pathway) {
+          object$pathway_analysis_mainlist_comps[[x]][[pathway]][[tmp_uniq_cluster[y]]][["gseares"]]
+        })
+        names(result_list) <- tmp_pathway
+        result_list <- Map(add_name_column, result_list, names(result_list))
+        result_combined <- do.call(rbind, result_list)
+        rownames(result_combined) <- NULL
+        tmp_result_list[[y]] <- finalize_apear_cluster(prepare_apear_input(result_combined))
+      }
+      names(tmp_result_list) <- tmp_uniq_cluster
+      apear_input_list[[x]] <- tmp_result_list
+    }
+    names(apear_input_list) <- names(map_list)
+  }
   
   ############################################################################
   

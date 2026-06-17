@@ -26,17 +26,10 @@ Models homotypic doublets using the following table:
 https://kb.10xgenomics.com/hc/en-us/articles/360001378811-What-is-the-maximum-number-of-cells-that-can-be-profiled-
 }
 \examples{
-# With autofiler res, will add in the result to af$cellstatus
+\dontrun{
+# With autofilter res, will add in the result to af$cellstatus
 af <- doubletfinderwrapper(sobj, autofilterres = af, num.cores = 5)
-
-# remove doublets
-goodcells <- af$cellstatus[af$cellstatus$filteredout==F,"barcodes"]
-sobj <- sobj[,goodcells]
-
-# w/o autofilter res:
-ddf <- doubletfinderwrapper(sobj, num.cores = 5)
-
-# remove doublets
-singlets <- dfdf[dfdf$DoubletFinderClassification=='Singlet','cells']
-sobj <- sobj[,singlets]
+goodcells <- af$cellstatus[af$cellstatus$filteredout == FALSE, "barcodes"]
+sobj <- sobj[, goodcells]
+}
 }

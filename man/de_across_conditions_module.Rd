@@ -25,7 +25,11 @@ de_across_conditions_module(
 
 \item{sample_metadata}{data.frame with three columns called Sample, Condition, Code.}
 
-\item{comps}{data.frame with two columns called c1, c2; these are the conditions you want to set up. Should be present in psuedobulk_metadata Condition column.}
+\item{comps}{data.frame defining comparisons. Required: \code{c0} (reference) and
+\code{c1} (test; log2FC is c1 vs c0). Optional: \code{formula} (default
+\code{~ Condition}), \code{contrast}, and \code{label} (default
+\code{c1_vs_c0}). See examples for \code{contrast} usage. Deprecated \code{c2}
+is renamed to \code{c0}.}
 
 \item{grouping_variable}{string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters". It is not mandatory, but will use factor level ordering of this variable in the meta.data to control analysis order, and if not will sort by alphanumeric order (cluster 1, then 2, cluster A, then B, etc)}
 
@@ -33,7 +37,14 @@ de_across_conditions_module(
 
 \item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
 
-\item{outdir_int}{string, path to save results to, if not provided will not save. Will create a sub-directory called "differentialexpression_crosscondition" and save inside of there.}
+\item{outdir_int}{optional path to save CSVs under
+\code{differentialexpression_crosscondition/}. Writes
+natural method output column names to \code{{params}_all.csv},
+\code{{params}_{thresholds}_significant.csv}, and
+\code{{params}_numDEGs_summary.csv} where \code{params} encodes
+\code{DE_test}, pseudobulk mode, \code{grouping_variable}, \code{assay}, and
+\code{slot} (layer). The returned data.frame is harmonized to edgeR-style
+column names for downstream code.}
 
 \item{assay}{string, name of Seurat assay to use, default is DefaultAssay(sobjint)}
 
@@ -41,38 +52,25 @@ de_across_conditions_module(
 
 \item{cluster_prefix}{T/F, whether to append prefix "cluster_" to grouping_variable levels, useful if grouping_variable is a cluster. Rather than saving results with names such as "1", "2", "3", will save as "cluster_1", and so on.}
 
-\item{crossconditionDE_padj_thres}{numeric; adjusted P value maximum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.1}
+\item{crossconditionDE_padj_thres}{numeric; adjusted P value maximum threshold for calling DEGs (counting and ORA). If missing, 0.1 when \code{Pseudobulk_mode} is \code{TRUE}, 0.05 when \code{FALSE}.}
 
-\item{crossconditionDE_lfc_thres}{numeric; Log Fold Change magnitude (absolute value) minimum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.}
+\item{crossconditionDE_lfc_thres}{numeric; absolute logFC minimum for calling DEGs. If missing, 0 when pseudobulk, 0.25 when Wilcox.}
 
-\item{crossconditionDE_min.pct}{numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Only used for counting DEGs. Default is 0.1 if pseudobulk_edgeR is used; 0 if wilcox is used.}
+\item{crossconditionDE_min.pct}{numeric; minimum \code{pct.1} (up) or \code{pct.2} (down) to count as a DEG. If missing, 0.1 when pseudobulk, 0 when Wilcox. See \code{crosscondition_de_threshold_defaults()}.}
 }
 \value{
-a complex nested list with several layers. Nest level 1: comparisons performed, as given by comps. Level 2: data.frames with A vs B results stratified by cluster. Note that "Weight" will be -log10(pval) * sign of L2FC.
+A single harmonized data.frame with one row per gene x cluster x comparison. Metadata
+columns: \code{label}, \code{formula}, \code{c0}, \code{c1}, \code{contrast},
+\code{cluster}; then DE statistics (\code{gene_symbol}, \code{logFC}, \code{PValue},
+\code{FDR}, \code{pct.1}, \code{pct.2}, \code{pct.diff}, \code{weight}, and optional
+count columns). \code{weight} is \eqn{-\log_{10}(p) \times \mathrm{sign}(log2FC)}.
 }
 \description{
 This is a modular component of the scDAPP scRNAseq pipeline. Perform DE analysis across conditions. Supports A vs B vs C pairwise (multiple conditions) comparisons. Options for Pseudobulk DE via EdgeR - LRT, or old-school scRNAseq DE via wilcoxon test.
 }
 \examples{
 \dontrun{
-# `sample_metadata` looks like this:
-Sample,Condition,Code
-SampleXYZ1,Control,Control1
-SampleXYZ2,Control,Control2
-SampleABC1,KO1,KO1_1
-SampleABC2,KO1,KO1_2
-SampleJKL1,KO2,KO2_1
-SampleJKL2,KO2,KO2_1
-
-
-# `comps` looks like this:
-c1,c2
-KO1,Control
-KO2,Control
-KO1,K2
-
-# Run DE analysis:
-m_bycluster_crosscondition_de_comps <- de_across_conditions_module(
+de_results <- de_across_conditions_module(
  sobjint = sobjint,
  sample_metadata = sample_metadata,
  comps = comps,
@@ -80,20 +78,5 @@ m_bycluster_crosscondition_de_comps <- de_across_conditions_module(
  grouping_variable = 'seurat_clusters',
  Pseudobulk_mode = T
  )
-
- # check outputs:
- # Level 1 will be comparisons (A vs B; B vs C etc)
- names(m_bycluster_crosscondition_de_comps)
- "KO_vs_WT"
-
- # Level 2 will be DE results of each grouping_variable level stratified by cluster
- m_bycluster_crosscondition_de_comps$KO_vs_WT
- "cluster_1"  "cluster_2"  "cluster_3"  "cluster_4"  "cluster_5"
-
- #each of these is a data.frame with the DE results for this comparison in this cluster
- head(m_bycluster_crosscondition_de_comps$KO_vs_WT$cluster_1)
-
-)
-
 }
 }

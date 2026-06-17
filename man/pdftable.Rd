@@ -15,6 +15,16 @@ pdftable(tabledf, title, titlesize, padding)
 
 \item{padding}{whitespace between title and table, default=1}
 }
+\value{
+Invisibly, the drawn grid table on the current graphics device.
+}
 \description{
 Make a table that can print to a pdf page
+}
+\examples{
+\dontrun{
+pdf("table.pdf")
+pdftable(data.frame(x = 1:3, y = letters[1:3]), title = "Example")
+dev.off()
+}
 }

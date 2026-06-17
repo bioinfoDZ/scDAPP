@@ -2,15 +2,18 @@
 % Please edit documentation in R/pipeline_runner.R
 \name{r_package_test}
 \alias{r_package_test}
-\title{Test installation of the packages}
+\title{Test installation of pipeline packages}
 \usage{
 r_package_test()
 }
 \value{
-a data.frame with packages and version numbers
+A \code{data.frame} with columns \code{pkg} and \code{vers}.
 }
 \description{
-This will load the key dependencies and report the versions of those dependencies.
+Attaches dependencies via \code{\link[=attach_scDAPP_pipeline_libraries]{attach_scDAPP_pipeline_libraries()}} (including RISC)
+and returns a data frame of package versions. Use
+\code{\link[=attach_scDAPP_pipeline_libraries]{attach_scDAPP_pipeline_libraries()}} directly in scripts and the Rmd when you
+only need to load libraries without printing versions.
 }
 \examples{
 \dontrun{

@@ -9,6 +9,9 @@ theme_dimplot(titlesize = 15)
 \arguments{
 \item{titlesize}{numeric, size of font}
 }
+\value{
+A \code{ggplot2} theme object.
+}
 \description{
 numeric axes are supposed to be not really meaningful in tSNE/UMAP
 }

@@ -4,18 +4,33 @@
 \alias{preppathways_pathwayanalysis_crosscondition_module}
 \title{Prep MSIGDB pathways for pathway analysis}
 \usage{
-preppathways_pathwayanalysis_crosscondition_module(species, outdir_int)
+preppathways_pathwayanalysis_crosscondition_module(
+  species,
+  outdir_int,
+  msigdbr_cache_dir = NULL,
+  pwaycats = NULL,
+  refresh_msigdbr_cache = FALSE
+)
 }
 \arguments{
-\item{species}{string, species such as "Homo sapeins" or "Mus musculus"}
+\item{species}{string, species such as "Homo sapiens" or "Mus musculus"}
 
-\item{outdir_int}{string, directory to save pathways to. Will create a sub-directory called "pathwayanalysis_crosscondition" and save inside of there. We save pathways since the database updates over time.}
+\item{outdir_int}{string, pipeline integration output directory; used as fallback cache location when user/XDG/R cache dirs are not writable.}
+
+\item{msigdbr_cache_dir}{optional string, directory for cached msigdbr tables (typically .../scDAPP). When NULL, uses \code{XDG_CACHE_HOME/scDAPP} if set, else \code{\link[tools:R_user_dir]{tools::R_user_dir()}} cache.}
+
+\item{pwaycats}{optional character vector of normalized \code{gs_subcat} values to retain. Defaults to Hallmark, GO, Reactome, KEGG, and TFT categories used by the pipeline.}
+
+\item{refresh_msigdbr_cache}{logical; if TRUE, ignore existing cache and re-download from msigdbr.}
 }
 \value{
 a data.frame similar to the output of \code{msigdbr::msigdbr}, but filtering for some specific categories / subcategories.
 }
 \description{
-This is a modular component of the scRNAseq analysis pipeline. Prep pathways from MSIGDB via the msigdbr package. We include the Hallmarks category; Gene Ontology BP, MF and CC; Reactome; KEGG; transcription factor CHIP-seq targets in the Gene Transcription Regulation Database (TFT_GTRD); inferred transcription factor targets via motif analysis from Xie et al Nature 2005 (TFT_Legacy). Only gene sets with < 500 genes are included.
+This is a modular component of the scRNAseq analysis pipeline. Prep pathways from MSIGDB via the msigdbr package. We include the Hallmarks category; Gene Ontology BP, MF and CC; Reactome; KEGG; transcription factor CHIP-seq targets in the Gene Transcription Regulation Database (TFT_GTRD); inferred transcription factor targets via motif analysis from Xie et al Nature 2005 (TFT_Legacy); and MSigDB cell-type signatures (cached for cluster-marker ORA, not used in cross-condition GSEA/ORA). Non-cell-type gene sets with < 500 genes are included; cell-type sets may contain up to 1000 genes.
+}
+\details{
+Prepared pathways are cached on disk (see \code{\link[=resolve_msigdbr_cache_dir]{resolve_msigdbr_cache_dir()}}) and are not written to \code{outdir_int} by default.
 }
 \examples{
 \dontrun{

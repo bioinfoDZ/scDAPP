@@ -1,46 +1,710 @@
 # https://r-pkgs.org/whole-game.html
 
+# =============================================================================
+# Internal helpers (not exported)
+# Used for comps parsing, design matrices, contrasts, and result formatting.
+# =============================================================================
+
+# Standardize comps columns (c0/c1, formula, contrast, label) and backward-compat c2 -> c0.
+.normalize_comps <- function(comps) {
+  comps <- as.data.frame(comps, stringsAsFactors = FALSE)
+  cn <- colnames(comps)
+  if ("c2" %in% cn && !"c0" %in% cn) {
+    warning("comps column 'c2' is deprecated; renamed to 'c0' (reference level).", call. = FALSE)
+    colnames(comps)[cn == "c2"] <- "c0"
+  }
+  if (!all(c("c0", "c1") %in% colnames(comps))) {
+    stop("comps must include columns c0 (reference) and c1 (test).", call. = FALSE)
+  }
+  if (!"formula" %in% colnames(comps)) comps$formula <- NA_character_
+  if (!"contrast" %in% colnames(comps)) comps$contrast <- NA_character_
+  if (!"label" %in% colnames(comps)) comps$label <- NA_character_
+  for (i in seq_len(nrow(comps))) {
+    if (is.na(comps$formula[i]) || !nzchar(trimws(comps$formula[i]))) {
+      comps$formula[i] <- "~ Condition"
+    } else {
+      f <- trimws(as.character(comps$formula[i]))
+      if (!startsWith(f, "~")) f <- paste("~", f)
+      comps$formula[i] <- f
+    }
+    if (is.na(comps$label[i]) || !nzchar(trimws(comps$label[i]))) {
+      comps$label[i] <- paste0(comps$c1[i], "_vs_", comps$c0[i])
+    }
+  }
+  comps$labels <- comps$label
+  comps
+}
+
+# Parse a per-row formula string; default is ~ Condition.
+.parse_comp_formula <- function(formula_entry) {
+  if (is.null(formula_entry) || length(formula_entry) == 0 ||
+      (length(formula_entry) == 1 && (is.na(formula_entry) || !nzchar(trimws(as.character(formula_entry)))))) {
+    return(as.formula("~ Condition"))
+  }
+  f <- trimws(as.character(formula_entry))
+  if (!startsWith(f, "~")) f <- paste("~", f)
+  as.formula(f)
+}
+
+# Resolve contrast for one comps row (DESeq2-style c("Var", numerator, denominator)).
+# Empty contrast -> Condition, c1 (test), c0 (reference); log2FC = c1 vs c0.
+.parse_comp_contrast <- function(contrast_entry, c1, c0, condition_col = "Condition") {
+  if (is.null(contrast_entry) || length(contrast_entry) == 0 ||
+      (length(contrast_entry) == 1 && (is.na(contrast_entry) || !nzchar(trimws(as.character(contrast_entry)))))) {
+    return(c(condition_col, as.character(c1), as.character(c0)))
+  }
+  if (length(contrast_entry) == 3) return(as.character(contrast_entry))
+  parts <- strsplit(trimws(as.character(contrast_entry)), ";", fixed = TRUE)[[1]]
+  if (length(parts) != 3) {
+    stop("contrast must have 3 elements or be semicolon-separated (e.g. 'Condition;KO1;Control').", call. = FALSE)
+  }
+  parts
+}
+
+# Build sample-level colData for edgeR/DESeq2; coerce design variables to factors.
+.prepare_pseudobulk_coldata <- function(sample_metadata, design_formula) {
+  md <- as.data.frame(sample_metadata, stringsAsFactors = FALSE)
+  vars <- all.vars(design_formula)
+  miss <- setdiff(vars, colnames(md))
+  if (length(miss)) {
+    stop("sample_metadata missing design variables: ", paste(miss, collapse = ", "), call. = FALSE)
+  }
+  for (v in vars) {
+    if (!is.numeric(md[[v]])) md[[v]] <- factor(md[[v]])
+  }
+  md
+}
+
+# TRUE when design is only ~ Condition (required for edgeR exactTest).
+.is_simple_condition_design <- function(design_formula) {
+  tl <- attr(terms(design_formula), "term.labels")
+  length(tl) == 1L && tl[[1]] == "Condition"
+}
+
+# DESeq2-LRT reduced model: drop Condition terms, keep covariates (e.g. ~ Batch).
+.make_reduced_formula <- function(design_formula) {
+  labels <- attr(terms(design_formula), "term.labels")
+  keep <- labels[!grepl("Condition", labels, fixed = TRUE)]
+  if (!length(keep)) return(as.formula("~ 1"))
+  as.formula(paste("~", paste(keep, collapse = " + ")))
+}
+
+# DESeq2 dislikes hyphens in factor level names.
+.sanitize_deseq2_levels <- function(x) {
+  gsub("-", "_", as.character(x), fixed = TRUE)
+}
+
+# Map DESeq2-style contrast to numeric vector for glmLRT(contrast=...).
+.edgR_contrast_vector <- function(design, contrast) {
+  term <- contrast[1]
+  num <- contrast[2]
+  denom <- contrast[3]
+  cn <- colnames(design)
+  num_col <- paste0(term, num)
+  denom_col <- paste0(term, denom)
+  cv <- rep(0, ncol(design))
+  if (num_col %in% cn) cv[cn == num_col] <- 1
+  if (denom_col %in% cn) cv[cn == denom_col] <- cv[cn == denom_col] - 1
+  if (sum(abs(cv)) == 0) {
+    stop("Could not map contrast ", paste(contrast, collapse = " vs "),
+         " to edgeR design columns: ", paste(cn, collapse = ", "), call. = FALSE)
+  }
+  cv
+}
+
+# Fraction of cells expressing each gene (handles sparse or dense assay matrices).
+.pct_cells_expressing <- function(mat, cells) {
+  if (length(cells) == 0) return(rep(0, nrow(mat)))
+  sub <- mat[, colnames(mat) %in% cells, drop = FALSE]
+  if (ncol(sub) == 0) return(rep(0, nrow(mat)))
+  if (inherits(sub, "dgCMatrix")) {
+    tabulate(sub@i + 1L, nrow(sub)) / ncol(sub)
+  } else {
+    rowSums(sub > 0) / ncol(sub)
+  }
+}
+
+# Single-cell pct.1 / pct.2 for the test (c1) and reference (c0) conditions.
+# Descriptive only — not adjusted for covariates in the pseudobulk model.
+.compute_cellsexp_c1_c0 <- function(sobjint, clust, grouping_variable, c0, c1, assay, slot, genes) {
+  md <- sobjint@meta.data
+  md <- md[md[, grouping_variable] == clust, , drop = FALSE]
+  md <- md[md$Condition %in% c(c0, c1), , drop = FALSE]
+  if (!nrow(md)) return(NULL)
+  mat <- Seurat::GetAssayData(sobjint[, rownames(md)], assay = assay, layer = slot)
+  cells_c1 <- rownames(md[md$Condition == c1, , drop = FALSE])
+  cells_c0 <- rownames(md[md$Condition == c0, , drop = FALSE])
+  cellsexp <- data.frame(
+    gene = rownames(mat),
+    pct.1 = .pct_cells_expressing(mat, cells_c1),
+    pct.2 = .pct_cells_expressing(mat, cells_c0),
+    stringsAsFactors = FALSE
+  )
+  cellsexp$pct.diff <- cellsexp$pct.1 - cellsexp$pct.2
+  cellsexp <- cellsexp[cellsexp$gene %in% genes, , drop = FALSE]
+  cellsexp
+}
+
+# Require min_n pseudobulk samples per condition for a given contrast.
+.has_min_replicates <- function(coldata, c0, c1, min_n = 2L) {
+  ct <- table(coldata$Condition)
+  v0 <- as.character(c0)
+  v1 <- as.character(c1)
+  if (!all(c(v0, v1) %in% names(ct))) return(FALSE)
+  as.integer(ct[[v0]]) >= min_n && as.integer(ct[[v1]]) >= min_n
+}
+
+# Ranked gene weights for downstream GSEA: -log10(p) * sign(LFC), with underflow fix.
+.add_pseudobulk_gene_weights <- function(res, lfc_col, pval_col) {
+  scores <- -log10(res[[pval_col]])
+  scores <- scores * sign(res[[lfc_col]])
+  names(scores) <- res$gene_symbol
+  scores <- sort(scores, decreasing = TRUE)
+  logFC_vec <- res[[lfc_col]]
+  names(logFC_vec) <- res$gene_symbol
+  scores <- scDAPP::fix_underflow(scores, logFC_vec)
+  scores <- scores[match(res$gene_symbol, names(scores))]
+  res$weight <- scores
+  res[order(res$weight, decreasing = TRUE), , drop = FALSE]
+}
+
+# Resolved contrast as a single string for output columns.
+.format_comp_contrast_string <- function(contrast_entry, c1, c0) {
+  paste(.parse_comp_contrast(contrast_entry, c1, c0), collapse = ";")
+}
+
+# Bind per-cluster DE tables into one long data.frame.
+.flatten_de_results <- function(comps, res_list) {
+  pieces <- list()
+  for (i in seq_along(res_list)) {
+    clust_list <- res_list[[i]]
+    if (is.null(clust_list) || !length(clust_list)) next
+    contrast_str <- .format_comp_contrast_string(comps$contrast[i], comps$c1[i], comps$c0[i])
+    meta <- data.frame(
+      label = comps$label[i],
+      formula = comps$formula[i],
+      c0 = comps$c0[i],
+      c1 = comps$c1[i],
+      contrast = contrast_str,
+      stringsAsFactors = FALSE
+    )
+    for (clust_name in names(clust_list)) {
+      res <- clust_list[[clust_name]]
+      if (is.null(res) || !is.data.frame(res) || !nrow(res)) next
+      meta_rep <- meta[rep(1L, nrow(res)), , drop = FALSE]
+      row_df <- cbind(meta_rep, cluster = clust_name, res, stringsAsFactors = FALSE)
+      pieces[[length(pieces) + 1L]] <- row_df
+    }
+  }
+  if (!length(pieces)) {
+    return(data.frame(
+      label = character(), formula = character(), c0 = character(), c1 = character(),
+      contrast = character(), cluster = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+  out <- dplyr::bind_rows(pieces)
+  meta_cols <- c("label", "formula", "c0", "c1", "contrast", "cluster")
+  other_cols <- setdiff(colnames(out), meta_cols)
+  out[, c(meta_cols, other_cols), drop = FALSE]
+}
+
+# Significant DEGs using the same rules as the numDEGs summary (FDR, |logFC|, pct).
+.significant_de_index <- function(df, padj_thres, lfc_thres, min_pct) {
+  if (!nrow(df)) return(logical(0))
+  base <- df$FDR < padj_thres & abs(df$logFC) > lfc_thres
+  up <- df$logFC > 0 & df$pct.1 > min_pct
+  down <- df$logFC < 0 & df$pct.2 > min_pct
+  base & (up | down)
+}
+
+.filter_significant_de_results <- function(df, padj_thres, lfc_thres, min_pct) {
+  df[.significant_de_index(df, padj_thres, lfc_thres, min_pct), , drop = FALSE]
+}
+
+#' Default cross-condition DE thresholds for DEG counting (and ORA gene sets)
+#'
+#' @param Pseudobulk_mode logical; \code{TRUE} uses lenient pseudobulk defaults,
+#'   \code{FALSE} uses stricter Wilcox defaults.
+#' @param padj optional adjusted P value threshold; \code{NULL} uses the mode default.
+#' @param lfc optional absolute logFC threshold; \code{NULL} uses the mode default.
+#' @param min_pct optional minimum expression fraction; \code{NULL} uses the mode default.
+#' @return Named list with \code{padj}, \code{lfc}, and \code{min_pct}.
+#' @export
+crosscondition_de_threshold_defaults <- function(Pseudobulk_mode,
+                                                   padj = NULL,
+                                                   lfc = NULL,
+                                                   min_pct = NULL) {
+  if (isTRUE(Pseudobulk_mode)) {
+    def_padj <- 0.1
+    def_lfc <- 0
+    def_min_pct <- 0.1
+  } else {
+    def_padj <- 0.05
+    def_lfc <- 0.25
+    def_min_pct <- 0
+  }
+  list(
+    padj = if (is.null(padj)) def_padj else padj,
+    lfc = if (is.null(lfc)) def_lfc else lfc,
+    min_pct = if (is.null(min_pct)) def_min_pct else min_pct
+  )
+}
+
+#' Filter cross-condition DE results to significant DEGs
+#'
+#' Uses the same rules as \code{count_crosscondition_degs()} and
+#' \code{de_across_conditions_module()} significant-gene output.
+#'
+#' @param df data.frame of DE results for one or more genes (harmonized columns).
+#' @param padj_thres adjusted P value threshold (strict \code{<}).
+#' @param lfc_thres absolute logFC threshold (strict \code{>}).
+#' @param min_pct minimum \code{pct.1} (up) or \code{pct.2} (down) threshold (strict \code{>}).
+#' @return Subset of \code{df} with only significant DEG rows.
+#' @export
+filter_significant_de_results <- function(df, padj_thres, lfc_thres, min_pct) {
+  .filter_significant_de_results(df, padj_thres, lfc_thres, min_pct)
+}
+
+#' Count significant DEGs per cluster for a cross-condition comparison
+#'
+#' @param de_by_cluster Named list of per-cluster DE tables (e.g. from
+#'   \code{de_results_by_cluster()}) or a single cluster table.
+#' @param padj_thres adjusted P value threshold.
+#' @param lfc_thres absolute logFC threshold.
+#' @param min_pct minimum expression fraction threshold.
+#' @param c0 reference condition label (column for genes higher in \code{c0}, negative LFC).
+#' @param c1 test condition label (column for genes higher in \code{c1}, positive LFC).
+#' @return Matrix with rownames = cluster names and columns \code{c0}, \code{c1} (counts).
+#' @export
+count_crosscondition_degs <- function(de_by_cluster,
+                                    padj_thres,
+                                    lfc_thres,
+                                    min_pct,
+                                    c0,
+                                    c1) {
+  if (is.data.frame(de_by_cluster)) {
+    de_by_cluster <- list(cluster = de_by_cluster)
+  }
+  clusters <- names(de_by_cluster)
+  out <- matrix(0L, nrow = length(clusters), ncol = 2L,
+                dimnames = list(clusters, c(c0, c1)))
+  for (cl in clusters) {
+    m <- de_by_cluster[[cl]]
+    if (is.null(m) || !nrow(m)) next
+    sig <- .filter_significant_de_results(m, padj_thres, lfc_thres, min_pct)
+    if (!nrow(sig)) next
+    out[cl, c0] <- sum(sig$logFC < 0, na.rm = TRUE)
+    out[cl, c1] <- sum(sig$logFC > 0, na.rm = TRUE)
+  }
+  out
+}
+
+#' Diverging barplot of significant DEG counts per cluster
+#'
+#' Visualizes output from \code{count_crosscondition_degs()} as a horizontal
+#' diverging barplot: clusters on the Y axis, signed DEG counts on the X axis
+#' (negative = higher in \code{c0}, positive = higher in \code{c1}).
+#'
+#' @param numdegs matrix from \code{count_crosscondition_degs()} or a data.frame
+#'   with a cluster column and two count columns for \code{c0} and \code{c1}.
+#' @param c0 reference condition label.
+#' @param c1 test condition label.
+#' @param cluster_levels optional character vector for Y-axis cluster order.
+#' @param title optional plot title (e.g. comparison label).
+#' @return A \code{ggplot} object.
+#' @export
+plot_crosscondition_deg_barplot <- function(numdegs,
+                                            c0,
+                                            c1,
+                                            cluster_levels = NULL,
+                                            title = NULL) {
+  if (is.matrix(numdegs)) {
+    counts_df <- data.frame(
+      Cluster = rownames(numdegs),
+      numdegs,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+  } else {
+    counts_df <- numdegs
+  }
+
+  cluster_col <- if ("Cluster" %in% colnames(counts_df)) {
+    "Cluster"
+  } else if ("cluster" %in% colnames(counts_df)) {
+    "cluster"
+  } else {
+    stop("numdegs must include a Cluster (or cluster) column when passed as a data.frame.")
+  }
+
+  c0_col <- if (c0 %in% colnames(counts_df)) {
+    c0
+  } else {
+    grep(paste0("^", c0), colnames(counts_df), value = TRUE)[1]
+  }
+  c1_col <- if (c1 %in% colnames(counts_df)) {
+    c1
+  } else {
+    grep(paste0("^", c1), colnames(counts_df), value = TRUE)[1]
+  }
+  if (is.na(c0_col) || is.na(c1_col)) {
+    stop("Could not find count columns for c0 and c1 in numdegs.")
+  }
+
+  if (is.null(cluster_levels)) {
+    cluster_levels <- counts_df[[cluster_col]]
+  }
+
+  counts_df[[cluster_col]] <- factor(counts_df[[cluster_col]], levels = cluster_levels)
+  counts_df[[c0_col]] <- as.numeric(counts_df[[c0_col]])
+  counts_df[[c1_col]] <- as.numeric(counts_df[[c1_col]])
+  counts_df[[c0_col]][is.na(counts_df[[c0_col]])] <- 0
+  counts_df[[c1_col]][is.na(counts_df[[c1_col]])] <- 0
+
+  plot_df <- rbind(
+    data.frame(
+      Cluster = counts_df[[cluster_col]],
+      direction = c0,
+      signed_count = -counts_df[[c0_col]],
+      stringsAsFactors = FALSE
+    ),
+    data.frame(
+      Cluster = counts_df[[cluster_col]],
+      direction = c1,
+      signed_count = counts_df[[c1_col]],
+      stringsAsFactors = FALSE
+    )
+  )
+  plot_df$direction <- factor(plot_df$direction, levels = c(c0, c1))
+
+  fill_vals <- stats::setNames(
+    c("#2166AC", "#B2182B"),
+    c(c0, c1)
+  )
+
+  p <- ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(
+      x = .data$signed_count,
+      y = .data$Cluster,
+      fill = .data$direction
+    )
+  ) +
+    ggplot2::geom_col(position = "identity", width = 0.75) +
+    ggplot2::geom_vline(xintercept = 0, color = "grey30", linewidth = 0.4) +
+    ggplot2::scale_x_continuous(
+      labels = function(x) abs(x),
+      expand = ggplot2::expansion(mult = c(0.05, 0.05))
+    ) +
+    ggplot2::scale_y_discrete(limits = rev(cluster_levels)) +
+    ggplot2::scale_fill_manual(
+      values = fill_vals,
+      name = "Higher in"
+    ) +
+    ggplot2::labs(
+      title = title,
+      x = "Number of significant DEGs",
+      y = NULL,
+      caption = paste0("Left (negative): higher in ", c0, "  |  Right (positive): higher in ", c1)
+    ) +
+    ggplot2::theme_linedraw() +
+    ggplot2::theme(
+      legend.position = "bottom",
+      panel.grid.major.y = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank()
+    )
+
+  p
+}
+
+#' Select top up/down cross-condition DEG genes for one cluster
+#'
+#' @param de_table data.frame of DE results for one cluster.
+#' @param n_top maximum genes per direction (default 10).
+#' @param padj_thres adjusted P value threshold.
+#' @param lfc_thres absolute logFC threshold.
+#' @param min_pct minimum expression fraction threshold.
+#' @return List with \code{up}, \code{down}, and \code{all} gene symbols (up block first).
+#' @export
+select_top_crosscondition_deg_genes <- function(de_table,
+                                                n_top = 10L,
+                                                padj_thres,
+                                                lfc_thres,
+                                                min_pct) {
+  n_top <- as.integer(n_top)[1]
+  if (is.null(de_table) || !nrow(de_table)) {
+    return(list(up = character(), down = character(), all = character()))
+  }
+  sig <- .filter_significant_de_results(de_table, padj_thres, lfc_thres, min_pct)
+  .select_top_crosscondition_deg_genes_core(sig, n_top)
+}
+
+#' Select top up/down DEG genes pooled across clusters for one comparison
+#'
+#' Significant genes are deduplicated by \code{gene_symbol}, keeping the row with
+#' the largest absolute logFC.
+#'
+#' @param de_by_cluster named list of per-cluster DE tables.
+#' @param n_top maximum genes per direction (default 10).
+#' @param padj_thres adjusted P value threshold.
+#' @param lfc_thres absolute logFC threshold.
+#' @param min_pct minimum expression fraction threshold.
+#' @return List with \code{up}, \code{down}, and \code{all} gene symbols.
+#' @export
+select_top_crosscondition_deg_genes_pooled <- function(de_by_cluster,
+                                                       n_top = 10L,
+                                                       padj_thres,
+                                                       lfc_thres,
+                                                       min_pct) {
+  n_top <- as.integer(n_top)[1]
+  if (is.data.frame(de_by_cluster)) {
+    de_by_cluster <- list(cluster = de_by_cluster)
+  }
+  pieces <- lapply(de_by_cluster, function(m) {
+    if (is.null(m) || !nrow(m)) {
+      return(NULL)
+    }
+    .filter_significant_de_results(m, padj_thres, lfc_thres, min_pct)
+  })
+  pieces <- pieces[!vapply(pieces, is.null, logical(1))]
+  if (!length(pieces)) {
+    return(list(up = character(), down = character(), all = character()))
+  }
+  sig <- dplyr::bind_rows(pieces)
+  if (!nrow(sig)) {
+    return(list(up = character(), down = character(), all = character()))
+  }
+  sig <- sig[order(-abs(sig$logFC), sig$gene_symbol), , drop = FALSE]
+  sig <- sig[!duplicated(sig$gene_symbol), , drop = FALSE]
+  .select_top_crosscondition_deg_genes_core(sig, n_top)
+}
+
+.select_top_crosscondition_deg_genes_core <- function(sig, n_top) {
+  if (!nrow(sig)) {
+    return(list(up = character(), down = character(), all = character()))
+  }
+
+  has_weight <- "weight" %in% colnames(sig)
+
+  up_df <- sig[sig$logFC > 0, , drop = FALSE]
+  if (nrow(up_df)) {
+    if (has_weight) {
+      up_df <- up_df[order(-up_df$logFC, -up_df$weight, up_df$gene_symbol), , drop = FALSE]
+    } else {
+      up_df <- up_df[order(-up_df$logFC, up_df$gene_symbol), , drop = FALSE]
+    }
+    up_genes <- head(up_df$gene_symbol, n_top)
+  } else {
+    up_genes <- character()
+  }
+
+  dn_df <- sig[sig$logFC < 0, , drop = FALSE]
+  if (nrow(dn_df)) {
+    if (has_weight) {
+      dn_df <- dn_df[order(dn_df$logFC, dn_df$weight, dn_df$gene_symbol), , drop = FALSE]
+    } else {
+      dn_df <- dn_df[order(dn_df$logFC, dn_df$gene_symbol), , drop = FALSE]
+    }
+    dn_genes <- head(dn_df$gene_symbol, n_top)
+  } else {
+    dn_genes <- character()
+  }
+
+  list(up = up_genes, down = dn_genes, all = c(up_genes, dn_genes))
+}
+
+#' Seurat DotPlot of top cross-condition DEGs by sample Code
+#'
+#' @param sobj Seurat object (integrated).
+#' @param genes character vector of gene symbols to plot.
+#' @param sample_codes sample \code{Code} values to include (typically from the comparison).
+#' @param c0 reference condition label.
+#' @param c1 test condition label.
+#' @param assay assay name for expression.
+#' @param slot assay layer/slot (default \code{"data"}).
+#' @param title optional plot title.
+#' @param cluster_id optional cluster id (without \code{cluster_} prefix); \code{NULL} uses all cells in the comparison.
+#' @param sample_metadata optional metadata with \code{Code} and \code{Condition} for sample ordering.
+#' @return A \code{ggplot} object, or \code{NULL} if nothing to plot.
+#' @export
+plot_crosscondition_deg_dotplot <- function(sobj,
+                                            genes,
+                                            sample_codes,
+                                            c0,
+                                            c1,
+                                            assay,
+                                            slot = "data",
+                                            title = NULL,
+                                            cluster_id = NULL,
+                                            sample_metadata = NULL) {
+  if (is.null(genes) || !length(genes)) {
+    return(NULL)
+  }
+  genes <- unique(as.character(genes))
+  genes <- genes[nzchar(genes)]
+  if (!length(genes)) {
+    return(NULL)
+  }
+
+  md <- sobj@meta.data
+  cells <- rownames(md)
+  if (!is.null(cluster_id)) {
+    keep <- md$seurat_clusters == cluster_id
+    cells <- cells[keep]
+    md <- md[cells, , drop = FALSE]
+  }
+  keep <- md$Condition %in% c(c0, c1)
+  cells <- cells[keep]
+  md <- md[cells, , drop = FALSE]
+  if (!length(cells)) {
+    return(NULL)
+  }
+  if (!is.null(sample_codes)) {
+    keep <- md$Code %in% sample_codes
+    cells <- cells[keep]
+    md <- md[cells, , drop = FALSE]
+  }
+  if (!length(cells)) {
+    return(NULL)
+  }
+
+  if (!is.null(sample_metadata)) {
+    subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1, c0), , drop = FALSE]
+    code_order <- c(
+      subpmd$Code[subpmd$Condition == c1],
+      subpmd$Code[subpmd$Condition == c0]
+    )
+    code_order <- code_order[code_order %in% unique(md$Code)]
+  } else {
+    code_order <- c(
+      unique(md$Code[md$Condition == c1]),
+      unique(md$Code[md$Condition == c0])
+    )
+  }
+
+  sub <- sobj[, cells]
+  sub$Code <- factor(as.character(sub$Code), levels = code_order)
+
+  if (!(assay %in% Seurat::Assays(sub))) {
+    return(NULL)
+  }
+  genes_in <- genes[genes %in% rownames(sub[[assay]])]
+  if (!length(genes_in)) {
+    return(NULL)
+  }
+
+  dot_args <- list(
+    object = sub,
+    features = rev(genes_in),
+    group.by = "Code",
+    assay = assay
+  )
+  dot_formals <- names(formals(Seurat::DotPlot))
+  if ("layer" %in% dot_formals) {
+    dot_args$layer <- slot
+  } else if ("slot" %in% dot_formals) {
+    dot_args$slot <- slot
+  }
+
+  p <- do.call(Seurat::DotPlot, dot_args) +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
+    ggplot2::labs(
+      title = title,
+      caption = paste0("Positive logFC genes higher in ", c1, "; negative logFC higher in ", c0)
+    )
+
+  p
+}
+
+# Safe filename stem encoding run parameters.
+.de_output_basename <- function(DE_test, grouping_variable, assay, slot, pseudobulk_mode) {
+  mode_chr <- if (isTRUE(pseudobulk_mode)) "pseudobulk" else "singlecell"
+  sanitize <- function(x) gsub("[^A-Za-z0-9._-]+", "_", as.character(x))
+  paste(
+    "crosscondition_DE",
+    mode_chr,
+    paste0("test_", sanitize(DE_test)),
+    paste0("grp_", sanitize(grouping_variable)),
+    paste0("assay_", sanitize(assay)),
+    paste0("layer_", sanitize(slot)),
+    sep = "_"
+  )
+}
+
+.de_thresholds_suffix <- function(padj_thres, lfc_thres, min_pct) {
+  sanitize <- function(x) gsub("[^A-Za-z0-9._-]+", "_", as.character(x))
+  paste0(
+    "_padj", sanitize(padj_thres),
+    "_lfc", sanitize(lfc_thres),
+    "_minpct", sanitize(min_pct)
+  )
+}
+
+# Per-comparison x cluster DEG counts (significant genes only).
+.write_numdegs_summary <- function(de_sig, comps, groupinglev_nicelabs, filepath) {
+  rows <- lapply(seq_len(nrow(comps)), function(i) {
+    lab <- comps$label[i]
+    c0 <- comps$c0[i]
+    c1 <- comps$c1[i]
+    sub <- de_sig[de_sig$label == lab, , drop = FALSE]
+    lapply(groupinglev_nicelabs, function(cl) {
+      m <- sub[sub$cluster == cl, , drop = FALSE]
+      data.frame(
+        label = lab,
+        cluster = cl,
+        c0 = c0,
+        c1 = c1,
+        n_down = sum(m$logFC < 0, na.rm = TRUE),
+        n_up = sum(m$logFC > 0, na.rm = TRUE),
+        stringsAsFactors = FALSE
+      )
+    })
+  })
+  numdegs_all <- dplyr::bind_rows(unlist(rows, recursive = FALSE))
+  write.csv(numdegs_all, filepath, quote = FALSE, row.names = FALSE)
+  invisible(numdegs_all)
+}
+
 #' Differential expression analysis across conditions for integrated Seurat objects
 #'
 #' This is a modular component of the scDAPP scRNAseq pipeline. Perform DE analysis across conditions. Supports A vs B vs C pairwise (multiple conditions) comparisons. Options for Pseudobulk DE via EdgeR - LRT, or old-school scRNAseq DE via wilcoxon test.
 #'
 #' @param sobjint integrated Seurat object. metadata needs two special columns: one called "Condition" that contains the A vs B conditions, and a second that matches the  `grouping_variable` parameter of this function.
 #' @param sample_metadata data.frame with three columns called Sample, Condition, Code.
-#' @param comps data.frame with two columns called c1, c2; these are the conditions you want to set up. Should be present in psuedobulk_metadata Condition column.
+#' @param comps data.frame defining comparisons. Required: \code{c0} (reference) and
+#'   \code{c1} (test; log2FC is c1 vs c0). Optional: \code{formula} (default
+#'   \code{~ Condition}), \code{contrast}, and \code{label} (default
+#'   \code{c1_vs_c0}). See examples for \code{contrast} usage. Deprecated \code{c2}
+#'   is renamed to \code{c0}.
 #' @param grouping_variable string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters". It is not mandatory, but will use factor level ordering of this variable in the meta.data to control analysis order, and if not will sort by alphanumeric order (cluster 1, then 2, cluster A, then B, etc)
 #' @param Pseudobulk_mode T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the `prop.test()` function for compositional analysis.
 #' @param DE_test a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
-#' @param outdir_int string, path to save results to, if not provided will not save. Will create a sub-directory called "differentialexpression_crosscondition" and save inside of there.
+#' @param outdir_int optional path to save CSVs under
+#'   \code{differentialexpression_crosscondition/}. Writes
+#'   natural method output column names to \code{{params}_all.csv},
+#'   \code{{params}_{thresholds}_significant.csv}, and
+#'   \code{{params}_numDEGs_summary.csv} where \code{params} encodes
+#'   \code{DE_test}, pseudobulk mode, \code{grouping_variable}, \code{assay}, and
+#'   \code{slot} (layer). The returned data.frame is harmonized to edgeR-style
+#'   column names for downstream code.
 #' @param assay string, name of Seurat assay to use, default is DefaultAssay(sobjint)
 #' @param slot string, name of Seurat assay slot to use, default is 'data'
 #' @param cluster_prefix T/F, whether to append prefix "cluster_" to grouping_variable levels, useful if grouping_variable is a cluster. Rather than saving results with names such as "1", "2", "3", will save as "cluster_1", and so on.
-#' @param crossconditionDE_padj_thres numeric; adjusted P value maximum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.1
-#' @param crossconditionDE_lfc_thres numeric; Log Fold Change magnitude (absolute value) minimum threshold for calling DEGs. Only used in counting number of DEGs. Default is 0.
-#' @param crossconditionDE_min.pct numeric; Minimum percent of cells expressing gene required to count as a DEG. For positive LFC genes (up in condition A); pct.1 must be at least this value (percent of cells in A must be at least this value); for negative LFC genes, pct.2 cells must be at least this value. Only used for counting DEGs. Default is 0.1 if pseudobulk_edgeR is used; 0 if wilcox is used.
+#' @param crossconditionDE_padj_thres numeric; adjusted P value maximum threshold for calling DEGs (counting and ORA). If missing, 0.1 when \code{Pseudobulk_mode} is \code{TRUE}, 0.05 when \code{FALSE}.
+#' @param crossconditionDE_lfc_thres numeric; absolute logFC minimum for calling DEGs. If missing, 0 when pseudobulk, 0.25 when Wilcox.
+#' @param crossconditionDE_min.pct numeric; minimum \code{pct.1} (up) or \code{pct.2} (down) to count as a DEG. If missing, 0.1 when pseudobulk, 0 when Wilcox. See \code{crosscondition_de_threshold_defaults()}.
 #'
-#' @return a complex nested list with several layers. Nest level 1: comparisons performed, as given by comps. Level 2: data.frames with A vs B results stratified by cluster. Note that "Weight" will be -log10(pval) * sign of L2FC.
+#' @return A single harmonized data.frame with one row per gene x cluster x comparison. Metadata
+#'   columns: \code{label}, \code{formula}, \code{c0}, \code{c1}, \code{contrast},
+#'   \code{cluster}; then DE statistics (\code{gene_symbol}, \code{logFC}, \code{PValue},
+#'   \code{FDR}, \code{pct.1}, \code{pct.2}, \code{pct.diff}, \code{weight}, and optional
+#'   count columns). \code{weight} is \eqn{-\log_{10}(p) \times \mathrm{sign}(log2FC)}.
 #' @export
 #'
 #' @examples
 #' \dontrun{
-#' # `sample_metadata` looks like this:
-#' Sample,Condition,Code
-#' SampleXYZ1,Control,Control1
-#' SampleXYZ2,Control,Control2
-#' SampleABC1,KO1,KO1_1
-#' SampleABC2,KO1,KO1_2
-#' SampleJKL1,KO2,KO2_1
-#' SampleJKL2,KO2,KO2_1
-#'
-#'
-#' # `comps` looks like this:
-#' c1,c2
-#' KO1,Control
-#' KO2,Control
-#' KO1,K2
-#'
-#' # Run DE analysis:
-#' m_bycluster_crosscondition_de_comps <- de_across_conditions_module(
+#' de_results <- de_across_conditions_module(
 #'  sobjint = sobjint,
 #'  sample_metadata = sample_metadata,
 #'  comps = comps,
@@ -48,21 +712,6 @@
 #'  grouping_variable = 'seurat_clusters',
 #'  Pseudobulk_mode = T
 #'  )
-#'
-#'  # check outputs:
-#'  # Level 1 will be comparisons (A vs B; B vs C etc)
-#'  names(m_bycluster_crosscondition_de_comps)
-#'  "KO_vs_WT"
-#'
-#'  # Level 2 will be DE results of each grouping_variable level stratified by cluster
-#'  m_bycluster_crosscondition_de_comps$KO_vs_WT
-#'  "cluster_1"  "cluster_2"  "cluster_3"  "cluster_4"  "cluster_5"
-#'
-#'  #each of these is a data.frame with the DE results for this comparison in this cluster
-#'  head(m_bycluster_crosscondition_de_comps$KO_vs_WT$cluster_1)
-#'
-#' )
-#'
 #' }
 de_across_conditions_module <- function(sobjint,
                                         sample_metadata,
@@ -80,23 +729,26 @@ de_across_conditions_module <- function(sobjint,
                                         
 ){
   
-  
+  # ---------------------------------------------------------------------------
+  # Argument defaults
+  # ---------------------------------------------------------------------------
   if( missing(sobjint)) { stop('Provide Seurat object') }
-  if( missing(grouping_variable)) { stop(grouping_variable <- 'seurat_clusters') }
+  if( missing(grouping_variable)) { grouping_variable <- 'seurat_clusters' }
   # if( missing(min.pct)) { stop(min.pct <- 0.1) } # for GSEA, don't do this
   
-  if(missing(assay)){assay <- DefaultAssay(sobjint)}
+  if(missing(assay)){assay <- Seurat::DefaultAssay(sobjint)}
   if(missing(slot)){slot <- 'data'}
   if(missing(cluster_prefix)){cluster_prefix <- NULL}
   
-  if(missing(crossconditionDE_padj_thres)){ crossconditionDE_padj_thres = 0.1 }
-  if(missing(crossconditionDE_lfc_thres)){crossconditionDE_lfc_thres = 0}
-  if(missing(crossconditionDE_min.pct)){
-    if(Pseudobulk_mode == T){crossconditionDE_min.pct = 0.1} else{
-      crossconditionDE_min.pct = 0
-    }
-    
-  }
+  th <- crosscondition_de_threshold_defaults(
+    Pseudobulk_mode,
+    padj = if (missing(crossconditionDE_padj_thres)) NULL else crossconditionDE_padj_thres,
+    lfc = if (missing(crossconditionDE_lfc_thres)) NULL else crossconditionDE_lfc_thres,
+    min_pct = if (missing(crossconditionDE_min.pct)) NULL else crossconditionDE_min.pct
+  )
+  crossconditionDE_padj_thres <- th$padj
+  crossconditionDE_lfc_thres <- th$lfc
+  crossconditionDE_min.pct <- th$min_pct
   
   if(missing(DE_test)){
     if(Pseudobulk_mode == T){DE_test = 'EdgeR-LRT'}
@@ -108,17 +760,12 @@ de_across_conditions_module <- function(sobjint,
   
   
   
-  #prep names
-  comps$labels <- paste0(comps$c1, '_vs_', comps$c2)
+  # Standardize comps (c0=reference, c1=test, formula, contrast, label).
+  comps <- .normalize_comps(comps)
   
-  #read sobjlist back in? keep it in?
-  # will need to optimize memory
-  
-  #get cluster object name
-  # grouping_variable <- risc_clust_lab
-  
-  
-  #check if factor
+  # ---------------------------------------------------------------------------
+  # Grouping variable (clusters / cell types to stratify DE)
+  # ---------------------------------------------------------------------------
   groupingvec <- sobjint@meta.data[,grouping_variable]
   if(!is.factor(groupingvec)){
     warning('The grouping variable (ie clusters within which to perform A vs B DE) is not a factor.\nThe the comparison order will default to alphanumeric order.')
@@ -140,7 +787,7 @@ de_across_conditions_module <- function(sobjint,
   # try to check if they are clusters; max str len will probably be 3 (in huge datasets...)
   if( is.null(cluster_prefix) ) {
     
-    if( max(str_length(groupinglevs)) <= 3 ){cluster_prefix <- T} else{cluster_prefix = F}
+    if( max(stringr::str_length(groupinglevs)) <= 3 ){cluster_prefix <- T} else{cluster_prefix = F}
     
   }
   
@@ -149,19 +796,14 @@ de_across_conditions_module <- function(sobjint,
   } else{groupinglev_nicelabs <- groupinglevs}
   
   
-  ### DE: pseudobulk or single-cell
-  
+  # ===========================================================================
+  # PSEUDOBULK MODE (edgeR / DESeq2)
+  # ===========================================================================
   if(Pseudobulk_mode == T){
     
-    
-    # how to deal with clusters that are missing from samples?
-    # pseudobulk all even if too few cells
-    # later if all 0 just remove the column from analysis
-    # if this removes too many sampless, make sure we can still run at least 2 v 2 by condition
-    
-    
-    
-    #for sample, pseudobulk by celltype
+    # --- Step 1: pseudobulk counts per sample x cluster ---
+    # One matrix per sample (rows=genes, cols=grouping levels).
+    # min_cells=0 so rare clusters are kept; zeros added later if missing.
     samples <- sample_metadata$Code
     samp <- samples[1]
     
@@ -174,8 +816,7 @@ de_across_conditions_module <- function(sobjint,
       cells <- rownames(md)
       sobjint_ct <- sobjint[,cells]
       
-      #try to unlog the RISC counts...
-      # sobjint_ct@assays$RISC@data <- expm1(sobjint_ct@assays$RISC@data)
+      # legacy note: previous code experimented with unlogging integrated assay data.
       # UPDATE feb 18 2025 - i think the line above is irrelevant, we unlog RISC values way earlier
       
       
@@ -199,13 +840,9 @@ de_across_conditions_module <- function(sobjint,
     names(pblist) <- samples
     
     
-    ### make sure cluster is in each sample, by adding fake column if needed...
-    
+    # --- Step 2: pad missing cluster columns with zeros (per sample) ---
+    # Ensures every sample has the same cluster columns for binding.
     pblist <- lapply(pblist, function(pb){
-      
-      
-      #if any cluster is missing,
-      # loop thru missing clusters and create columns of 0s
       if(any(!(groupinglevs %in% colnames(pb)))){
         fakectcols <- lapply(groupinglevs, function(ct){
           if(!(ct %in% colnames(pb))){
@@ -214,10 +851,11 @@ de_across_conditions_module <- function(sobjint,
             fakectcol
           }
         })
-        fakectcolsdf <- dplyr::bind_cols(fakectcols)
-        
-        #add the columns of zeros to the gem
-        pb <- cbind(pb, fakectcolsdf)
+        fakectcols <- Filter(Negate(is.null), fakectcols)
+        if (length(fakectcols)) {
+          fakectcolsdf <- dplyr::bind_cols(fakectcols)
+          pb <- cbind(pb, fakectcolsdf)
+        }
       }
       
       
@@ -231,485 +869,190 @@ de_across_conditions_module <- function(sobjint,
     })
     
     
-    # save it as pblist overall, since it gets subsetted in the lapply
     pblist_overall <- pblist
     
+    # --- Step 3: joint DE per design formula ---
+    # Group comps rows that share the same formula (e.g. ~ Condition + Batch).
+    # For each formula: fit once per cluster on ALL samples, then extract each
+    # comps contrast (c1 vs c0) without re-subsetting counts.
+    is_edger <- DE_test %in% c('EdgeR', 'EdgeR-LRT')
+    is_deseq <- DE_test %in% c('DESeq2', 'DESeq2-LRT')
+    if (is_edger) require(edgeR)
+    if (is_deseq) require(DESeq2)
     
-    ### loop thru comparisons ###
-    # DE in each comparison
-    # make sure to select clusters shared by the two conditons
-    # for those clusters, use all samples for edgeR, and use c1 vs c2 for contrast functon
+    formula_groups <- split(seq_len(nrow(comps)), comps$formula)
+    m_bycluster_crosscondition_de_comps <- vector("list", nrow(comps))
     
-    
-    compidx = 1 # for testing
-    
-    compslen <- 1:nrow(comps)
-    m_bycluster_crosscondition_de_comps <- lapply(compslen, function(compidx){
+    for (formula_chr in names(formula_groups)) {
+      row_idx <- formula_groups[[formula_chr]]
+      design_formula <- .parse_comp_formula(formula_chr)
+      coldata <- .prepare_pseudobulk_coldata(sample_metadata, design_formula)
+      pblist <- pblist_overall[match(coldata$Code, names(pblist_overall))]
       
-      
-      
-      #get comparison condition levels
-      c1 <- comps[compidx,1]
-      c2 <- comps[compidx,2]
-      
-      
-      #get lab
-      lab <- comps[compidx, 3]
-      
-      message('\n', lab)
-      
-      
-      ## get only this comp samples
-      #subset MD
-      comp_pseudobulk_md <- sample_metadata[sample_metadata$Condition %in% c(c1,c2),]
-      
-      #for EDGER, c1 needs to be level 2, c2 needs to be level 1
-      comp_pseudobulk_md$Condition <- factor(comp_pseudobulk_md$Condition, levels = c(c2, c1))
-      
-      #subet pblist for this comp
-      pblist <- pblist_overall
-      pblist <- pblist[ match(comp_pseudobulk_md$Code, names(pblist) )]
-      
-      
-      
-      
-      
-      
-      #### for each int cluster, loop thru and compare condition 1 vs condition 2 ####
-      
-      ## loop thru SHARED clusters ##
-      clusters <- groupinglevs
-      names(clusters) <- clusters
-      
-      clust = clusters[1] # for testing
-      
-      
-      m_bycluster_crosscondition_de <- lapply(clusters, function(clust){
-        
-        
-        message(clust)
-        
-        #get the pseudobulks of each cluster
-        
-        gemlist <- lapply( names(pblist) ,  function(samp){
+      # --- Step 3a: one edgeR/DESeq2 fit per cluster (all samples) ---
+      cluster_fits <- setNames(
+        lapply(seq_along(groupinglevs), function(i) {
+          clust <- groupinglevs[i]
+          message(clust)
           
-          # message(samp)
-          pb <- pblist[[samp]]
+          # genes x samples count matrix for this cluster
+          gemlist <- lapply(names(pblist), function(samp) {
+            pb <- pblist[[samp]]
+            pbcol <- pb[, colnames(pb) == clust, drop = FALSE]
+            colnames(pbcol) <- samp
+            pbcol
+          })
+          gem <- dplyr::bind_cols(gemlist)
+          gem <- gem[Matrix::rowSums(gem) > 3, , drop = FALSE]      # low-expression genes
+          gem <- gem[, Matrix::colSums(gem) > 10, drop = FALSE]     # empty pseudobulk samples
+          if (!ncol(gem) || !nrow(gem)) return(NULL)
           
-          pbcol <- pb[,colnames(pb)==clust, drop=F]
-          colnames(pbcol) <- samp
+          fit_coldata <- coldata[match(colnames(gem), coldata$Code), , drop = FALSE]
+          rownames(fit_coldata) <- fit_coldata$Code
+          design <- model.matrix(design_formula, data = fit_coldata)
+          if (qr(design)$rank != ncol(design)) {
+            warning("Design not full rank for cluster ", clust, " (", formula_chr, "); skipping.", call. = FALSE)
+            return(NULL)
+          }
           
-          pbcol
+          if (is_edger) {
+            y <- DGEList(counts = gem, samples = fit_coldata)
+            y <- calcNormFactors(y)
+            y <- estimateDisp(y, design)
+            fit_glm <- glmFit(y, design)
+            list(type = "edger", y = y, design = design, fit = fit_glm, gem = gem, coldata = fit_coldata)
+          } else {
+            col_dds <- fit_coldata
+            vars <- all.vars(design_formula)
+            for (v in vars) {
+              if (is.factor(col_dds[[v]])) {
+                levels(col_dds[[v]]) <- .sanitize_deseq2_levels(levels(col_dds[[v]]))
+              }
+            }
+            dds <- DESeqDataSetFromMatrix(gem, col_dds, design = design_formula)
+            reduced_f <- .make_reduced_formula(design_formula)
+            if (DE_test == 'DESeq2-LRT') {
+              dds <- DESeq(dds, test = 'LRT', reduced = reduced_f)
+            } else {
+              dds <- DESeq(dds)
+            }
+            list(type = "deseq2", dds = dds, gem = gem, coldata = col_dds)
+          }
+        }),
+        groupinglev_nicelabs
+      )
+      
+      # --- Step 3b: extract each comparison contrast from the shared fits ---
+      for (compidx in row_idx) {
+        c0 <- comps$c0[compidx]   # reference
+        c1 <- comps$c1[compidx]   # test (log2FC = c1 vs c0)
+        lab <- comps$label[compidx]
+        message('\n', lab)
+        contrast <- .parse_comp_contrast(comps$contrast[compidx], c1, c0)
+        contrast_ds <- contrast
+        if (is_deseq) contrast_ds[2:3] <- .sanitize_deseq2_levels(contrast_ds[2:3])
+        
+        m_bycluster_crosscondition_de <- lapply(seq_along(groupinglevs), function(i) {
+          clust <- groupinglevs[i]
+          fitobj <- cluster_fits[[i]]
+          if (is.null(fitobj)) return()
+          if (!.has_min_replicates(fitobj$coldata, c0, c1)) return()
+          
+          cellsexp <- .compute_cellsexp_c1_c0(
+            sobjint, clust, grouping_variable, c0, c1, assay, slot, rownames(fitobj$gem)
+          )
+          if (is.null(cellsexp)) return(NULL)
+          
+          # --- edgeR: glmLRT with explicit contrast (or exactTest for simple 2-group) ---
+          if (fitobj$type == "edger") {
+            simple <- .is_simple_condition_design(design_formula)
+            n_cond <- length(unique(fitobj$coldata$Condition))
+            
+            if (DE_test == 'EdgeR') {
+              if (!simple) {
+                stop("EdgeR exactTest requires formula ~ Condition only. Use EdgeR-LRT with covariates.", call. = FALSE)
+              }
+              if (n_cond > 2L) {
+                warning("More than two Condition levels; using glmLRT (not exactTest) for ", lab, call. = FALSE)
+                cv <- .edgR_contrast_vector(fitobj$design, contrast)
+                lrt <- glmLRT(fitobj$fit, contrast = cv)
+                res <- as.data.frame(topTags(lrt, n = Inf))
+              } else {
+                et <- exactTest(fitobj$y, pair = c(as.character(c0), as.character(c1)))
+                res <- as.data.frame(topTags(et, n = Inf))
+              }
+            } else {
+              cv <- .edgR_contrast_vector(fitobj$design, contrast)
+              lrt <- glmLRT(fitobj$fit, contrast = cv)
+              res <- as.data.frame(topTags(lrt, n = Inf))
+            }
+            
+            res <- cbind(rownames(res), res)
+            colnames(res)[1] <- 'gene_symbol'
+            cellsexp <- cellsexp[match(rownames(res), cellsexp$gene), , drop = FALSE]
+            res <- cbind(res, cellsexp[, -1, drop = FALSE])
+            res <- .add_pseudobulk_gene_weights(res, "logFC", "PValue")
+            nc <- cpm(fitobj$y)
+            nc <- nc[match(rownames(res), rownames(nc)), , drop = FALSE]
+            rc <- fitobj$gem[match(rownames(res), rownames(fitobj$gem)), , drop = FALSE]
+            colnames(nc) <- paste0('normcounts_', colnames(nc))
+            colnames(rc) <- paste0('rawcounts_', colnames(rc))
+            cbind(res, nc, rc)
+          } else {
+            # --- DESeq2: Wald or LRT results for this contrast ---
+            res <- as.data.frame(DESeq2::results(fitobj$dds, contrast = contrast_ds))
+            res[is.na(res$padj), "padj"] <- 1
+            res <- cbind(rownames(res), res)
+            colnames(res)[1] <- 'gene_symbol'
+            cellsexp <- cellsexp[match(rownames(res), cellsexp$gene), , drop = FALSE]
+            res <- cbind(res, cellsexp[, -1, drop = FALSE])
+            res <- .add_pseudobulk_gene_weights(res, "log2FoldChange", "pvalue")
+            nc <- counts(fitobj$dds, normalized = TRUE)
+            rc <- counts(fitobj$dds, normalized = FALSE)
+            nc <- nc[match(rownames(res), rownames(nc)), , drop = FALSE]
+            rc <- rc[match(rownames(res), rownames(rc)), , drop = FALSE]
+            colnames(nc) <- paste0('normcounts_', colnames(nc))
+            colnames(rc) <- paste0('rawcounts_', colnames(rc))
+            cbind(res, nc, rc)
+          }
         })
         
-        #combine the cluster pseudobulks to one gene exp matrix
-        gem <- dplyr::bind_cols(gemlist)
-        
-        
-        
-        #prep for edgeR
-        
-        # remove low exp genes
-        gem <- gem[Matrix::rowSums(gem) > 3,]
-        
-        # remove empty columns (samples with all 0 for this cell type)
-        gem <- gem[,Matrix::colSums(gem) > 10,drop=F]
-        
-        #make sure enough samples from each condition remain... if not need to remove this one...
-        
-        comp_pseudobulk_md <- comp_pseudobulk_md[match(colnames(gem), comp_pseudobulk_md$Code),]
-        
-        #check or skip
-        condtab <- table(comp_pseudobulk_md$Condition)
-        if(condtab[c1] < 2 | condtab[c2] < 2){
-          return()
-        }
-        
-        
-        # COUNT CELLS
-        #subset object, to count num cells c1 vs c2
-        md <- sobjint@meta.data
-        md <- md[md[,grouping_variable] == clust,]
-        md <- md[md$Condition %in% comp_pseudobulk_md$Condition,]
-        sobjint_comp_ct <- sobjint[,rownames(md)]
-        # mat <- sobjint_comp_ct@assays$RISC@data
-        # mat <- expm1(mat)
-        mat <- GetAssayData(sobjint_comp_ct, assay = assay, layer = slot)
-        # UPDATE FEB 18 2024 - MAKE SURE TO USE ASSAY / SLOT PASSED TO FUNCTION
-        
-        
-        #split to c1 and c2, and count
-        cells_c1 <- rownames( md[md$Condition == c1,] )
-        mat_c1 <- mat[,colnames(mat) %in% cells_c1]
-        cellsexp_c1 <- tabulate(mat_c1@i + 1L, nrow(mat_c1) )
-        
-        # pct.1 <- rowSums(x = mat_c1 > 0) / length(x = cells_c1)
-        
-        
-        cells_c2 <- rownames( md[md$Condition == c2,] )
-        mat_c2 <- mat[,colnames(mat) %in% cells_c2]
-        cellsexp_c2 <- tabulate(mat_c2@i + 1L, nrow(mat_c2) )
-        
-        #  pct.2 <- rowSums(x = mat_c2 > 0) / length(x = cells_c2)
-        
-        
-        #convert to proportions
-        cellsexp_c1 <- cellsexp_c1 / ncol(mat_c1)
-        cellsexp_c2 <- cellsexp_c2 / ncol(mat_c2)
-        
-        cellsexp <- data.frame(gene = rownames(mat),
-                               pct.1 = cellsexp_c1,
-                               pct.2 = cellsexp_c2)
-        
-        #get difference
-        cellsexp$pct.diff <- cellsexp$pct.1 - cellsexp$pct.2
-        
-        ### select only genes exp in at least min.pct in either c1 or c2 ###
-        # actually this removes a lot of genes and may violate GSEA, so we'll calculate without it and leave it up to user.
-        # will also implement filtering and ORA later.
-        # cellsexp <- cellsexp[cellsexp$pct.1 > min.pct | cellsexp$pct.2 > min.pct,]
-        cellsexp <- cellsexp[cellsexp$gene %in% rownames(gem),]
-        gem <- gem[match(cellsexp$gene, rownames(gem)),]
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        ### EdgeR
-        
-        if(DE_test == 'EdgeR' | DE_test == 'EdgeR-LRT'){
-          
-          require(edgeR)
-          
-          
-          #counts and "group"
-          eobj <- DGEList(counts = gem, group = comp_pseudobulk_md$Condition)
-          
-          #size factors
-          eobj <- calcNormFactors(eobj)
-          
-          #design, using group variable, factor levels are important
-          
-          ## Note, this may be passed as a user parameter...
-          #FORMULA PARAMETER MAY BE IMPLEMENTED LATER
-          design <- model.matrix(~comp_pseudobulk_md$Condition)
-          
-          
-          
-          
-          #dispersion
-          eobj <- estimateDisp(eobj, design)
-          
-          
-          ### run the test
-          
-          #normal edgeR, added Jun 5 2024 as per reviewer request
-          if(DE_test == 'EdgeR'){
-            
-            
-            #run exact test as per qCML method, "vanilla" EdgeR
-            et <- exactTest(eobj)
-            
-            #get res
-            res <- as.data.frame ( topTags(et, n = Inf) )
-            
-            
-          }
-          
-          #edgeR-LRT, only original test for pseudobulk comparisons based on Squair et al pseudobulk benchmark
-          if(DE_test == 'EdgeR-LRT'){
-            
-            # coef = 2 is higher factor level, which should be c1
-            fit <- glmFit(eobj,design)
-            
-            ## when using with user-supplied formula, we need to find the column name with Conditon... this can get complicated...
-            # coef = grep(colnames(design), pattern = 'Condition') #not fully implemented currently
-            #FORMULA PARAMETER MAY BE IMPLEMENTED LATER
-            lrt <- glmLRT(fit,coef=2)
-            
-            #get res
-            res <- as.data.frame ( topTags(lrt, n = Inf) )
-            
-          }
-          
-          
-          
-          
-          #cbind pct.1 and pct.2
-          cellsexp <- cellsexp[match(rownames(res), cellsexp$gene),]
-          res <- cbind(res, cellsexp[,-1])
-          
-          
-          
-          #attach gene name as a column
-          res <- cbind(rownames(res), res)
-          colnames(res)[1] <- 'gene_symbol'
-          
-          
-          
-          
-          
-          # #add weight:
-          # # -log10 pvalue * sign LFC * abs value of percent difference
-          # # ie, significe of DE * sign of DE * num cells exp gene in that direction
-          # ## downweight mismatch sign vs pct diff genes... do this by squring them, which makes decimal smaller ##
-          # # add + 1 to abs pct diff --> do this to keep FGSEA scores high, otherwise we are actually dividing them by pct diff
-          # pctdiff <- res$pct.diff
-          # pctdiff[sign(pctdiff) != sign(res$logFC)] <- pctdiff[sign(pctdiff) != sign(res$logFC)] ^ 2
-          # pctdiff <- abs(pctdiff) + 1
-          # res$weight <- -log10(res$PValue) * res$logFC * pctdiff
-          
-          ## UPDATE DEC 7 2023, WEIGHT BY -LOG10(PVAL) * SIGN OF LFC
-          
-          ## prep weighted list ##
-          
-          #we have to deal with underflow...
-          # get -log10 pvalues, sort
-          scores <- -log10(res$PValue)
-          scores <- scores * sign(res$logFC)
-          names(scores) <- res$gene_symbol
-          
-          #sort by log pval with names
-          scores <- sort(scores,decreasing = T)
-          
-          
-          #also get logFC vector; for INf, we will sort them by LFC...
-          logFC_vec <- res$logFC; names(logFC_vec) <- res$gene_symbol
-          
-          
-          # fix the underflow...
-          scores <- scDAPP::fix_underflow(scores, logFC_vec)
-          
-          #make sure scores is in order of genes...
-          ### update May 7 2024 --> there was an error in this before
-          # it caused scrambling of genes and incorrect pathway analysis :/
-          # scores <- scores[match(res$gene_symbol, res$gene_symbol)]
-          scores <- scores[match(res$gene_symbol, names(scores))]
-          
-          
-          #put in res
-          res$weight <- scores
-          rm(scores, logFC_vec)
-          
-          
-          #order by weight
-          res <- res[order(res$weight, decreasing = T),]
-          
-          
-          
-          #cbind normcounts
-          nc <- cpm(eobj)
-          nc <- nc[match(rownames(res), rownames(nc)),]
-          
-          #add norm counts and raw counts
-          rc <- gem
-          rc <- rc[match(rownames(res), rownames(rc)),]
-          
-          
-          #cbind norm counts and rawcounts
-          colnames(nc) <- paste0('normcounts_', colnames(nc))
-          colnames(rc) <- paste0('rawcounts_', colnames(rc))
-          res <- cbind(res, nc, rc)
-          
-          
-          
-        }
-        
-        
-        ### DESeq2
-        
-        if(DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT'){
-          
-          require(DESeq2)
-          
-          
-          #create dds obj
-          dds <- DESeqDataSetFromMatrix(gem, comp_pseudobulk_md,
-                                        design = ~ Condition)
-          
-          
-          if(DE_test == 'DESeq2'){
-            
-            #run DESeq2 
-            dds <- DESeq(dds)
-            
-          }
-          
-          
-          if(DE_test == 'DESeq2-LRT'){
-            
-            #run DESeq2 
-            dds <- DESeq(dds, test = 'LRT', reduced = ~1)
-            
-            
-          }
-          
-          
-          
-          #get res
-          res <- as.data.frame(results(dds))
-          
-          #set NA padj values to 1 as per guide
-          # https://www.bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#i-want-to-benchmark-deseq2-comparing-to-other-de-tools.
-          res[is.na(res$padj), "padj"] <- 1
-          
-          
-          
-          #add gene_symbol
-          # attach gene name as a column
-          res <- cbind(rownames(res), res)
-          colnames(res)[1] <- 'gene_symbol'
-          
-          
-          
-          #cbind pct.1 and pct.2
-          cellsexp <- cellsexp[match(rownames(res), cellsexp$gene),]
-          res <- cbind(res, cellsexp[,-1])
-          
-          
-          
-          ## prep weighted list ##
-          
-          #we have to deal with underflow...
-          # get -log10 pvalues, sort
-          scores <- -log10(res$pvalue)
-          scores <- scores * sign(res$log2FoldChange)
-          names(scores) <- res$gene_symbol
-          
-          #sort by log pval with names
-          scores <- sort(scores,decreasing = T)
-          
-          
-          #also get logFC vector; for INf, we will sort them by LFC...
-          logFC_vec <- res$log2FoldChange; names(logFC_vec) <- res$gene_symbol
-          
-          
-          # fix the underflow...
-          scores <- scDAPP::fix_underflow(scores, logFC_vec)
-          
-          #make sure scores is in order of genes...
-          ### update May 7 2024 --> there was an error in this before
-          # it caused scrambling of genes and incorrect pathway analysis :/
-          # scores <- scores[match(res$gene_symbol, res$gene_symbol)]
-          scores <- scores[match(res$gene_symbol, names(scores))]
-          
-          
-          #put in res
-          res$weight <- scores
-          rm(scores, logFC_vec)
-          
-          
-          #add norm counts and raw counts
-          nc <- counts(dds, normalized = T)
-          rc <- counts(dds, normalized = F)
-          
-          
-          #cbind norm counts and rawcounts
-          colnames(nc) <- paste0('normcounts_', colnames(nc))
-          colnames(rc) <- paste0('rawcounts_', colnames(rc))
-          res <- cbind(res, nc, rc)
-          
-          
-          
-          #order by weight
-          res <- res[order(res$weight, decreasing = T),]
-          
-          
-          
-        }
-        
-        
-        
-        
-        
-        
-        
-        
-        return(res)
-        
-        
-      })
-      
-      #name them by cluster
-      # use the nicelabs defined above
-      names( m_bycluster_crosscondition_de ) <- groupinglev_nicelabs
-      
-      
-      #remove empty clusters
-      m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de[lengths(m_bycluster_crosscondition_de) > 0]
-      
-      
-      
-      return(m_bycluster_crosscondition_de)
-      
-    })
-    
-    
+        names(m_bycluster_crosscondition_de) <- groupinglev_nicelabs
+        m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de[lengths(m_bycluster_crosscondition_de) > 0]
+        m_bycluster_crosscondition_de_comps[[compidx]] <- m_bycluster_crosscondition_de
+      }
+    }
     
     names(m_bycluster_crosscondition_de_comps) <- comps$labels
     
-  }
+  } # end Pseudobulk_mode
   
   
-  
-  
-  
-  ### DE: pseudobulk or single-cell
-  
+  # ===========================================================================
+  # SINGLE-CELL MODE (Seurat FindMarkers / Wilcoxon)
+  # Pairwise only: subset to c0 and c1 cells per cluster (not joint modeling).
+  # ===========================================================================
   if(Pseudobulk_mode == F){
-    
-    ### loop thru comparisons ###
-    # DE in each comparison
-    # make sure to select clusters shared by the two conditons
-    # for those clusters, use all samples for edgeR, and use c1 vs c2 for contrast functon
-    
-    
-    
     
     compslen <- 1:nrow(comps)
     m_bycluster_crosscondition_de_comps <- lapply(compslen, function(compidx){
       
-      
-      
-      
-      
-      #get comparison condition levels
-      c1 <- comps[compidx,1]
-      c2 <- comps[compidx,2]
-      
-      
-      #get lab
-      lab <- comps[compidx, 3]
+      c0 <- comps$c0[compidx]
+      c1 <- comps$c1[compidx]
+      lab <- comps$label[compidx]
       
       message('\n', lab)
       
-      
-      ## get only this comp samples
-      #subset MD
-      comp_pseudobulk_md <- sample_metadata[sample_metadata$Condition %in% c(c1,c2),]
-      
-      #adjust levels, for wilcox c1 = first, c2 = second
-      comp_pseudobulk_md$Condition <- factor(comp_pseudobulk_md$Condition, levels = c(c1, c2))
+      comp_pseudobulk_md <- sample_metadata[sample_metadata$Condition %in% c(c0, c1),]
+      comp_pseudobulk_md$Condition <- factor(comp_pseudobulk_md$Condition, levels = c(c0, c1))
       
       
       
       
       
       
-      #### for each int cluster, loop thru and compare condition 1 vs condition 2 ####
-      
-      ## loop thru SHARED clusters ##
       clusters <- groupinglevs
       names(clusters) <- clusters
-      
-      clust = clusters[1] #for testing
-      
-      
       
       m_bycluster_crosscondition_de <- lapply(clusters, function(clust){
         
@@ -717,16 +1060,15 @@ de_across_conditions_module <- function(sobjint,
         message(clust)
         
         
-        #subset for each cluster
+        # cells in this cluster for c0 and c1 only
         bigmd <- sobjint@meta.data
-        bigmd <- bigmd[bigmd$Condition %in% c(c1,c2),]
+        bigmd <- bigmd[bigmd$Condition %in% c(c0, c1),]
         clustmd <- bigmd[bigmd[,grouping_variable] == clust,]
         
-        #check if minimum num cells
-        clustmd$Condition <- factor(clustmd$Condition, levels = c(c1, c2))
+        clustmd$Condition <- factor(clustmd$Condition, levels = c(c0, c1))
         cellnums <- table(clustmd$Condition)
         
-        if( (cellnums[c1] < 5 | cellnums[c2] < 5) ){
+        if ((cellnums[c1] < 5 | cellnums[c0] < 5)) {
           return()
         }
         
@@ -745,7 +1087,7 @@ de_across_conditions_module <- function(sobjint,
         #future::plan('multisession', workers=workernum)
         
         res <- FindMarkers(sobjsub, logfc.threshold = 0, min.pct = 0,
-                           ident.1 = c1, ident.2 = c2,
+                           ident.1 = c1, ident.2 = c0,
                            assay = assay, slot = slot,
                            group.by = 'Condition',
                            test.use = DE_test)
@@ -842,98 +1184,13 @@ de_across_conditions_module <- function(sobjint,
   
   
   
-  ## write out the DE results for each comparison, cross condition for each cluster
-  # we will then reformat the results, and then last we will write out a table of num DEGs
-  compslen <- 1:nrow(comps)
-  
-  invisible(
-    lapply(compslen, function(compidx){
-      
-      
-      #get comparison condition levels
-      c1 <- comps[compidx,1]
-      c2 <- comps[compidx,2]
-      
-      #get comp lab
-      lab <- comps[compidx,3]
-      
-      #get cross conditions res per cluster list
-      m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de_comps[[compidx]]
-      
-      
-      
-      de_cross_conditions_dir <- paste0(outdir_int, '/differentialexpression_crosscondition/',c1,'_vs_', c2, '/')
-      
-      dir.create(de_cross_conditions_dir, recursive = T)
-      
-      
-      #for each cluster, write out to csv files
-      invisible(
-        lapply( 1:length(m_bycluster_crosscondition_de), function(i){
-          
-          #get cluster name
-          clustername <- names(m_bycluster_crosscondition_de)[i]
-          
-          #get cluster DE result
-          m <- m_bycluster_crosscondition_de[[i]]
-          
-          #save file
-          de_cross_conditions_file <- paste0(de_cross_conditions_dir, '/', clustername, '.csv')
-          write.csv(m, de_cross_conditions_file, quote = F, row.names = F)
-          
-        })
-      )
-      
-      
-      
-      # ### write out num DEGs summary table ###
-      # #prep NUMDEGS object using THRESHOLD OBJECTS
-      # numdegs <- sapply(m_bycluster_crosscondition_de, function(m){
-      #   
-      #   #normal fdr and padj thresholds
-      #   m <- m[m$FDR < crossconditionDE_padj_thres,, drop=F]
-      #   m <- m[abs(m$logFC) > crossconditionDE_lfc_thres,, drop=F]
-      #   
-      #   #pct thresholds: +FC, pct1 > 0.1; -FC, pct2 > 0.1
-      #   
-      #   upm <- m[m$logFC > 0,,drop=F]
-      #   upm <- upm[upm$pct.1 > crossconditionDE_min.pct,, drop=F]
-      #   
-      #   dnm <- m[m$logFC < 0,,drop=F]
-      #   dnm <- dnm[dnm$pct.2 > crossconditionDE_min.pct,, drop=F]
-      #   
-      #   m <- rbind(upm,dnm)
-      #   
-      #   try( table( factor(sign(m$logFC), levels=c(-1,1)) ) )
-      # })
-      # 
-      # numdegs <- t(numdegs)
-      # colnames(numdegs) <- c(c2, c1)
-      # 
-      # #make sure all clusters are shown
-      # # make a fake df and replace fake with real res
-      # numdegs_all <- data.frame(Cluster = groupinglev_nicelabs,
-      #                           c1 = 0, c2 = 0)
-      # colnames(numdegs_all) <- c('Cluster', c1, c2)
-      # rownames(numdegs_all) <- numdegs_all$Cluster
-      # 
-      # numdegs_all[rownames(numdegs), c1] <- numdegs[,c1]
-      # numdegs_all[rownames(numdegs), c2] <- numdegs[,c2]
-      # rownames(numdegs_all) <- NULL
-      # 
-      # 
-      # write.csv(numdegs_all, paste0(outdir_int, '/differentialexpression_crosscondition/',c1,'_vs_', c2, '_numDEGs_summary.csv'), quote = F, row.names = T)
-      # 
-      
-      
-    })
-  )
-  
-  
-  
-  
-  #if wilcoxon is used, reformat the dataframe to match edgeR, to ease the pathway analysis
-  
+  # Keep the method-native result tables for CSV output. The object below is
+  # harmonized in-place afterward for the returned data.frame and filtering.
+  m_bycluster_crosscondition_de_comps_natural <- m_bycluster_crosscondition_de_comps
+
+  # ---------------------------------------------------------------------------
+  # Harmonize column names to edgeR-style for downstream pathway analysis
+  # ---------------------------------------------------------------------------
   if( Pseudobulk_mode == F | DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT' ){
     
     
@@ -1005,80 +1262,756 @@ de_across_conditions_module <- function(sobjint,
   
   
   
-  ## write a table with num DEGs
-  compslen <- 1:nrow(comps)
-  invisible(
-    lapply(compslen, function(compidx){
-      
-      
-      #get comparison condition levels
-      c1 <- comps[compidx,1]
-      c2 <- comps[compidx,2]
-      
-      #get comp lab
-      lab <- comps[compidx,3]
-      
-      #get cross conditions res per cluster list
-      m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de_comps[[compidx]]
-      
-      
-      ### write out num DEGs summary table ###
-      #prep NUMDEGS object using THRESHOLD OBJECTS
-      numdegs <- sapply(m_bycluster_crosscondition_de, function(m){
-        
-        #normal fdr and padj thresholds
-        m <- m[m$FDR < crossconditionDE_padj_thres,, drop=F]
-        m <- m[abs(m$logFC) > crossconditionDE_lfc_thres,, drop=F]
-        
-        #pct thresholds: +FC, pct1 > 0.1; -FC, pct2 > 0.1
-        
-        upm <- m[m$logFC > 0,,drop=F]
-        upm <- upm[upm$pct.1 > crossconditionDE_min.pct,, drop=F]
-        
-        dnm <- m[m$logFC < 0,,drop=F]
-        dnm <- dnm[dnm$pct.2 > crossconditionDE_min.pct,, drop=F]
-        
-        m <- rbind(upm,dnm)
-        
-        try( table( factor(sign(m$logFC), levels=c(-1,1)) ) )
-      })
-      
-      numdegs <- t(numdegs)
-      colnames(numdegs) <- c(c2, c1)
-      
-      #make sure all clusters are shown
-      # make a fake df and replace fake with real res
-      numdegs_all <- data.frame(Cluster = groupinglev_nicelabs,
-                                c1 = 0, c2 = 0)
-      colnames(numdegs_all) <- c('Cluster', c1, c2)
-      rownames(numdegs_all) <- numdegs_all$Cluster
-      
-      numdegs_all[rownames(numdegs), c1] <- numdegs[,c1]
-      numdegs_all[rownames(numdegs), c2] <- numdegs[,c2]
-      rownames(numdegs_all) <- NULL
-      
-      
-      write.csv(numdegs_all, paste0(outdir_int, '/differentialexpression_crosscondition/',c1,'_vs_', c2, '_numDEGs_summary.csv'), quote = F, row.names = T)
-      
-      
-      
-    })
+  # ---------------------------------------------------------------------------
+  # Flatten nested results to one data.frame; filter significant genes
+  # ---------------------------------------------------------------------------
+  de_results_all_natural <- .flatten_de_results(comps, m_bycluster_crosscondition_de_comps_natural)
+  de_results_all <- .flatten_de_results(comps, m_bycluster_crosscondition_de_comps)
+  
+  de_results_significant <- .filter_significant_de_results(
+    de_results_all,
+    crossconditionDE_padj_thres,
+    crossconditionDE_lfc_thres,
+    crossconditionDE_min.pct
   )
+  de_sig_idx <- .significant_de_index(
+    de_results_all,
+    crossconditionDE_padj_thres,
+    crossconditionDE_lfc_thres,
+    crossconditionDE_min.pct
+  )
+  de_results_significant_natural <- de_results_all_natural[de_sig_idx, , drop = FALSE]
   
+  # ---------------------------------------------------------------------------
+  # Optional file output (skipped when outdir_int is missing)
+  # ---------------------------------------------------------------------------
+  save_results <- !missing(outdir_int) && !is.null(outdir_int) && nzchar(as.character(outdir_int)[1])
   
+  if (save_results) {
+    out_dir <- file.path(outdir_int, "differentialexpression_crosscondition")
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    file_stem <- .de_output_basename(
+      DE_test = DE_test,
+      grouping_variable = grouping_variable,
+      assay = assay,
+      slot = slot,
+      pseudobulk_mode = Pseudobulk_mode
+    )
+    write.csv(
+      de_results_all_natural,
+      file.path(out_dir, paste0(file_stem, "_all.csv")),
+      quote = FALSE,
+      row.names = FALSE
+    )
+    write.csv(
+      de_results_significant_natural,
+      file.path(
+        out_dir,
+        paste0(
+          file_stem,
+          .de_thresholds_suffix(
+            crossconditionDE_padj_thres,
+            crossconditionDE_lfc_thres,
+            crossconditionDE_min.pct
+          ),
+          "_significant.csv"
+        )
+      ),
+      quote = FALSE,
+      row.names = FALSE
+    )
+    .write_numdegs_summary(
+      de_results_significant,
+      comps,
+      groupinglev_nicelabs,
+      file.path(out_dir, paste0(file_stem, "_numDEGs_summary.csv"))
+    )
+  }
   
-  
-  #save RDS file of DE res list -- > we save this later anyway, just wastes memory
-  # deres_rds_file <- paste0(outdir_int, '/differentialexpression_crosscondition/m_bycluster_crosscondition_de_comps.rds')
-  # saveRDS(m_bycluster_crosscondition_de_comps, deres_rds_file)
-  
-  
-  return(m_bycluster_crosscondition_de_comps)
+  return(de_results_all)
   
   
 }
+# Propeller-specific helpers (sourced into sc_pipeline_modules.R build)
 
+.propeller_design <- function(sample_metadata, design_formula) {
+  labels <- attr(terms(design_formula), "term.labels")
+  if (!"Condition" %in% labels) {
+    stop("Propeller design requires Condition in formula.", call. = FALSE)
+  }
+  other <- labels[labels != "Condition"]
+  if (length(other)) {
+    f <- as.formula(paste("~ 0 + Condition +", paste(other, collapse = " + ")))
+  } else {
+    f <- as.formula("~ 0 + Condition")
+  }
+  md <- .prepare_pseudobulk_coldata(sample_metadata, design_formula)
+  rownames(md) <- md$Code
+  design <- model.matrix(f, data = md)
+  list(design = design, coldata = md)
+}
 
+.propeller_contrast_matrix <- function(design, contrast_entry, c1, c0) {
+  contrast <- .parse_comp_contrast(contrast_entry, c1, c0)
+  num_col <- paste0(contrast[1], contrast[2])
+  denom_col <- paste0(contrast[1], contrast[3])
+  cn <- colnames(design)
+  if (!(num_col %in% cn) || !(denom_col %in% cn)) {
+    stop(
+      "Could not map contrast ", num_col, " vs ", denom_col,
+      " to propeller design columns: ", paste(cn, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  # Build the contrast matrix directly to avoid makeContrasts parsing failures
+  # when design column names include non-syntactic interaction terms (e.g. ":").
+  contr <- matrix(0, nrow = length(cn), ncol = 1)
+  rownames(contr) <- cn
+  colnames(contr) <- paste0(num_col, "_vs_", denom_col)
+  contr[num_col, 1] <- 1
+  contr[denom_col, 1] <- -1
+  contr
+}
+
+.propeller_use_simple_wrapper <- function(design_formula, sample_metadata) {
+  .is_simple_condition_design(design_formula) &&
+    length(unique(sample_metadata$Condition)) == 2L
+}
+
+.de_results_cluster_table <- function(de_results, label, cluster) {
+  sub <- de_results[de_results$label == label & de_results$cluster == cluster, , drop = FALSE]
+  if (!nrow(sub)) return(NULL)
+  meta <- c("label", "formula", "c0", "c1", "contrast", "cluster")
+  stat_cols <- setdiff(colnames(sub), meta)
+  sub[, stat_cols, drop = FALSE]
+}
+
+.propeller_format_pres <- function(pres, c1, c0) {
+  pres$PropRatio[sign(pres$PropRatio) == -1] <- pres$PropRatio[sign(pres$PropRatio) == -1] * -1
+  pres <- pres[order(pres$PropRatio, decreasing = TRUE), , drop = FALSE]
+  row_cn <- if ("BaselineProp.clusters" %in% colnames(pres)) {
+    "BaselineProp.clusters"
+  } else {
+    rownames(pres)
+  }
+  if (is.character(row_cn) && length(row_cn) == 1L && row_cn %in% colnames(pres)) {
+    pres$BaselineProp.clusters <- as.character(pres[[row_cn]])
+  } else {
+    pres$BaselineProp.clusters <- rownames(pres)
+  }
+  pres
+}
+
+#' Normalize comps for cross-condition DE and compositional modules
+#'
+#' @param comps data.frame with c0, c1, and optional formula, contrast, label
+#' @return normalized comps data.frame
+#' @export
+normalize_comps <- function(comps) {
+  .normalize_comps(comps)
+}
+
+#' Split flat DE results into a named list of per-cluster tables (one comparison)
+#'
+#' @param de_results output of `de_across_conditions_module()`
+#' @param label comparison label from `comps$label`
+#' @return named list of data.frames keyed by cluster
+#' @export
+de_results_by_cluster <- function(de_results, label) {
+  de_sub <- de_results[de_results$label == label, , drop = FALSE]
+  clusters <- unique(de_sub$cluster)
+  out <- lapply(clusters, function(cl) {
+    .de_results_cluster_table(de_sub, label, cl)
+  })
+  names(out) <- clusters
+  out[lengths(out) > 0]
+}
+
+# Strip display asterisks from compositional cluster labels.
+.clean_composition_cluster_label <- function(x) {
+  trimws(gsub("\\*\\s*", "", as.character(x)))
+}
+
+# Harmonize propeller or chisq compres to fixed columns for flat output.
+.harmonize_compres_table <- function(compres, c1, c0) {
+  df <- as.data.frame(compres, stringsAsFactors = FALSE)
+  if ("BaselineProp.clusters" %in% colnames(df)) {
+    display <- as.character(df$BaselineProp.clusters)
+    c1col <- paste0("PropMean.Condition", c1)
+    c0col <- paste0("PropMean.Condition", c0)
+    data.frame(
+      cluster = .clean_composition_cluster_label(display),
+      significant = df$P.Value < 0.05,
+      PropMean_c1 = if (c1col %in% colnames(df)) df[[c1col]] else NA_real_,
+      PropMean_c0 = if (c0col %in% colnames(df)) df[[c0col]] else NA_real_,
+      PropRatio = df$PropRatio,
+      Tstatistic = df$Tstatistic,
+      P.Value = df$P.Value,
+      FDR = df$FDR,
+      stringsAsFactors = FALSE
+    )
+  } else if (all(c("cluster", "p") %in% colnames(df))) {
+    display <- as.character(df$cluster)
+    data.frame(
+      cluster = .clean_composition_cluster_label(display),
+      significant = df$p < 0.05,
+      PropMean_c1 = df$c1prop,
+      PropMean_c0 = df$c0prop,
+      PropRatio = df$asin_ratio,
+      Tstatistic = NA_real_,
+      P.Value = df$p,
+      FDR = df$FDR,
+      stringsAsFactors = FALSE
+    )
+  } else {
+    NULL
+  }
+}
+
+.composition_results_empty <- function() {
+  data.frame(
+    label = character(), formula = character(), c0 = character(), c1 = character(),
+    cluster = character(), significant = logical(),
+    PropMean_c1 = numeric(), PropMean_c0 = numeric(), PropRatio = numeric(),
+    Tstatistic = numeric(), P.Value = numeric(), FDR = numeric(),
+    stringsAsFactors = FALSE
+  )
+}
+
+.flatten_composition_results <- function(comps, composition_comps_list) {
+  pieces <- list()
+  for (i in seq_len(nrow(comps))) {
+    lab <- comps$label[i]
+    entry <- composition_comps_list[[lab]]
+    if (is.null(entry) || is.null(entry$compres)) next
+    harmonized <- .harmonize_compres_table(entry$compres, comps$c1[i], comps$c0[i])
+    if (is.null(harmonized) || !nrow(harmonized)) next
+    meta <- data.frame(
+      label = lab,
+      formula = comps$formula[i],
+      c0 = comps$c0[i],
+      c1 = comps$c1[i],
+      stringsAsFactors = FALSE
+    )
+    meta_rep <- meta[rep(1L, nrow(harmonized)), , drop = FALSE]
+    pieces[[length(pieces) + 1L]] <- cbind(meta_rep, harmonized, stringsAsFactors = FALSE)
+  }
+  if (!length(pieces)) return(.composition_results_empty())
+  out <- dplyr::bind_rows(pieces)
+  meta_cols <- c("label", "formula", "c0", "c1", "cluster", "significant",
+                 "PropMean_c1", "PropMean_c0", "PropRatio", "Tstatistic", "P.Value", "FDR")
+  out[, meta_cols, drop = FALSE]
+}
+
+.composition_results_by_comparison_table <- function(composition_results, label) {
+  sub <- composition_results[composition_results$label == label, , drop = FALSE]
+  if (!nrow(sub)) return(sub)
+  stat_cols <- setdiff(colnames(sub), c("label", "formula", "c0", "c1"))
+  sub[, stat_cols, drop = FALSE]
+}
+
+# Collapse fgsea leadingEdge (list or character vector per row) to one string.
+.collapse_leading_edge <- function(x) {
+  if (is.null(x) || length(x) == 0L) return(NA_character_)
+  genes <- if (is.list(x)) unlist(x, use.names = FALSE) else x
+  genes <- as.character(genes)
+  genes <- genes[!is.na(genes) & nzchar(genes)]
+  if (!length(genes)) return(NA_character_)
+  paste(genes, collapse = "/")
+}
+
+.pathway_results_empty <- function() {
+  data.frame(
+    label = character(), c0 = character(), c1 = character(),
+    cluster = character(), pathway_category = character(),
+    pathway = character(), pval = numeric(), padj = numeric(), log2err = numeric(),
+    ES = numeric(), NES = numeric(), size = numeric(), leadingEdge = character(),
+    stringsAsFactors = FALSE
+  )
+}
+
+.flatten_pathway_gsea_results <- function(comps, pathway_analysis_mainlist_comps) {
+  pieces <- list()
+  for (i in seq_len(nrow(comps))) {
+    lab <- comps$label[i]
+    comp_list <- pathway_analysis_mainlist_comps[[lab]]
+    if (is.null(comp_list) || !length(comp_list)) next
+    for (pwaycat in names(comp_list)) {
+      clust_list <- comp_list[[pwaycat]]
+      if (is.null(clust_list) || !length(clust_list)) next
+      for (clust in names(clust_list)) {
+        entry <- clust_list[[clust]]
+        if (is.null(entry)) next
+        gseares <- if (is.list(entry) && !is.data.frame(entry)) entry$gseares else entry
+        if (is.null(gseares) || !is.data.frame(gseares) || !nrow(gseares)) next
+        gseares <- as.data.frame(gseares, stringsAsFactors = FALSE)
+        if ("leadingEdge" %in% colnames(gseares)) {
+          gseares$leadingEdge <- vapply(gseares$leadingEdge, .collapse_leading_edge, character(1))
+        }
+        meta <- data.frame(
+          label = lab, c0 = comps$c0[i], c1 = comps$c1[i],
+          cluster = clust, pathway_category = pwaycat,
+          stringsAsFactors = FALSE
+        )
+        meta_rep <- meta[rep(1L, nrow(gseares)), , drop = FALSE]
+        pieces[[length(pieces) + 1L]] <- cbind(meta_rep, gseares, stringsAsFactors = FALSE)
+      }
+    }
+  }
+  if (!length(pieces)) return(.pathway_results_empty())
+  out <- dplyr::bind_rows(pieces)
+  want <- c("label", "c0", "c1", "cluster", "pathway_category",
+            "pathway", "pval", "padj", "log2err", "ES", "NES", "size", "leadingEdge")
+  keep <- intersect(want, colnames(out))
+  out[, keep, drop = FALSE]
+}
+
+.ora_results_empty <- function() {
+  data.frame(
+    label = character(), c0 = character(), c1 = character(),
+    cluster = character(), pathway_category = character(),
+    Direction = character(),
+    ID = character(), Description = character(),
+    GeneRatio = character(), BgRatio = character(),
+    pvalue = numeric(), p.adjust = numeric(), qvalue = numeric(),
+    geneID = character(), Count = integer(),
+    stringsAsFactors = FALSE
+  )
+}
+
+.flatten_ora_results <- function(comps, ora_mainlist_comps) {
+  pieces <- list()
+  for (i in seq_len(nrow(comps))) {
+    lab <- comps$label[i]
+    comp_list <- ora_mainlist_comps[[lab]]
+    if (is.null(comp_list) || !length(comp_list)) next
+    for (pwaycat in names(comp_list)) {
+      clust_list <- comp_list[[pwaycat]]
+      if (is.null(clust_list) || !length(clust_list)) next
+      for (clust in names(clust_list)) {
+        ora_res <- clust_list[[clust]]
+        if (is.null(ora_res) || !is.data.frame(ora_res) || !nrow(ora_res)) next
+        ora_res <- as.data.frame(ora_res, stringsAsFactors = FALSE)
+        meta <- data.frame(
+          label = lab, c0 = comps$c0[i], c1 = comps$c1[i],
+          cluster = clust, pathway_category = pwaycat,
+          stringsAsFactors = FALSE
+        )
+        meta_rep <- meta[rep(1L, nrow(ora_res)), , drop = FALSE]
+        pieces[[length(pieces) + 1L]] <- cbind(meta_rep, ora_res, stringsAsFactors = FALSE)
+      }
+    }
+  }
+  if (!length(pieces)) return(.ora_results_empty())
+  dplyr::bind_rows(pieces)
+}
+
+#' Filter flat compositional results to one comparison
+#'
+#' @param composition_results output of `compositional_analysis_module()`
+#' @param label comparison label from `comps$label`
+#' @return data.frame of compositional statistics for that comparison
+#' @export
+composition_results_by_comparison <- function(composition_results, label) {
+  .composition_results_by_comparison_table(composition_results, label)
+}
+
+#' Filter flat pathway GSEA results
+#'
+#' @param pathway_results output of `pathwayanalysis_crosscondition_module()`
+#' @param label comparison label
+#' @param cluster optional cluster filter
+#' @param pathway_category optional MSigDB category filter
+#' @return filtered data.frame
+#' @export
+pathway_results_by_cluster <- function(pathway_results, label, cluster = NULL, pathway_category = NULL) {
+  sub <- pathway_results[pathway_results$label == label, , drop = FALSE]
+  if (!is.null(cluster)) sub <- sub[sub$cluster == cluster, , drop = FALSE]
+  if (!is.null(pathway_category)) sub <- sub[sub$pathway_category == pathway_category, , drop = FALSE]
+  sub
+}
+
+#' Filter flat ORA results
+#'
+#' @param ora_results output of `ORA_crosscondition_module()`
+#' @param label comparison label
+#' @param cluster optional cluster filter
+#' @param pathway_category optional MSigDB category filter
+#' @return filtered data.frame
+#' @export
+ora_results_by_cluster <- function(ora_results, label, cluster = NULL, pathway_category = NULL) {
+  sub <- ora_results[ora_results$label == label, , drop = FALSE]
+  if (!is.null(cluster)) sub <- sub[sub$cluster == cluster, , drop = FALSE]
+  if (!is.null(pathway_category)) sub <- sub[sub$pathway_category == pathway_category, , drop = FALSE]
+  sub
+}
+
+.ora_marker_msigdb_celltype_results_empty <- function() {
+  data.frame(
+    context = character(),
+    cluster = character(),
+    pathway_category = character(),
+    ID = character(), Description = character(),
+    GeneRatio = character(), BgRatio = character(),
+    pvalue = numeric(), p.adjust = numeric(), qvalue = numeric(),
+    geneID = character(), Count = integer(),
+    stringsAsFactors = FALSE
+  )
+}
+
+.select_cluster_marker_genes <- function(marker_results,
+                                         cluster,
+                                         marker_padj_thres,
+                                         top_markers_per_cluster,
+                                         min_genes) {
+  req <- c("cluster", "gene", "p_val_adj", "score")
+  miss <- setdiff(req, colnames(marker_results))
+  if (length(miss)) {
+    stop(
+      "marker_results missing columns: ", paste(miss, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  sub <- marker_results[marker_results$cluster == cluster, , drop = FALSE]
+  sub <- sub[!is.na(sub$p_val_adj) & sub$p_val_adj < marker_padj_thres, , drop = FALSE]
+  if (!nrow(sub)) return(character())
+  sub <- sub[order(sub$score, decreasing = TRUE), , drop = FALSE]
+  sub <- utils::head(sub, top_markers_per_cluster)
+  genes <- unique(sub$gene)
+  if (length(genes) < min_genes) return(character())
+  genes
+}
+
+.top_pathways_per_cluster_msigdb_celltype <- function(ora_results, dotplot_top_n = 5L) {
+  empty <- data.frame(
+    context = character(),
+    cluster = character(),
+    pathway_category = character(),
+    ID = character(),
+    Description = character(),
+    GeneRatio = character(),
+    BgRatio = character(),
+    pvalue = numeric(),
+    p.adjust = numeric(),
+    qvalue = numeric(),
+    geneID = character(),
+    Count = integer(),
+    stringsAsFactors = FALSE
+  )
+  if (is.null(ora_results) || !is.data.frame(ora_results) || !nrow(ora_results)) {
+    return(empty)
+  }
+  plot_df <- ora_results
+  plot_df$pathway <- plot_df$Description
+  if ("ID" %in% colnames(plot_df)) {
+    empty_desc <- !nzchar(plot_df$pathway)
+    plot_df$pathway[empty_desc] <- plot_df$ID[empty_desc]
+  }
+  plot_df$neglog10padj <- -log10(pmax(plot_df$p.adjust, .Machine$double.xmin))
+  plot_df %>%
+    dplyr::group_by(cluster) %>%
+    dplyr::slice_max(.data$neglog10padj, n = dotplot_top_n, with_ties = FALSE) %>%
+    dplyr::slice_max(.data$Count, n = dotplot_top_n, with_ties = FALSE) %>%
+    dplyr::ungroup() %>%
+    as.data.frame()
+}
+
+.save_celltype_marker_prediction_outputs <- function(ora_results,
+                                                     context_label,
+                                                     outdir,
+                                                     dotplot_top_n = 5L,
+                                                     cp.font.size = 5) {
+  out_subdir <- file.path(outdir, "celltype_marker_prediction", context_label)
+  dir.create(out_subdir, recursive = TRUE, showWarnings = FALSE)
+
+  write.csv(
+    ora_results,
+    file.path(out_subdir, "ora_results.csv"),
+    quote = FALSE,
+    row.names = FALSE
+  )
+
+  top_pathways <- .top_pathways_per_cluster_msigdb_celltype(
+    ora_results = ora_results,
+    dotplot_top_n = dotplot_top_n
+  )
+  write.csv(
+    top_pathways,
+    file.path(out_subdir, "top_pathways_per_cluster.csv"),
+    quote = FALSE,
+    row.names = FALSE
+  )
+
+  dotplot <- .build_msigdb_celltype_ora_dotplot(
+    ora_results = ora_results,
+    context_label = context_label,
+    dotplot_top_n = dotplot_top_n,
+    cp.font.size = cp.font.size
+  )
+  if (!is.null(dotplot)) {
+    pdf(
+      file.path(out_subdir, "celltype_marker_prediction_dotplot.pdf"),
+      width = 7,
+      height = 7
+    )
+    print(dotplot)
+    while (!is.null(grDevices::dev.list())) grDevices::dev.off()
+  }
+
+  list(ora_results = ora_results, dotplot = dotplot, context_label = context_label)
+}
+
+.build_msigdb_celltype_ora_dotplot <- function(ora_results,
+                                  context_label,
+                                  dotplot_top_n = 5,
+                                  cp.font.size = 5) {
+  if (is.null(ora_results) || !is.data.frame(ora_results) || !nrow(ora_results)) {
+    return(NULL)
+  }
+  plot_df <- .top_pathways_per_cluster_msigdb_celltype(
+    ora_results = ora_results,
+    dotplot_top_n = dotplot_top_n
+  )
+  if (!nrow(plot_df)) return(NULL)
+
+  top_pathway_labels <- plot_df$Description
+  if ("ID" %in% colnames(plot_df)) {
+    empty_desc <- !nzchar(top_pathway_labels)
+    top_pathway_labels[empty_desc] <- plot_df$ID[empty_desc]
+  }
+  top_pathway_labels <- unique(top_pathway_labels)
+
+  plot_df <- ora_results
+  plot_df$pathway <- plot_df$Description
+  if ("ID" %in% colnames(plot_df)) {
+    empty_desc <- !nzchar(plot_df$pathway)
+    plot_df$pathway[empty_desc] <- plot_df$ID[empty_desc]
+  }
+  plot_df <- plot_df[plot_df$pathway %in% top_pathway_labels, , drop = FALSE]
+  plot_df$neglog10padj <- -log10(pmax(plot_df$p.adjust, .Machine$double.xmin))
+
+  if (!nrow(plot_df)) return(NULL)
+
+  plot_df$cluster <- factor(plot_df$cluster, levels = unique(as.character(plot_df$cluster)))
+  plot_df$pathway <- factor(plot_df$pathway, levels = rev(unique(as.character(plot_df$pathway))))
+
+  ggplot2::ggplot(plot_df, ggplot2::aes(x = cluster, y = pathway, size = Count, col = neglog10padj)) +
+    ggplot2::geom_point() +
+    ggplot2::theme_linedraw() +
+    ggplot2::theme(
+      axis.text = ggplot2::element_text(size = cp.font.size),
+      axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)
+    ) +
+    ggplot2::scale_color_gradient(low = "steelblue", high = "red", name = "-log10(padj)") +
+    ggplot2::scale_size(range = c(2, 6), name = "Gene count") +
+    ggplot2::xlab("Cluster") +
+    ggplot2::ylab("") +
+    ggplot2::ggtitle("MSigDB cell-type signatures", subtitle = context_label)
+}
+
+#' ORA of cluster markers against MSigDB cell-type signatures
+#'
+#' Runs `clusterProfiler::enricher()` on cluster marker genes (top N by score among
+#' markers passing `marker_padj_thres`) against MSigDB cell-type gene sets from a prepared
+#' msigdbr table. Saves CSV tables and a summary dotplot with inclusive
+#' top-pathway filtering per cluster (same idea as GSEA summary dotplots).
+#'
+#' @param marker_results data.frame from `Seurat::FindAllMarkers()` with `score` column.
+#' @param pathways output of `preppathways_pathwayanalysis_crosscondition_module()`.
+#' @param context_label string label for outputs (e.g. sample Code or `"integrated"`).
+#' @param outdir directory; writes to `{outdir}/celltype_marker_prediction/{context_label}/`.
+#' @param marker_padj_thres adjusted p-value cutoff for marker genes (default 0.05).
+#' @param top_markers_per_cluster max markers per cluster after padj filter (default 100).
+#' @param min_genes minimum genes required to run ORA per cluster (default 7).
+#' @param pathway_padj_thres q-value cutoff passed to `enricher()` (default 0.1).
+#' @param dotplot_top_n top pathways per cluster for dotplot when many are significant (default 5).
+#' @param workernum number of parallel workers (default 1).
+#' @param cp.font.size axis text size for dotplot (default 5).
+#'
+#' @return List with `ora_results` (data.frame), `dotplot` (ggplot or NULL), and `context_label`.
+#' @export
+ORA_cluster_markers_msigdb_celltype_module <- function(marker_results,
+                                          pathways,
+                                          context_label,
+                                          outdir,
+                                          marker_padj_thres = 0.05,
+                                          top_markers_per_cluster = 100L,
+                                          min_genes = 7L,
+                                          pathway_padj_thres = 0.1,
+                                          dotplot_top_n = 5L,
+                                          workernum = 1L,
+                                          cp.font.size = 5) {
+  if (!requireNamespace("clusterProfiler", quietly = TRUE)) {
+    stop("Install clusterProfiler to run MSigDB cell-type ORA.", call. = FALSE)
+  }
+  if (!is.data.frame(marker_results)) {
+    stop("marker_results must be a data.frame.", call. = FALSE)
+  }
+  if (!is.data.frame(pathways)) {
+    stop("pathways must be a data.frame.", call. = FALSE)
+  }
+
+  celltype_subcat <- .msigdb_celltype_gs_subcat()
+  term2gene <- pathways[pathways$gs_subcat == celltype_subcat, c("gs_name", "gene_symbol"), drop = FALSE]
+  if (!nrow(term2gene)) {
+    warning("No MSigDB cell-type gene sets found in pathways table.", call. = FALSE)
+    empty <- .ora_marker_msigdb_celltype_results_empty()
+    return(.save_celltype_marker_prediction_outputs(
+      ora_results = empty,
+      context_label = context_label,
+      outdir = outdir,
+      dotplot_top_n = dotplot_top_n,
+      cp.font.size = cp.font.size
+    ))
+  }
+
+  if ("gene" %in% colnames(marker_results)) {
+    marker_genes <- unique(as.character(marker_results$gene))
+    marker_genes <- marker_genes[!is.na(marker_genes) & nzchar(marker_genes)]
+    pathway_genes <- unique(as.character(term2gene$gene_symbol))
+    overlap_n <- length(intersect(marker_genes, pathway_genes))
+    if (overlap_n < min_genes) {
+      warning(
+        "Low overlap (", overlap_n, " genes) between cluster marker genes and MSigDB ",
+        celltype_subcat, " gene symbols for context ", context_label,
+        ". Check that marker genes use the same identifier type as msigdbr (e.g. symbols, not Ensembl IDs).",
+        call. = FALSE
+      )
+    }
+  }
+
+  clusters <- unique(as.character(marker_results$cluster))
+  clusters <- clusters[!is.na(clusters)]
+
+  if (workernum > 1L) {
+    cl <- parallel::makeCluster(workernum, rscript_args = c("--no-init-file", "--no-site-file", "--no-environ"))
+    doParallel::registerDoParallel(cl)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+
+    clust_res <- foreach::foreach(
+      clust = clusters,
+      .packages = c("clusterProfiler"),
+      .export = c(
+        ".select_cluster_marker_genes", "marker_results", "term2gene",
+        "marker_padj_thres", "top_markers_per_cluster", "min_genes",
+        "pathway_padj_thres", "context_label", "celltype_subcat"
+      ),
+      .noexport = c("pathways"),
+      .verbose = FALSE
+    ) %dopar% {
+      genenames <- .select_cluster_marker_genes(
+        marker_results = marker_results,
+        cluster = clust,
+        marker_padj_thres = marker_padj_thres,
+        top_markers_per_cluster = top_markers_per_cluster,
+        min_genes = min_genes
+      )
+      if (!length(genenames)) return(NULL)
+
+      ora_res <- tryCatch(
+        clusterProfiler::enricher(
+          genenames,
+          TERM2GENE = term2gene,
+          qvalueCutoff = pathway_padj_thres,
+          pvalueCutoff = 1
+        ),
+        error = function(e) NULL
+      )
+      if (is.null(ora_res) || !length(ora_res)) return(NULL)
+      ora_res <- as.data.frame(ora_res, stringsAsFactors = FALSE)
+      if (!nrow(ora_res)) return(NULL)
+      ora_res$cluster <- clust
+      ora_res$context <- context_label
+      ora_res$pathway_category <- celltype_subcat
+      ora_res
+    }
+    names(clust_res) <- clusters
+  } else {
+    clust_res <- stats::setNames(lapply(clusters, function(clust) {
+      genenames <- .select_cluster_marker_genes(
+        marker_results = marker_results,
+        cluster = clust,
+        marker_padj_thres = marker_padj_thres,
+        top_markers_per_cluster = top_markers_per_cluster,
+        min_genes = min_genes
+      )
+      if (!length(genenames)) return(NULL)
+
+      ora_res <- tryCatch(
+        clusterProfiler::enricher(
+          genenames,
+          TERM2GENE = term2gene,
+          qvalueCutoff = pathway_padj_thres,
+          pvalueCutoff = 1
+        ),
+        error = function(e) NULL
+      )
+      if (is.null(ora_res) || !length(ora_res)) return(NULL)
+      ora_res <- as.data.frame(ora_res, stringsAsFactors = FALSE)
+      if (!nrow(ora_res)) return(NULL)
+      ora_res$cluster <- clust
+      ora_res$context <- context_label
+      ora_res$pathway_category <- celltype_subcat
+      ora_res
+    }), clusters)
+  }
+
+  clust_res <- clust_res[lengths(clust_res) > 0L]
+  if (!length(clust_res)) {
+    empty <- .ora_marker_msigdb_celltype_results_empty()
+    return(.save_celltype_marker_prediction_outputs(
+      ora_results = empty,
+      context_label = context_label,
+      outdir = outdir,
+      dotplot_top_n = dotplot_top_n,
+      cp.font.size = cp.font.size
+    ))
+  }
+
+  ora_results <- dplyr::bind_rows(clust_res)
+  want <- c(
+    "context", "cluster", "pathway_category", "ID", "Description",
+    "GeneRatio", "BgRatio", "pvalue", "p.adjust", "qvalue", "geneID", "Count"
+  )
+  keep <- intersect(want, colnames(ora_results))
+  ora_results <- ora_results[, keep, drop = FALSE]
+
+  .save_celltype_marker_prediction_outputs(
+    ora_results = ora_results,
+    context_label = context_label,
+    outdir = outdir,
+    dotplot_top_n = dotplot_top_n,
+    cp.font.size = cp.font.size
+  )
+}
+
+#' Batch MSigDB cell-type ORA on named per-sample cluster marker tables
+#'
+#' @param marker_results_list named list of FindAllMarkers data.frames.
+#' @param pathways output of `preppathways_pathwayanalysis_crosscondition_module()`.
+#' @param outdir base output directory (typically `outdir_indi`).
+#' @param ... passed to `ORA_cluster_markers_msigdb_celltype_module()`.
+#'
+#' @return Named list of results from `ORA_cluster_markers_msigdb_celltype_module()` per sample.
+#' @export
+ORA_cluster_markers_msigdb_celltype_batch_module <- function(marker_results_list,
+                                                pathways,
+                                                outdir,
+                                                ...) {
+  if (!is.list(marker_results_list) || is.null(names(marker_results_list))) {
+    stop("marker_results_list must be a named list.", call. = FALSE)
+  }
+  res_list <- lapply(names(marker_results_list), function(code) {
+    ORA_cluster_markers_msigdb_celltype_module(
+      marker_results = marker_results_list[[code]],
+      pathways = pathways,
+      context_label = code,
+      outdir = outdir,
+      ...
+    )
+  })
+  stats::setNames(res_list, names(marker_results_list))
+}
 
 
 
@@ -1088,10 +2021,15 @@ de_across_conditions_module <- function(sobjint,
 
 #' Prep MSIGDB pathways for pathway analysis
 #'
-#' This is a modular component of the scRNAseq analysis pipeline. Prep pathways from MSIGDB via the msigdbr package. We include the Hallmarks category; Gene Ontology BP, MF and CC; Reactome; KEGG; transcription factor CHIP-seq targets in the Gene Transcription Regulation Database (TFT_GTRD); inferred transcription factor targets via motif analysis from Xie et al Nature 2005 (TFT_Legacy). Only gene sets with < 500 genes are included.
+#' This is a modular component of the scRNAseq analysis pipeline. Prep pathways from MSIGDB via the msigdbr package. We include the Hallmarks category; Gene Ontology BP, MF and CC; Reactome; KEGG; transcription factor CHIP-seq targets in the Gene Transcription Regulation Database (TFT_GTRD); inferred transcription factor targets via motif analysis from Xie et al Nature 2005 (TFT_Legacy); and MSigDB cell-type signatures (cached for cluster-marker ORA, not used in cross-condition GSEA/ORA). Non-cell-type gene sets with < 500 genes are included; cell-type sets may contain up to 1000 genes.
 #'
-#' @param species string, species such as "Homo sapeins" or "Mus musculus"
-#' @param outdir_int string, directory to save pathways to. Will create a sub-directory called "pathwayanalysis_crosscondition" and save inside of there. We save pathways since the database updates over time.
+#' Prepared pathways are cached on disk (see [scDAPP::resolve_msigdbr_cache_dir()]) and are not written to `outdir_int` by default.
+#'
+#' @param species string, species such as "Homo sapiens" or "Mus musculus"
+#' @param outdir_int string, pipeline integration output directory; used as fallback cache location when user/XDG/R cache dirs are not writable.
+#' @param msigdbr_cache_dir optional string, directory for cached msigdbr tables (typically .../scDAPP). When NULL, uses `XDG_CACHE_HOME/scDAPP` if set, else [tools::R_user_dir()] cache.
+#' @param pwaycats optional character vector of normalized `gs_subcat` values to retain. Defaults to Hallmark, GO, Reactome, KEGG, and TFT categories used by the pipeline.
+#' @param refresh_msigdbr_cache logical; if TRUE, ignore existing cache and re-download from msigdbr.
 #'
 #' @return a data.frame similar to the output of `msigdbr::msigdbr`, but filtering for some specific categories / subcategories.
 #' @export
@@ -1103,105 +2041,47 @@ de_across_conditions_module <- function(sobjint,
 #' outdir_int = 'path/to/directory')
 #' }
 preppathways_pathwayanalysis_crosscondition_module <- function(species,
-                                                               outdir_int)
+                                                               outdir_int,
+                                                               msigdbr_cache_dir = NULL,
+                                                               pwaycats = NULL,
+                                                               refresh_msigdbr_cache = FALSE)
 {
-  
-  
-  require(msigdbr)
-  # require(msigdbf)
-  
-  #prep the pathways
-  # make sure to save it. database can update over time
-  pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition/')
-  dir.create(pwayoutdir, recursive = T)
-  
-  #read if already there
-  if( file.exists( paste0(pwayoutdir, '/msigdb_pathways.rds') ) ){
-    
-    message('Reading cached msigdbr pathways')
-    pathways <- readRDS(paste0(pwayoutdir, '/msigdb_pathways.rds') )
-    
-    
+  if (is.null(pwaycats)) {
+    pwaycats <- .default_msigdbr_pwaycats()
+  } else {
+    pwaycats <- gsub(":", "_", pwaycats)
+    names(pwaycats) <- pwaycats
   }
-  
-  
-  
-  message('Accessing MSIGDBR database')
-  
-  #read pathways
+
+  if (!refresh_msigdbr_cache) {
+    pathways <- .load_msigdbr_cache(
+      species = species,
+      pwaycats = pwaycats,
+      cache_dir = msigdbr_cache_dir,
+      fallback_dir = outdir_int
+    )
+    if (!is.null(pathways)) {
+      invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
+      return(pathways)
+    }
+  }
+
+  message("Accessing MSIGDBR database")
   pathways <- msigdbr::msigdbr(species = species)
-  
-  
-  
-  ## 2025.03.31: MSIGDB V10 was released in mid march 2025. it changed the format a lot. 
-  # I think for now we can just add the old column names; gs_subcat and gs_cat
-  #check if the old columns names are in; if not, add the new columns as the old
-  msigdbrcolnames <- colnames(pathways)
-  if( any(!c('gs_subcat', 'gs_cat') %in% msigdbrcolnames) ){
-    
-    pathways$gs_cat <- pathways$gs_collection
-    pathways$gs_subcat <- pathways$gs_subcollection
-    
-    
-    #for ease, do this here..
-    pathways$gs_subcat <- gsub(':', '_', pathways$gs_subcat)
-    
-    ## replace "TFT_TFT_LEGACY" with "TFT_TFT_Legacy", as per the old name...
-    pathways[pathways$gs_subcat == 'TFT_TFT_LEGACY', "gs_subcat"] <- 'TFT_TFT_Legacy'
-    
-    #they added a new kegg medicus and old kegg is now kegg_legacy; set the kegg_legacy as CP_KEGG as before
-    pathways[pathways$gs_subcat == 'CP_KEGG_LEGACY', "gs_subcat"] <- 'CP_KEGG'
-    
-  }
-  
-  
-  #replace : with _ in actual pathway names:
-  pathways$gs_subcat <- gsub(':', '_', pathways$gs_subcat)
-  
-  
-  
-  
-  
-  #### picking default categories
-  # because hallmark is a "category" and rest are "subcategories", it is hard to make this automated
-  # guess it may be possible if we set missing subcat as cat...
-  # table( pathways[pathways$gs_subcat=='',"gs_cat"] )
-  # for now hardcode these
-  pwaycats <- c("HALLMARK", "GO_BP", "GO_MF", "GO_CC", "CP_REACTOME", "CP_KEGG", "TFT_GTRD", "TFT_TFT_Legacy")
-  
-  
-  ### try to replace ':' with "_"
-  # in pwaycats, user provided subcategories:
-  pwaycats <- gsub(':', '_', pwaycats)
-  names(pwaycats) <- pwaycats
-  
-  #in actual pathway names:
-  pathways$gs_subcat <- gsub(':', '_', pathways$gs_subcat)
-  
-  #also get hallmarks...
-  pathways[pathways$gs_cat == 'H', 'gs_subcat'] <- "HALLMARK"
-  
-  #prep pathways using categories defined by user
-  pathways <- as.data.frame( pathways[pathways$gs_subcat %in% pwaycats,] )
-  
-  #fgsea recommends no pathways over 500 genes
-  pathways <- pathways[table(pathways$gs_name) <= 500,]
-  
-  #let's also remove pathways with less than 3 genes
-  pathways <- pathways[table(pathways$gs_name) >= 3,]
-  
-  
-  #purge mem
-  invisible(gc(full = T, reset = F, verbose = F))
-  
-  #save it
-  
-  saveRDS(pathways, paste0(pwayoutdir, '/msigdb_pathways.rds') )
-  
-  
-  return(pathways)
-  
-  
+  .validate_msigdbr_raw(pathways)
+  pathways <- .normalize_msigdbr_pathways(pathways, pwaycats = pwaycats)
+  .validate_prepared_pathways(pathways, pwaycats = pwaycats, species = species)
+
+  .save_msigdbr_cache(
+    pathways = pathways,
+    species = species,
+    pwaycats = pwaycats,
+    cache_dir = msigdbr_cache_dir,
+    fallback_dir = outdir_int
+  )
+
+  invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
+  pathways
 }
 
 
@@ -1212,7 +2092,7 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
 #'
 #' This function is a modular component of the scRNAseq pipeline. Perform GSEA analysis via the FGSEA package on the results of differential expression (DE) analysis for cross-condition comparison. Multiple conditions are supported. Plots and tables are saved.
 #'
-#' @param m_bycluster_crosscondition_de_comps the output of `scDAPP::de_across_conditions_module()`.
+#' @param de_results harmonized data.frame from `scDAPP::de_across_conditions_module()`.
 #' @param pathways data.frame, the output of `scDAPP::preppathways_pathwayanalysis_crosscondition_module()`
 #' @param sample_metadata data.frame with sample names and conditions, same as in `scDAPP::de_across_conditions_module()`, see that function's documentation for description.
 #' @param comps data.frame with conditions to test in GSEA, same as in `scDAPP::de_across_conditions_module()`, see that function for description
@@ -1222,7 +2102,9 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
 #' @param outdir_int string, directory to save pathways to. Will create a sub-directory called "pathwayanalysis_crosscondition" and save inside of there.
 #' @param cp.font.size numeric. size of pathway name test in summary plots. larger than 5 will likely result in name overlap and unreadable plots, currently not easy to solve
 #'
-#' @return a list with two elements. First contains the raw results and plots as a nested loop: first level is A vs B comparison, then category-by-category of MSIGDB database, then cluster-by-cluster. The second list element is similar but just has a summary plot showing top pathways across clusters.
+#' @return A list with `pathway_results` (flat data.frame), `pathwaysummplots_comps`
+#'   (summary plots per comparison), and `pathway_cluster_plots` (nested gseares/dotplot
+#'   objects per cluster for HTML reporting; not a tabular API).
 #' @export
 #'
 #' @examples
@@ -1238,7 +2120,7 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
 #' # THIRD: run the pathway analysis.
 #' # see `scDAPP::de_across_conditions_module()` for a description of the sample_metadata and comps files.
 #' pways_output_list <- pathwayanalysis_crosscondition_module(
-#' m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+#' de_results = de_results,
 #' pathways = pathways,
 #' sample_metadata = sample_metadata,
 #' comps = comps,
@@ -1246,16 +2128,12 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
 #' outdir_int = outdir_int
 #' )
 #'
-#' # Access the output files
-#' # note that all results will be saved to outdir_int.
-#' pathway_analysis_mainlist_comps <- pways_output_list$pathway_analysis_mainlist_comps
+#' # Access the output files (also saved under outdir_int):
+#' pathway_results <- pways_output_list$pathway_results
 #' pathwaysummplots_comps <- pways_output_list$pathwaysummplots_comps
 #'
-#' #these are both lists that contain the raw tables and per-cluster plots (first object);
-#' # and summaryplots that show pathway enrichment across clusters (second object).
-#'
 #' }
-pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
+pathwayanalysis_crosscondition_module <- function(de_results,
                                                   pathways,
                                                   sample_metadata,
                                                   comps,
@@ -1271,6 +2149,11 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
   require(foreach)
   require(doParallel)
   require(parallel)
+  
+  if (!is.data.frame(de_results)) {
+    stop("de_results must be a data.frame from de_across_conditions_module().", call. = FALSE)
+  }
+  comps <- .normalize_comps(comps)
   
   
   #   UPDATE DECEMBER 7 2023 deg.weight has been deprecated, we will stick with -log10pval * sign FC, but weight value can be modified for res before this
@@ -1316,44 +2199,25 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
   
   
   
-  #prep names
-  comps$labels <- paste0(comps$c1, '_vs_', comps$c2)
-  
-  compslen <- 1:nrow(comps)
-  compidx = 1 #for testing
-  
-  
+  compslen <- seq_len(nrow(comps))
   
   pathway_analysis_mainlist_comps <- lapply(compslen, function(compidx){
     
-    
-    #get comparison condition levels
-    c1 <- comps[compidx,1]
-    c2 <- comps[compidx,2]
-    
-    #get comp lab
-    lab <- comps[compidx,3]
+    c1 <- comps$c1[compidx]
+    c0 <- comps$c0[compidx]
+    lab <- comps$label[compidx]
     
     message(lab)
     
-    #get cross conditions res per cluster list
-    m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de_comps[[compidx]]
+    de_sub <- de_results[de_results$label == lab, , drop = FALSE]
+    clusters <- unique(de_sub$cluster)
     
-    
-    
-    pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition/',c1,'_vs_', c2, '/')
+    pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition/', lab, '/')
     if( !dir.exists(pwayoutdir) ){ dir.create(pwayoutdir, recursive = T) }
     
     
     ### loop thru pathway categories
     names(pwaycats) <- pwaycats
-    
-    
-    #get clust / grouping names
-    clusters <- names(m_bycluster_crosscondition_de)
-    
-    
-    
     
     #set gene universe
     pwaycat <- pwaycats[1] #for testing
@@ -1382,7 +2246,7 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
       #pwayres_DE_across_conditions_per_cluster <- lapply(clusters, function(clust){
       pwayres_DE_across_conditions_per_cluster <- foreach(clust = clusters,
                                                           .packages = c('fgsea', 'ggplot2'),
-                                                          .export = c( 'm_bycluster_crosscondition_de', 'pathway_padj_thres', 'cp.font.size'),
+                                                          .export = c('de_sub', 'pathway_padj_thres', 'cp.font.size', '.de_results_cluster_table'),
                                                           .noexport = c('pathways'),
                                                           .verbose = T) %dopar%
         {
@@ -1392,8 +2256,8 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
           invisible(gc(full = T, reset = F, verbose = F))
           
           
-          #get DEG res
-          res <- m_bycluster_crosscondition_de[[clust]]
+          res <- .de_results_cluster_table(de_sub, de_sub$label[1], clust)
+          if (is.null(res) || !nrow(res)) return(NULL)
           
           
           
@@ -1687,12 +2551,9 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
     #get pway analysis
     pathway_analysis_mainlist <- pathway_analysis_mainlist_comps[[compidx]]
     
-    #get comparison condition levels
-    c1 <- comps[compidx,1]
-    c2 <- comps[compidx,2]
-    
-    #get comp lab
-    lab <- comps[compidx,3]
+    c1 <- comps$c1[compidx]
+    c0 <- comps$c0[compidx]
+    lab <- comps$label[compidx]
     
     
     ### extract the table from all categories
@@ -1704,7 +2565,7 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
       
       # use cluster index, we need the cluster name
       
-      clust_cpres <- lapply(1:length(pwaycatlist), function(clustidx){
+      clust_cpres <- lapply(seq_along(pwaycatlist), function(clustidx){
         
         clustname <- names(pwaycatlist)[clustidx]
         pwayres_DE_across_conditions_per_cluster <- pwaycatlist[[clustidx]]
@@ -1714,7 +2575,7 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
         
         gseares_plot$cluster = clustname
         gseares_plot$condition = c1
-        gseares_plot[sign(gseares_plot$NES) == -1, "condition"] = c2
+        gseares_plot[sign(gseares_plot$NES) == -1, "condition"] = c0
         
         return(gseares_plot)
         
@@ -1726,18 +2587,19 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
     })
     
     
-    #loop thru each category's result data.frame, splitting c1 and c2, and plotting
+    #loop thru each category's result data.frame, splitting c1 and c0, and plotting
     
-    summplots_cats <- lapply( 1:length(cat_cpres_list) , function(catdex){
+    # Use seq_along() so empty categories yield an empty result instead of 1:0 indexing.
+    summplots_cats <- lapply(seq_along(cat_cpres_list), function(catdex){
       
       cpres_cat <- cat_cpres_list[[catdex]]
       catname <- names(cat_cpres_list)[catdex]
       
       
-      #make plots for c1 and c2 direction
+      #make plots for c1 and c0 direction
       # some categories have no pathways significant for condition, just return null
       
-      summplots_conds <- lapply( c(c1,c2) , function(cond){
+      summplots_conds <- lapply( c(c1, c0) , function(cond){
         
         #get result tbale for this condition
         cpres_cat_cond <- cpres_cat[cpres_cat$condition == cond,,drop=F]
@@ -1782,7 +2644,7 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
         
       }) # close cross-condition loop for summary plots
       
-      names(summplots_conds) <- c(c1,c2)
+      names(summplots_conds) <- c(c1, c0)
       
       summplots_conds
       
@@ -1796,7 +2658,7 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
     
     #print them to pdfs...
     
-    pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition/',c1,'_vs_', c2, '/')
+    pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition/', lab, '/')
     
     
     summarypdf <- paste0(pwayoutdir, '/SummaryDotPlots.pdf')
@@ -1820,10 +2682,14 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
   
   ### for easily reproducing plots and etc, save them as R objects...
   pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition/')
-  DE_pathways_plot_objects_list <- list(comps = comps,
-                                        m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
-                                        pathway_analysis_mainlist_comps = pathway_analysis_mainlist_comps,
-                                        pathwaysummplots_comps = pathwaysummplots_comps
+  pathway_results <- .flatten_pathway_gsea_results(comps, pathway_analysis_mainlist_comps)
+
+  DE_pathways_plot_objects_list <- list(
+    comps = comps,
+    de_results = de_results,
+    pathway_results = pathway_results,
+    pathwaysummplots_comps = pathwaysummplots_comps,
+    pathway_cluster_plots = pathway_analysis_mainlist_comps
   )
   
   
@@ -1846,12 +2712,12 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
   
   
   
-  ### return just pathway outlist and pathway summplots
   pways_output_list <- list(
-    pathway_analysis_mainlist_comps = pathway_analysis_mainlist_comps,
-    pathwaysummplots_comps = pathwaysummplots_comps
+    pathway_results = pathway_results,
+    pathwaysummplots_comps = pathwaysummplots_comps,
+    pathway_cluster_plots = pathway_analysis_mainlist_comps
   )
-  
+
   return(pways_output_list)
   
   
@@ -1872,7 +2738,7 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
 #'
 #' This function is a modular component of the scRNAseq pipeline. Perform OverRepresentation Analysis (ORA) via the ClusterProfiler package on the results of differential expression (DE) analysis for cross-condition comparison. Multiple conditions are supported. ClusterProfiler objects and tables are saved.
 #'
-#' @param m_bycluster_crosscondition_de_comps the output of `scDAPP::de_across_conditions_module()`.
+#' @param de_results harmonized data.frame from `scDAPP::de_across_conditions_module()`.
 #' @param pathways data.frame, the output of `scDAPP::preppathways_pathwayanalysis_crosscondition_module()`
 #' @param sample_metadata data.frame with sample names and conditions, same as in `scDAPP::de_across_conditions_module()`, see that function's documentation for description.
 #' @param comps data.frame with conditions to test in GSEA, same as in `scDAPP::de_across_conditions_module()`, see that function for description
@@ -1881,7 +2747,8 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
 #' @param workernum integer. number of CPUs. default = 1.
 #' @param outdir_int string, directory to save pathways to. Will create a sub-directory called "overrepresentation_pathway_analysis" and save inside of there.
 #'
-#' @return a list that contains the raw results and plots as a nested loop: first level is A vs B comparison, then category-by-category of MSIGDB database, then a data.frame of cluster-by-cluster results
+#' @return Flat `ora_results` data.frame (pathway x cluster x category x comparison x direction).
+#'   Per-cluster CSVs are still written under `outdir_int`.
 #' @export
 #'
 #' @examples
@@ -1897,7 +2764,7 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
 #' # THIRD: run the pathway analysis.
 #' # see `scDAPP::de_across_conditions_module()` for a description of the sample_metadata and comps files.
 #' pways_output_list <- scDAPP::ORA_crosscondition_module(
-#' m_bycluster_crosscondition_de_comps = m_bycluster_crosscondition_de_comps,
+#' de_results = de_results,
 #' pathways = pathways,
 #' sample_metadata = sample_metadata,
 #' comps = comps,
@@ -1907,14 +2774,11 @@ pathwayanalysis_crosscondition_module <- function(m_bycluster_crosscondition_de_
 #'
 #' # Access the output files
 #' # note that all results will be saved to outdir_int.
-#' pathway_analysis_mainlist_comps <- pways_output_list$pathway_analysis_mainlist_comps
-#' pathwaysummplots_comps <- pways_output_list$pathwaysummplots_comps
-#'
-#' #these are both lists that contain the raw tables and per-cluster plots (first object);
-#' # and summaryplots that show pathway enrichment across clusters (second object).
+#' ora_results <- ORA_crosscondition_module(...)
+#' subset(ora_results, label == "KO1_vs_Control")
 #'
 #' }
-ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
+ORA_crosscondition_module <- function(de_results,
                                       pathways,
                                       sample_metadata,
                                       comps,
@@ -1932,6 +2796,11 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
   require(foreach)
   require(doParallel)
   require(parallel)
+  
+  if (!is.data.frame(de_results)) {
+    stop("de_results must be a data.frame from de_across_conditions_module().", call. = FALSE)
+  }
+  comps <- .normalize_comps(comps)
   
   
   
@@ -1962,44 +2831,25 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
   
   
   
-  #prep names
-  comps$labels <- paste0(comps$c1, '_vs_', comps$c2)
-  
-  compslen <- 1:nrow(comps)
-  compidx = 1 #for testing
-  
-  
+  compslen <- seq_len(nrow(comps))
   
   pathway_analysis_mainlist_comps <- lapply(compslen, function(compidx){
     
-    
-    #get comparison condition levels
-    c1 <- comps[compidx,1]
-    c2 <- comps[compidx,2]
-    
-    #get comp lab
-    lab <- comps[compidx,3]
+    c1 <- comps$c1[compidx]
+    c0 <- comps$c0[compidx]
+    lab <- comps$label[compidx]
     
     message(lab)
     
-    #get cross conditions res per cluster list
-    m_bycluster_crosscondition_de <- m_bycluster_crosscondition_de_comps[[compidx]]
+    de_sub <- de_results[de_results$label == lab, , drop = FALSE]
+    clusters <- unique(de_sub$cluster)
     
-    
-    
-    pwayoutdir <- paste0(outdir_int, '/overrepresentation_pathway_analysis/',c1,'_vs_', c2, '/')
+    pwayoutdir <- paste0(outdir_int, '/overrepresentation_pathway_analysis/', lab, '/')
     if( !dir.exists(pwayoutdir) ){ dir.create(pwayoutdir, recursive = T) }
     
     
     ### loop thru pathway categories
     names(pwaycats) <- pwaycats
-    
-    
-    #get clust / grouping names
-    clusters <- names(m_bycluster_crosscondition_de)
-    
-    
-    
     
     #set gene universe
     pwaycat <- pwaycats[1] #for testing
@@ -2024,7 +2874,7 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
       #pwayres_DE_across_conditions_per_cluster <- lapply(clusters, function(clust){
       pwayres_DE_across_conditions_per_cluster <- foreach(clust = clusters,
                                                           .packages = c('clusterProfiler'),
-                                                          .export = c( 'm_bycluster_crosscondition_de', 'pathway_padj_thres', 'crossconditionDE_padj_thres', 'crossconditionDE_lfc_thres', 'crossconditionDE_min.pct', 'c1', 'c2'),
+                                                          .export = c('de_sub', 'pathway_padj_thres', 'crossconditionDE_padj_thres', 'crossconditionDE_lfc_thres', 'crossconditionDE_min.pct', 'c1', 'c0', '.de_results_cluster_table', 'filter_significant_de_results'),
                                                           .noexport = c('pathways'),
                                                           .verbose = T) %dopar%
         {
@@ -2034,8 +2884,8 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
           invisible(gc(full = T, reset = F, verbose = F))
           
           
-          #get DEG res
-          res <- m_bycluster_crosscondition_de[[clust]]
+          res <- .de_results_cluster_table(de_sub, de_sub$label[1], clust)
+          if (is.null(res) || !nrow(res)) return(NULL)
           
           
           
@@ -2044,22 +2894,14 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
           ts <- 1 #test
           signres_l <- lapply(sign_nums, function(ts){
             
-            #for this sign (ts), subset res and run clusterProfiler
-            subres <- res[sign(res$logFC) == ts,,drop=F]
-            
-            #subset by padj
-            subres <- subres[subres$FDR < crossconditionDE_padj_thres,,drop = F]
-            
-            #subset by lfc thres, can use abs val
-            subres <- subres[abs(subres$logFC) > crossconditionDE_lfc_thres,,drop = F]
-            
-            #subset by min.pct 1 for positive, min pct.2 for negative
-            crossconditionDE_min.pct <- 0
-            if(ts == 1){
-              subres <- subres[subres$pct.1 > crossconditionDE_min.pct,,drop = F] 
-            } else{
-              subres <- subres[subres$pct.2 > crossconditionDE_min.pct,,drop = F] 
-            }
+            # Same DEG rules as de_across_conditions_module / count_crosscondition_degs
+            sig <- filter_significant_de_results(
+              res,
+              crossconditionDE_padj_thres,
+              crossconditionDE_lfc_thres,
+              crossconditionDE_min.pct
+            )
+            subres <- sig[sign(sig$logFC) == ts, , drop = FALSE]
             
             
             
@@ -2111,7 +2953,7 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
             
             
             # add a direction column
-            ora_res$Direction <- ifelse(ts == 1, c1, c2)
+            ora_res$Direction <- ifelse(ts == 1, c1, c0)
             
             
             
@@ -2278,18 +3120,21 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
   
   
   
-  pathway_analysis_mainlist_comps
-  
-  
-  ### for easily reproducing plots and etc, save them as R objects...
+  ora_results <- .flatten_ora_results(comps, pathway_analysis_mainlist_comps)
+
   pwayoutdir <- paste0(outdir_int, '/overrepresentation_pathway_analysis/')
   DE_pathways_plot_objects_list_file <- paste0(pwayoutdir, '/DE_ORA_list_object.rds')
-  
-  saveRDS(pathway_analysis_mainlist_comps, DE_pathways_plot_objects_list_file)
-  
-  
-  
-  return(pathway_analysis_mainlist_comps)
+
+  saveRDS(
+    list(
+      comps = comps,
+      de_results = de_results,
+      ora_results = ora_results
+    ),
+    DE_pathways_plot_objects_list_file
+  )
+
+  return(ora_results)
   
   
 }
@@ -2315,14 +3160,16 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
 #' This is a modular component of the scDAPP scRNAseq pipeline. Perform compositional analysis across conditions to compare the proportion of cell types. Supports multiple condtions (A vs B vs C). Supports "pseudobulk" replicate-aware analysis as implemented in the propeller test with arcsin transformation, as recommended by Simmons 2022 (https://doi.org/10.1101/2022.02.04.479123). Alternatively supports old-school, non-replicate aware chisq test as implemented by the `prop.test()` function.
 #'
 #' @param sobjint integrated Seurat object. Metadata should have two columns: "Condition" corresponding to the A vs B conditions to compare across, and "Code" corresponding to sample / replicate names. A third column for clusters or celltypes should also be in the metadata and the name of that column will be passed to the `grouping_variable` parameter.
-#' @param comps data.frame with two columns called c1, c2; these are the conditions you want to set up. Should be present in psuedobulk_metadata Condition column.
-#' @param sample_metadata data.frame with three columns called Sample, Condition, Code.
+#' @param comps data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See `normalize_comps()`.
+#' @param sample_metadata data.frame with Sample, Condition, Code, and any covariates in `comps$formula`.
 #' @param outdir_int string, path to save results to. Will create a sub-directory called "compositional_proportion_analysis" and save inside of there.
 #' @param grouping_variable string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters"
 #' @param compositional_test string, which test to use, either "propeller" or "chisq"; will use chisq if not set and issue a warning
 #' @param fill_barplots T/F, whether to "fill" the annotation barplots on the side of the heatmap, normalizing to 1; default = T
 #'
-#' @return will return a list with two items: the A vs B compositional analysis in the "composition_comps" element, with a sub-element for each comparison, and some global compositional information in the "globalcomposition" element.
+#' @return A list with `composition_results` (flat data.frame: one row per cluster x comparison),
+#'   `composition_plots` (named list of per-comparison ComplexHeatmap objects), and
+#'   `globalcomposition` (cell counts and proportion tables).
 #' @export
 #'
 #' @examples
@@ -2354,12 +3201,10 @@ ORA_crosscondition_module <- function(m_bycluster_crosscondition_de_comps,
 #' grouping_variable,
 #' compositional_test = 'propeller')
 #'
-#' #Get the output for KO1 vs Control; replace KO1_vs_Control to get the other comparisons
-#' # differential composition results - heatmap
-#' comp_result$composition_comps$KO1_vs_Control$hmprop_comp
-#'
-#' # differential composition results - table
-#' comp_result$composition_comps$KO1_vs_Control$compres
+#' # Flat table for one comparison:
+#' subset(comp_result$composition_results, label == "KO1_vs_Control")
+#' # Heatmap for that comparison:
+#' comp_result$composition_plots$KO1_vs_Control
 #'
 #' #Get some global information including cell numbers, proportions
 #' # table of cell numbers
@@ -2389,9 +3234,7 @@ compositional_analysis_module <- function(sobjint,
   if(missing(compositional_test)){warning("No compositional test selected, will use chisq test"); compositional_test = 'chisq'}
   if(missing(fill_barplots)){fill_barplots = T}
 
-
-  #prep names
-  comps$labels <- paste0(comps$c1, '_vs_', comps$c2)
+  comps <- .normalize_comps(comps)
 
   outdir_comp <- paste0(outdir_int, '/compositional_proportion_analysis/')
   dir.create(outdir_comp, recursive = T)
@@ -2458,62 +3301,76 @@ compositional_analysis_module <- function(sobjint,
 
   composition_comps <- lapply(compslen, function(compidx){
 
-    #get comparison condition levels
-    c1 <- comps[compidx,1]
-    c2 <- comps[compidx,2]
-
-    #get comp lab
-    lab <- comps[compidx,3]
+    c0 <- comps$c0[compidx]
+    c1 <- comps$c1[compidx]
+    lab <- comps$label[compidx]
+    design_formula <- .parse_comp_formula(comps$formula[compidx])
 
     message(lab)
 
+    subpmd <- sample_metadata[sample_metadata$Condition %in% c(c0, c1),]
 
-    #get just this comp samples
-    subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1,c2),]
+    code_comps_order <- subpmd[subpmd$Condition == c1, "Code"]
+    code_comps_order <- c(code_comps_order, subpmd[subpmd$Condition == c0, "Code"])
 
-
-
-    #order columns of heatmap by c1 vs c2
-    code_comps_order <- subpmd[subpmd$Condition == c1,"Code"]
-    code_comps_order <- c(code_comps_order, subpmd[subpmd$Condition == c2,"Code"])
-
-    #also prepare factor for ordering of heatmap
-    condition_vector_ordering <- factor(subpmd[match(code_comps_order, subpmd$Code), "Condition"], levels = c(c1,c2))
-
-
+    condition_vector_ordering <- factor(
+      subpmd[match(code_comps_order, subpmd$Code), "Condition"],
+      levels = c(c1, c0)
+    )
 
     ### use propeller if multiple samples ###
 
     if(compositional_test == 'propeller'){
-      #subet seurat for metadata
-      bigmd <- sobjint@meta.data
-      md <- bigmd[bigmd$Condition %in% c(c1,c2),]
+      use_simple <- .propeller_use_simple_wrapper(design_formula, sample_metadata)
 
-      subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1,c2),]
+      if (use_simple) {
+        bigmd <- sobjint@meta.data
+        md <- bigmd[bigmd$Condition %in% c(c0, c1), ]
+        subpmd <- sample_metadata[sample_metadata$Condition %in% c(c0, c1), ]
 
-      #remove empty levels from all three vars
-      md[,grouping_variable] <- factor(md[,grouping_variable],
-                                       levels = stringr::str_sort(unique(md[,grouping_variable]), numeric = T) )
+        md[, grouping_variable] <- factor(
+          md[, grouping_variable],
+          levels = stringr::str_sort(unique(md[, grouping_variable]), numeric = TRUE)
+        )
+        md$Code <- factor(md$Code, levels = unique(subpmd$Code))
+        md$Condition <- factor(md$Condition, levels = c(c1, c0))
 
-      md$Code <- factor(md$Code,
-                        levels = unique(subpmd$Code))
-
-      md$Condition <- factor(md$Condition,
-                             levels = c(c1,c2))
-
-      #run propeller with ARCSIN (asin) transform, based on paper
-      # https://www.biorxiv.org/content/10.1101/2022.02.04.479123v1
-      pres <- speckle::propeller(clusters = md[,grouping_variable],
-                                 sample = md$Code,
-                                 group = md$Condition,
-                                 transform = 'asin')
-
-
-      #get rid of negatives... not sure why this happens...
-      pres$PropRatio[sign(pres$PropRatio)==-1] <- pres$PropRatio[sign(pres$PropRatio)==-1] * -1
-
-      #order by diff
-      pres <- pres[order(pres$PropRatio, decreasing = T),]
+        pres <- speckle::propeller(
+          clusters = md[, grouping_variable],
+          sample = md$Code,
+          group = md$Condition,
+          transform = 'asin'
+        )
+        pres <- .propeller_format_pres(pres, c1, c0)
+      } else {
+        require(limma)
+        coldata <- .prepare_pseudobulk_coldata(sample_metadata, design_formula)
+        bigmd <- sobjint@meta.data
+        md <- bigmd[bigmd$Code %in% coldata$Code, ]
+        md[, grouping_variable] <- factor(
+          md[, grouping_variable],
+          levels = stringr::str_sort(unique(md[, grouping_variable]), numeric = TRUE)
+        )
+        md$Code <- factor(md$Code, levels = coldata$Code)
+        prop.list <- speckle::getTransformedProps(
+          clusters = md[, grouping_variable],
+          sample = md$Code,
+          transform = "asin"
+        )
+        pd <- .propeller_design(sample_metadata, design_formula)
+        contr <- .propeller_contrast_matrix(
+          pd$design, comps$contrast[compidx], c1, c0
+        )
+        pres <- speckle::propeller.ttest(
+          prop.list,
+          design = pd$design,
+          contrasts = contr,
+          robust = TRUE,
+          trend = FALSE,
+          sort = TRUE
+        )
+        pres <- .propeller_format_pres(pres, c1, c0)
+      }
 
       #subset table of proportions
       comp_proptab <- proptab[,subpmd$Code]
@@ -2589,18 +3446,17 @@ compositional_analysis_module <- function(sobjint,
 
 
 
-      # if no replicates, use prop.test
+      # if no replicates, use prop.test (formula ignored)
 
-      #calculate cells per condition w/o regard to sample replicates
       md <- sobjint@meta.data
-      md <- md[md$Condition %in% c(c1,c2),]
-      cells_condtab <- table(md[,grouping_variable], md$Condition)
+      md <- md[md$Condition %in% c(c0, c1), ]
+      cells_condtab <- table(md[, grouping_variable], md$Condition)
 
       tots <- table(md$Condition)
       c1tot <- tots[c1]
-      c2tot <- tots[c2]
+      c0tot <- tots[c0]
 
-      cells_condtab <- cells_condtab[,c(c1,c2)]
+      cells_condtab <- cells_condtab[, c(c1, c0), drop = FALSE]
 
       #remove all zero clusters
       cells_condtab = cells_condtab[Matrix::rowSums(cells_condtab)>0,]
@@ -2614,14 +3470,14 @@ compositional_analysis_module <- function(sobjint,
         #get this clusters' props
         vec <- cells_condtab[i,,drop=F]
 
-        x = c(vec[1,1], vec[1,2])
-        n = c(c1tot, c2tot)
+        x = c(vec[1, 1], vec[1, 2])
+        n = c(c1tot, c0tot)
 
-        pt <- prop.test(x=x,n=n)
+        pt <- prop.test(x = x, n = n)
 
         ptdf <- data.frame(cluster = clust,
                            c1prop = pt$estimate[1],
-                           c2prop = pt$estimate[2],
+                           c0prop = pt$estimate[2],
                            asin_ratio = plogis(pt$estimate[1]) / plogis(pt$estimate[2]),
                            difference = pt$estimate[1] - pt$estimate[2],
                            p = pt$p.value,
@@ -2636,7 +3492,7 @@ compositional_analysis_module <- function(sobjint,
       #make results to data.frame
       clust_proptest_resdf <- dplyr::bind_rows(clust_proptest_res)
 
-      # asin ratio = Inf, means c2 was zero..
+      # asin ratio = Inf, means c0 was zero..
       clust_proptest_resdf$asin_ratio[clust_proptest_resdf$asin_ratio == Inf] <- 1
 
       #add FDR
@@ -2744,14 +3600,19 @@ compositional_analysis_module <- function(sobjint,
 
   names(composition_comps) <- comps$labels
 
-  #also keep other prop stuff in a nice list
+  composition_results <- .flatten_composition_results(comps, composition_comps)
+  composition_plots <- lapply(composition_comps, function(x) x$hmprop_comp)
+  names(composition_plots) <- names(composition_comps)
+
   globalcomposition <- list(cellstab = cellstab,
                             proptab = proptab,
                             hmprop = hmprop)
 
-  comp_out <- list(composition_comps = composition_comps,
-                   globalcomposition = globalcomposition)
-
+  comp_out <- list(
+    composition_results = composition_results,
+    composition_plots = composition_plots,
+    globalcomposition = globalcomposition
+  )
 
   return(comp_out)
 

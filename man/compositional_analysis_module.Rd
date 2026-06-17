@@ -17,9 +17,9 @@ compositional_analysis_module(
 \arguments{
 \item{sobjint}{integrated Seurat object. Metadata should have two columns: "Condition" corresponding to the A vs B conditions to compare across, and "Code" corresponding to sample / replicate names. A third column for clusters or celltypes should also be in the metadata and the name of that column will be passed to the \code{grouping_variable} parameter.}
 
-\item{comps}{data.frame with two columns called c1, c2; these are the conditions you want to set up. Should be present in psuedobulk_metadata Condition column.}
+\item{comps}{data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See \code{normalize_comps()}.}
 
-\item{sample_metadata}{data.frame with three columns called Sample, Condition, Code.}
+\item{sample_metadata}{data.frame with Sample, Condition, Code, and any covariates in \code{comps$formula}.}
 
 \item{outdir_int}{string, path to save results to. Will create a sub-directory called "compositional_proportion_analysis" and save inside of there.}
 
@@ -30,7 +30,9 @@ compositional_analysis_module(
 \item{fill_barplots}{T/F, whether to "fill" the annotation barplots on the side of the heatmap, normalizing to 1; default = T}
 }
 \value{
-will return a list with two items: the A vs B compositional analysis in the "composition_comps" element, with a sub-element for each comparison, and some global compositional information in the "globalcomposition" element.
+A list with \code{composition_results} (flat data.frame: one row per cluster x comparison),
+\code{composition_plots} (named list of per-comparison ComplexHeatmap objects), and
+\code{globalcomposition} (cell counts and proportion tables).
 }
 \description{
 This is a modular component of the scDAPP scRNAseq pipeline. Perform compositional analysis across conditions to compare the proportion of cell types. Supports multiple condtions (A vs B vs C). Supports "pseudobulk" replicate-aware analysis as implemented in the propeller test with arcsin transformation, as recommended by Simmons 2022 (https://doi.org/10.1101/2022.02.04.479123). Alternatively supports old-school, non-replicate aware chisq test as implemented by the \code{prop.test()} function.
@@ -64,12 +66,10 @@ outdir_int,
 grouping_variable,
 compositional_test = 'propeller')
 
-#Get the output for KO1 vs Control; replace KO1_vs_Control to get the other comparisons
-# differential composition results - heatmap
-comp_result$composition_comps$KO1_vs_Control$hmprop_comp
-
-# differential composition results - table
-comp_result$composition_comps$KO1_vs_Control$compres
+# Flat table for one comparison:
+subset(comp_result$composition_results, label == "KO1_vs_Control")
+# Heatmap for that comparison:
+comp_result$composition_plots$KO1_vs_Control
 
 #Get some global information including cell numbers, proportions
 # table of cell numbers
