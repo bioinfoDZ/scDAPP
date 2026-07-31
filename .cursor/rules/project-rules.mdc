@@ -1,0 +1,55 @@
+---
+description: scDAPP test data, temporary outputs, pipeline outline, and doc pointers
+alwaysApply: true
+---
+
+## Test data
+
+- Use test data from `tests/TEST_DATA/COVID_MostSamples_500Cells_GeneSymbols` for examples and manual checks (not the legacy `COVID_MostSamples_500Cells` fixture).
+- The `tests/` directory is gitignored; fixtures exist locally on disk but may not appear in repo search/index tools.
+
+## Gene identifiers in test data
+
+- Default fixture: **GeneSymbols** (`COVID_MostSamples_500Cells_GeneSymbols`); assay rownames and DE `gene_symbol` should be symbols (e.g. `TP53`), not Ensembl IDs (`ENSG…`).
+- Before DE, pathway GSEA, ORA, or marker-based smoke tests: **verify gene IDs** — sample `rownames()` or `de_results$gene_symbol`, and check overlap with msigdbr `gene_symbol` (expect non-trivial overlap for pathway tests).
+- Legacy `COVID_MostSamples_500Cells` / `interaction_min8` use Ensembl rownames; use only with explicit approval. For pathway tests on those fixtures, map Ensembl→symbol in the smoke script (e.g. `org.Hs.eg.db`) or switch to a GeneSymbols fixture when available.
+
+## Temporary outputs
+
+- Write temporary test outputs to `tests/TEST_OUTPUTS` and clean them up after use.
+- For routine testing, avoid running `RPCAIntegration` and `RPCAIntegration_SCT` unless the user explicitly requests RPCA coverage.
+
+### Dated retained test runs
+
+- Retained manual / end-to-end pipeline runs use folder names **`YYYY_MM_DD_{suffix}`** (e.g. `2026_06_09_risc_auto_stab5_comps`).
+- Place these under **`tests/test_outputs/`** (lowercase; matches full-pipeline smoke scripts).
+- `{suffix}` is a short descriptive slug (integration method, bootstrap count, comps design, etc.).
+- **Do not delete** dated folders unless explicitly asked; routine smoke outputs in `tests/TEST_OUTPUTS/` may still be cleaned up after use.
+
+## Pipeline library attach
+
+- Before running pipeline Rmd analysis chunks, `inst/scripts` smoke tests, or interactive checks that use Seurat/tidyverse plotting, call `scDAPP::attach_scDAPP_pipeline_libraries()` with `load_risc` matching the integration backend (`TRUE` when `integration_method` is RISC).
+- Do not rely on `devtools::load_all()` alone for tests; attach loads dependencies in the order used by [`inst/rmd/scRNAseq_clustering_integration.Rmd`](inst/rmd/scRNAseq_clustering_integration.Rmd) (Seurat after optional RISC so `DimPlot` resolves correctly).
+- In package R code, prefer namespaced calls (e.g. `Seurat::DimPlot`) for symbols that RISC or other deps might mask.
+
+## Pipeline outline
+
+Entry point: `scRNAseq_pipeline_runner()` renders [`inst/rmd/scRNAseq_clustering_integration.Rmd`](inst/rmd/scRNAseq_clustering_integration.Rmd).
+
+1. **Per-sample:** load counts → QC/filter → normalize/cluster → markers
+2. **Optional:** label transfer from reference
+3. **Integration:** `run_integration()` (RISC default; Seurat v5 methods also supported)
+4. **Cross-condition:** compositional analysis → DE (`Pseudobulk_mode` or Wilcox) → pathway GSEA → optional ORA
+5. **Report:** HTML output from the Rmd render
+
+Key code: [`R/sc_pipeline_modules.R`](R/sc_pipeline_modules.R) (downstream modules), [`R/run_integration.R`](R/run_integration.R) (integration).
+
+## Where to look for details
+
+For pipeline behavior, parameters, and usage, read existing docs rather than inventing or duplicating them:
+
+- [`README.md`](README.md) — package overview and quickstart
+- [`Documentation/Usage.md`](Documentation/Usage.md) — inputs, parameters, comparisons
+- [`Documentation/Testing.md`](Documentation/Testing.md) — local smoke tests
+- [`R/pipeline_runner.R`](R/pipeline_runner.R) — entry point and parameter defaults
+- [`inst/rmd/scRNAseq_clustering_integration.Rmd`](inst/rmd/scRNAseq_clustering_integration.Rmd) — executable pipeline steps

@@ -53,6 +53,8 @@ Note that as of v1.3.1 (released mid May 2025), you can now pre-compute QC-relat
 
 ### 2. `sample_metadata`: sample information
 
+For worked examples of comparative designs (Wilcox, pseudobulk EdgeR/DESeq2, multi-condition, covariates, interactions, and Dream pairing), see [Comparative_Designs.md](Comparative_Designs.md).
+
 The parameter `sample_metadata` is a path to a .csv file that looks like this:
 
 
@@ -81,6 +83,8 @@ You can use the bash/zsh command `nano` to quickly create and save this file as 
 
 ### 3. `comps`: tell the pipeline which cross-condition comparisons to perform
 
+Full recipes for each comparison type (including `scRNAseq_pipeline_runner()` calls) are in [Comparative_Designs.md](Comparative_Designs.md).
+
 The parameter `comps` leads to a .csv file that looks like this:
 
 ```
@@ -95,6 +99,15 @@ Optional columns: `formula` (default `~ Condition`), `contrast`, `label`. Legacy
 This is used to tell the pipeline which conditions to compare. Each row sets up a comparison with **c1** (test) vs **c0** (reference). Positive log2FC means higher expression or cell-type proportion in c1.
 
 For batch-adjusted analyses, add covariates to `sample_metadata` and set `formula`, e.g. `~ Condition + Batch` on each row (same formula can be repeated across rows with different c0/c1 pairs).
+
+For **paired** analyses (matched donors / patients across conditions), include an intercept random effect in `formula` and set `DE_test = "Dream"` (requires Bioconductor package `variancePartition`):
+
+```csv
+c0,c1,formula,label
+Control,Treatment,~ Condition + (1|Patient),Treatment_vs_Control_paired
+```
+
+`sample_metadata` must include the block column (here `Patient`). Compositional analysis automatically uses blocked Propeller (`duplicateCorrelation` + `lmFit`) when the formula contains `(1|Patient)`. EdgeR/DESeq2 cannot parse `(1|var)`; use Dream for paired pseudobulk DE.
 
 
 
@@ -117,6 +130,7 @@ If you used scDAPP v1.3.x, review these **v2.0** changes before re-running or up
 - Columns are **`c0`** (reference) and **`c1`** (test). Positive log2FC means higher expression or proportion in c1.
 - Legacy files with `c1,c2` still work: `c2` is renamed to `c0`.
 - Optional columns: `formula` (default `~ Condition`), `contrast`, `label` for covariate-aware pseudobulk DE and propeller compositional tests.
+- Paired designs: use `formula` with `(1|Patient)` (or similar) and `DE_test = "Dream"`; propeller uses the same random-effect term for blocked testing.
 - Use `normalize_comps()` when loading or building comparison tables programmatically.
 
 ### `Integrated_RISC` assay (RISC integration)
@@ -356,7 +370,7 @@ The pipeline **no longer** writes `multisample_integration/pathwayanalysis_cross
 
 Supported species for ortholog mapping are listed in `msigdbr::msigdbr_species()`. If your study organism is not listed, you may still run the pipeline using the closest available species for pathway gene symbols, but interpret pathway results accordingly.
 
-- `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
+- `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. For pseudobulk can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", or "Dream" (paired mixed models via `variancePartition`; requires `(1|var)` in `comps$formula`). For single-cell mode, any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 or variancePartition may require installation. Dream uses `workernum` for `BiocParallel` workers.
 
 - `run_ORA` - T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
 - `run_msigdb_celltype_ora` - T/F, default is TRUE. Whether to run ORA of per-sample and integrated cluster markers against MSigDB cell-type signature gene sets. Uses up to the top 100 markers per cluster (by score) with `p_val_adj` below `msigdb_celltype_ora_marker_padj_thres`. Saves CSV tables and a summary dotplot PDF under `{outdir}/individualsample_analysis/celltype_marker_prediction/` and `{outdir}/multisample_integration/celltype_marker_prediction/`. Requires clusterProfiler.
@@ -474,16 +488,16 @@ Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now po
 
 **Stability plots:** When auto tuning runs, `cluster_stability_sweep()` calls `integration_stability_plots_module()` and saves PDFs under `{stability_outdir}/plots/`:
 
-- `stability_combinedscore_bar.pdf` — ranked `params_i` vs combined score (winner highlighted)
+- `stability_combinedscore_bar.pdf` — ranked `params_i` (Y) vs combined score (winner highlighted)
 - `stability_combinedscore_heatmap.pdf` — PC × resolution heatmap
-- `stability_ari_jaccard_scatter.pdf` — mean ARI vs mean Jaccard (top 10 combinations labeled)
-- `stability_bootstrap_ari.pdf` — bootstrap ARI boxplots per grid point
-- `stability_nclust_ref.pdf` — reference cluster counts
-- `stability_perclust_jaccard.pdf` — per-cluster Jaccard heatmap for the selected combination only
+- `stability_ari_jaccard_scatter.pdf` — mean ARI vs mean Jaccard (selected point drawn on top in red; top 10 labeled)
+- `stability_bootstrap_ari.pdf` — bootstrap ARI boxplots with `params_i` on the Y axis
+- `stability_nclust_ref.pdf` — reference cluster counts with `params_i` on the Y axis
+- `stability_perclust_jaccard.pdf` — per-cluster Jaccard heatmap for the selected combination only (tile values annotated; fill scale fixed 0–1)
 
-The HTML report also renders these figures when `pcs_int` or `res_int` is `"auto"`. Rebuild plots from saved CSVs with `integration_stability_plots_module(stability_dir = ...)`.
+The HTML report renders these under **Automated integration parameter sweep** (only when `pcs_int` or `res_int` is `"auto"`), with a short interpretation for each figure and per-plot figure sizes from `plot_dims`. Rebuild plots from saved CSVs with `integration_stability_plots_module(stability_dir = ...)`.
 
-**Plot PDF sizing (full grid):** Bar, bootstrap ARI, and cluster-count plots grow in height with the number of grid points (capped at 18 in). The PC×resolution heatmap scales width and height with the number of resolutions and PCs (capped at 16×14 in). The ARI vs Jaccard scatter stays 10×7 in. Per-cluster Jaccard width scales with cluster count for the winner only. For the default 64-combo grid (8 PCs × 8 resolutions), expect roughly 14×18 in bar/box PDFs and 11×6 in heatmaps.
+**Plot PDF/HTML sizing (full grid):** Combined-score bar, bootstrap ARI, and cluster-count plots keep parameter labels on the Y axis and grow in height with the number of grid points (capped at 18 in), with adaptive Y-axis font size for dense grids. The PC×resolution heatmap scales width and height with the number of resolutions and PCs (capped at 16×14 in). The ARI vs Jaccard scatter stays 10×7 in. Per-cluster Jaccard width scales with cluster count for the winner only. For the default 64-combo grid (8 PCs × 8 resolutions), expect roughly 14×18 in bar/box figures.
 
 **Checkpoint cleanup:** After a successful sweep, `cluster_stability_sweep(remove_rawouts = TRUE)` deletes `RawOuts/` (large per-param and bootstrap RDS checkpoints). CSV summaries, `plots/`, and `logs/` are kept. Failed runs retain `RawOuts/` for resume.
 

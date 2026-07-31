@@ -46,6 +46,124 @@
   as.formula(f)
 }
 
+# Character form of a formula for regex parsing of (1|var) terms.
+.formula_chr <- function(formula) {
+  paste(deparse(as.formula(formula), width.cutoff = 500L), collapse = " ")
+}
+
+# Extract intercept random-effect variables from (1|Var) terms.
+.formula_random_effect_vars <- function(formula) {
+  f_chr <- .formula_chr(formula)
+  m <- gregexpr("\\(\\s*1\\s*\\|\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*\\)", f_chr, perl = TRUE)
+  starts <- as.integer(m[[1]])
+  if (length(starts) == 1L && starts[1] == -1L) return(character())
+  lens <- attr(m[[1]], "match.length")
+  caps <- attr(m[[1]], "capture.start")
+  cap_lens <- attr(m[[1]], "capture.length")
+  vapply(seq_along(starts), function(i) {
+    substr(f_chr, caps[i], caps[i] + cap_lens[i] - 1L)
+  }, character(1))
+}
+
+.formula_has_random_effect <- function(formula) {
+  length(.formula_random_effect_vars(formula)) > 0L
+}
+
+# Strip (1|var) terms so model.matrix / propeller fixed designs stay valid.
+.fixed_effects_formula <- function(formula) {
+  f_chr <- .formula_chr(formula)
+  f_chr <- gsub("\\(\\s*1\\s*\\|\\s*[A-Za-z.][A-Za-z0-9_.]*\\s*\\)", "", f_chr)
+  f_chr <- gsub("\\+\\s*\\+", "+", f_chr)
+  f_chr <- gsub("~\\s*\\+", "~ ", f_chr)
+  f_chr <- gsub("\\+\\s*$", "", f_chr)
+  f_chr <- trimws(gsub("\\s+", " ", f_chr))
+  if (!nzchar(f_chr) || grepl("^~\\s*$", f_chr)) f_chr <- "~ 1"
+  as.formula(f_chr)
+}
+
+# Enforce Dream vs edgeR/DESeq2 pairing rules for a comps formula.
+.validate_de_formula <- function(DE_test, formula) {
+  has_re <- .formula_has_random_effect(formula)
+  if (identical(DE_test, "Dream")) {
+    if (!has_re) {
+      stop(
+        "DE_test = 'Dream' requires a random effect in comps$formula, ",
+        "e.g. '~ Condition + (1|Patient)'. Got: ", .formula_chr(formula),
+        call. = FALSE
+      )
+    }
+    return(invisible(TRUE))
+  }
+  if (DE_test %in% c("EdgeR", "EdgeR-LRT", "DESeq2", "DESeq2-LRT") && has_re) {
+    stop(
+      "comps$formula includes a random effect (", .formula_chr(formula), "). ",
+      "Use DE_test = 'Dream' for paired mixed-model DE, or remove (1|var) for edgeR/DESeq2.",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
+# Scan all comps formulas for Dream / edgeR-DESeq2 consistency (pipeline preflight).
+.validate_comps_de_formulas <- function(comps, DE_test) {
+  comps <- .normalize_comps(comps)
+  forms <- unique(comps$formula)
+  has_any_re <- any(vapply(forms, function(f) {
+    .formula_has_random_effect(.parse_comp_formula(f))
+  }, logical(1)))
+  if (identical(DE_test, "Dream")) {
+    if (!has_any_re) {
+      stop(
+        "DE_test = 'Dream' requires at least one comps$row with a random effect, ",
+        "e.g. formula = '~ Condition + (1|Patient)'.",
+        call. = FALSE
+      )
+    }
+  } else if (DE_test %in% c("EdgeR", "EdgeR-LRT", "DESeq2", "DESeq2-LRT") && has_any_re) {
+    stop(
+      "At least one comps$formula includes (1|var). ",
+      "Use DE_test = 'Dream' for paired mixed-model DE, or remove random effects for edgeR/DESeq2.",
+      call. = FALSE
+    )
+  }
+  for (f in forms) .validate_de_formula(DE_test, .parse_comp_formula(f))
+  invisible(TRUE)
+}
+
+# Map DESeq2-style contrast c(Var, num, denom) to makeContrastsDream expression.
+# Requires a cell-means Condition coding (~ 0 + Condition + ...); see .dream_fit_formula().
+.dream_contrast_expr <- function(contrast, c1, c0) {
+  contrast <- .parse_comp_contrast(contrast, c1, c0)
+  paste0(contrast[1], as.character(contrast[2]), " - ", contrast[1], as.character(contrast[3]))
+}
+
+# Rewrite comps formula for Dream: cell-means Condition so c1 - c0 contrasts exist.
+# e.g. ~ Condition + Batch + (1|Patient) -> ~ 0 + Condition + Batch + (1|Patient)
+.dream_fit_formula <- function(formula) {
+  fixed <- .fixed_effects_formula(formula)
+  re_vars <- .formula_random_effect_vars(formula)
+  labels <- attr(terms(fixed), "term.labels")
+  if (!"Condition" %in% labels) {
+    stop("Dream formula requires Condition as a fixed effect.", call. = FALSE)
+  }
+  # Keep non-Condition fixed terms (including interactions) as written
+  other <- labels[labels != "Condition"]
+  rhs <- c("0", "Condition", other)
+  f_chr <- paste("~", paste(rhs, collapse = " + "))
+  if (length(re_vars)) {
+    f_chr <- paste(f_chr, "+", paste0("(1|", re_vars, ")", collapse = " + "))
+  }
+  as.formula(f_chr)
+}
+
+.dream_bpparam <- function(workernum) {
+  workernum <- as.integer(workernum)[1]
+  if (is.na(workernum) || workernum <= 1L) {
+    return(BiocParallel::SerialParam())
+  }
+  BiocParallel::SnowParam(workers = workernum)
+}
+
 # Resolve contrast for one comps row (DESeq2-style c("Var", numerator, denominator)).
 # Empty contrast -> Condition, c1 (test), c0 (reference); log2FC = c1 vs c0.
 .parse_comp_contrast <- function(contrast_entry, c1, c0, condition_col = "Condition") {
@@ -75,15 +193,17 @@
   md
 }
 
-# TRUE when design is only ~ Condition (required for edgeR exactTest).
+# TRUE when fixed design is only ~ Condition (required for edgeR exactTest / simple propeller).
 .is_simple_condition_design <- function(design_formula) {
-  tl <- attr(terms(design_formula), "term.labels")
+  fixed <- .fixed_effects_formula(design_formula)
+  tl <- attr(terms(fixed), "term.labels")
   length(tl) == 1L && tl[[1]] == "Condition"
 }
 
 # DESeq2-LRT reduced model: drop Condition terms, keep covariates (e.g. ~ Batch).
 .make_reduced_formula <- function(design_formula) {
-  labels <- attr(terms(design_formula), "term.labels")
+  fixed <- .fixed_effects_formula(design_formula)
+  labels <- attr(terms(fixed), "term.labels")
   keep <- labels[!grepl("Condition", labels, fixed = TRUE)]
   if (!length(keep)) return(as.formula("~ 1"))
   as.formula(paste("~", paste(keep, collapse = " + ")))
@@ -668,18 +788,19 @@ plot_crosscondition_deg_dotplot <- function(sobj,
 
 #' Differential expression analysis across conditions for integrated Seurat objects
 #'
-#' This is a modular component of the scDAPP scRNAseq pipeline. Perform DE analysis across conditions. Supports A vs B vs C pairwise (multiple conditions) comparisons. Options for Pseudobulk DE via EdgeR - LRT, or old-school scRNAseq DE via wilcoxon test.
+#' This is a modular component of the scDAPP scRNAseq pipeline. Perform DE analysis across conditions. Supports A vs B vs C pairwise (multiple conditions) comparisons. Options for Pseudobulk DE via EdgeR - LRT, DREAM (paired / mixed models), or old-school scRNAseq DE via wilcoxon test.
 #'
 #' @param sobjint integrated Seurat object. metadata needs two special columns: one called "Condition" that contains the A vs B conditions, and a second that matches the  `grouping_variable` parameter of this function.
 #' @param sample_metadata data.frame with three columns called Sample, Condition, Code.
 #' @param comps data.frame defining comparisons. Required: \code{c0} (reference) and
 #'   \code{c1} (test; log2FC is c1 vs c0). Optional: \code{formula} (default
 #'   \code{~ Condition}), \code{contrast}, and \code{label} (default
-#'   \code{c1_vs_c0}). See examples for \code{contrast} usage. Deprecated \code{c2}
-#'   is renamed to \code{c0}.
+#'   \code{c1_vs_c0}). For paired pseudobulk DE with \code{DE_test = "Dream"}, include
+#'   an intercept random effect such as \code{~ Condition + (1|Patient)}. Deprecated
+#'   \code{c2} is renamed to \code{c0}.
 #' @param grouping_variable string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters". It is not mandatory, but will use factor level ordering of this variable in the meta.data to control analysis order, and if not will sort by alphanumeric order (cluster 1, then 2, cluster A, then B, etc)
 #' @param Pseudobulk_mode T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the `prop.test()` function for compositional analysis.
-#' @param DE_test a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
+#' @param DE_test a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", or "Dream" for pseudobulk (Dream requires \code{variancePartition} and a \code{(1|var)} term in \code{comps$formula}), or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
 #' @param outdir_int optional path to save CSVs under
 #'   \code{differentialexpression_crosscondition/}. Writes
 #'   natural method output column names to \code{{params}_all.csv},
@@ -694,6 +815,7 @@ plot_crosscondition_deg_dotplot <- function(sobj,
 #' @param crossconditionDE_padj_thres numeric; adjusted P value maximum threshold for calling DEGs (counting and ORA). If missing, 0.1 when \code{Pseudobulk_mode} is \code{TRUE}, 0.05 when \code{FALSE}.
 #' @param crossconditionDE_lfc_thres numeric; absolute logFC minimum for calling DEGs. If missing, 0 when pseudobulk, 0.25 when Wilcox.
 #' @param crossconditionDE_min.pct numeric; minimum \code{pct.1} (up) or \code{pct.2} (down) to count as a DEG. If missing, 0.1 when pseudobulk, 0 when Wilcox. See \code{crosscondition_de_threshold_defaults()}.
+#' @param workernum integer; parallel workers for Dream (\code{BiocParallel}); default 1.
 #'
 #' @return A single harmonized data.frame with one row per gene x cluster x comparison. Metadata
 #'   columns: \code{label}, \code{formula}, \code{c0}, \code{c1}, \code{contrast},
@@ -725,7 +847,8 @@ de_across_conditions_module <- function(sobjint,
                                         cluster_prefix,
                                         crossconditionDE_padj_thres,
                                         crossconditionDE_lfc_thres,
-                                        crossconditionDE_min.pct
+                                        crossconditionDE_min.pct,
+                                        workernum = 1L
                                         
 ){
   
@@ -754,14 +877,23 @@ de_across_conditions_module <- function(sobjint,
     if(Pseudobulk_mode == T){DE_test = 'EdgeR-LRT'}
     if(Pseudobulk_mode == F){DE_test = 'wilcox'}
   }
-  
-  
-  
-  
-  
+  if (missing(workernum) || is.null(workernum)) workernum <- 1L
+  workernum <- as.integer(workernum)[1]
+  if (is.na(workernum) || workernum < 1L) workernum <- 1L
   
   # Standardize comps (c0=reference, c1=test, formula, contrast, label).
   comps <- .normalize_comps(comps)
+  if (isTRUE(Pseudobulk_mode)) {
+    .validate_comps_de_formulas(comps, DE_test)
+    if (identical(DE_test, "Dream") &&
+        !requireNamespace("variancePartition", quietly = TRUE)) {
+      stop(
+        "DE_test = 'Dream' requires the Bioconductor package variancePartition. ",
+        "Install with BiocManager::install('variancePartition').",
+        call. = FALSE
+      )
+    }
+  }
   
   # ---------------------------------------------------------------------------
   # Grouping variable (clusters / cell types to stratify DE)
@@ -877,6 +1009,7 @@ de_across_conditions_module <- function(sobjint,
     # comps contrast (c1 vs c0) without re-subsetting counts.
     is_edger <- DE_test %in% c('EdgeR', 'EdgeR-LRT')
     is_deseq <- DE_test %in% c('DESeq2', 'DESeq2-LRT')
+    is_dream <- identical(DE_test, "Dream")
     if (is_edger) require(edgeR)
     if (is_deseq) require(DESeq2)
     
@@ -886,10 +1019,24 @@ de_across_conditions_module <- function(sobjint,
     for (formula_chr in names(formula_groups)) {
       row_idx <- formula_groups[[formula_chr]]
       design_formula <- .parse_comp_formula(formula_chr)
+      .validate_de_formula(DE_test, design_formula)
       coldata <- .prepare_pseudobulk_coldata(sample_metadata, design_formula)
       pblist <- pblist_overall[match(coldata$Code, names(pblist_overall))]
       
-      # --- Step 3a: one edgeR/DESeq2 fit per cluster (all samples) ---
+      # Dream contrast expressions for all comps sharing this formula
+      dream_contrast_exprs <- NULL
+      dream_coef_names <- character()
+      if (is_dream) {
+        dream_contrast_exprs <- vapply(row_idx, function(compidx) {
+          .dream_contrast_expr(
+            comps$contrast[compidx], comps$c1[compidx], comps$c0[compidx]
+          )
+        }, character(1))
+        dream_coef_names <- make.names(comps$label[row_idx], unique = TRUE)
+        names(dream_contrast_exprs) <- dream_coef_names
+      }
+      
+      # --- Step 3a: one edgeR/DESeq2/Dream fit per cluster (all samples) ---
       cluster_fits <- setNames(
         lapply(seq_along(groupinglevs), function(i) {
           clust <- groupinglevs[i]
@@ -909,41 +1056,66 @@ de_across_conditions_module <- function(sobjint,
           
           fit_coldata <- coldata[match(colnames(gem), coldata$Code), , drop = FALSE]
           rownames(fit_coldata) <- fit_coldata$Code
-          design <- model.matrix(design_formula, data = fit_coldata)
-          if (qr(design)$rank != ncol(design)) {
-            warning("Design not full rank for cluster ", clust, " (", formula_chr, "); skipping.", call. = FALSE)
-            return(NULL)
-          }
           
-          if (is_edger) {
-            y <- DGEList(counts = gem, samples = fit_coldata)
-            y <- calcNormFactors(y)
-            y <- estimateDisp(y, design)
-            fit_glm <- glmFit(y, design)
-            list(type = "edger", y = y, design = design, fit = fit_glm, gem = gem, coldata = fit_coldata)
+          if (is_dream) {
+            gem_mat <- as.matrix(gem)
+            bp <- .dream_bpparam(workernum)
+            dream_formula <- .dream_fit_formula(design_formula)
+            L_fit <- variancePartition::makeContrastsDream(
+              dream_formula, fit_coldata, contrasts = dream_contrast_exprs
+            )
+            vobj <- variancePartition::voomWithDreamWeights(
+              gem_mat, dream_formula, fit_coldata, BPPARAM = bp
+            )
+            fit_mm <- variancePartition::dream(
+              vobj, dream_formula, fit_coldata, L = L_fit, BPPARAM = bp
+            )
+            fit_mm <- variancePartition::eBayes(fit_mm)
+            y_norm <- edgeR::DGEList(counts = gem_mat)
+            y_norm <- edgeR::calcNormFactors(y_norm)
+            list(
+              type = "dream", fit = fit_mm, gem = gem_mat, coldata = fit_coldata,
+              y = y_norm, coef_names = dream_coef_names
+            )
           } else {
-            col_dds <- fit_coldata
-            vars <- all.vars(design_formula)
-            for (v in vars) {
-              if (is.factor(col_dds[[v]])) {
-                levels(col_dds[[v]]) <- .sanitize_deseq2_levels(levels(col_dds[[v]]))
-              }
+            fixed_formula <- .fixed_effects_formula(design_formula)
+            design <- model.matrix(fixed_formula, data = fit_coldata)
+            if (qr(design)$rank != ncol(design)) {
+              warning("Design not full rank for cluster ", clust, " (", formula_chr, "); skipping.", call. = FALSE)
+              return(NULL)
             }
-            dds <- DESeqDataSetFromMatrix(gem, col_dds, design = design_formula)
-            reduced_f <- .make_reduced_formula(design_formula)
-            if (DE_test == 'DESeq2-LRT') {
-              dds <- DESeq(dds, test = 'LRT', reduced = reduced_f)
+            
+            if (is_edger) {
+              y <- DGEList(counts = gem, samples = fit_coldata)
+              y <- calcNormFactors(y)
+              y <- estimateDisp(y, design)
+              fit_glm <- glmFit(y, design)
+              list(type = "edger", y = y, design = design, fit = fit_glm, gem = gem, coldata = fit_coldata)
             } else {
-              dds <- DESeq(dds)
+              col_dds <- fit_coldata
+              vars <- all.vars(fixed_formula)
+              for (v in vars) {
+                if (is.factor(col_dds[[v]])) {
+                  levels(col_dds[[v]]) <- .sanitize_deseq2_levels(levels(col_dds[[v]]))
+                }
+              }
+              dds <- DESeqDataSetFromMatrix(gem, col_dds, design = fixed_formula)
+              reduced_f <- .make_reduced_formula(fixed_formula)
+              if (DE_test == 'DESeq2-LRT') {
+                dds <- DESeq(dds, test = 'LRT', reduced = reduced_f)
+              } else {
+                dds <- DESeq(dds)
+              }
+              list(type = "deseq2", dds = dds, gem = gem, coldata = col_dds)
             }
-            list(type = "deseq2", dds = dds, gem = gem, coldata = col_dds)
           }
         }),
         groupinglev_nicelabs
       )
       
       # --- Step 3b: extract each comparison contrast from the shared fits ---
-      for (compidx in row_idx) {
+      for (j in seq_along(row_idx)) {
+        compidx <- row_idx[j]
         c0 <- comps$c0[compidx]   # reference
         c1 <- comps$c1[compidx]   # test (log2FC = c1 vs c0)
         lab <- comps$label[compidx]
@@ -951,6 +1123,7 @@ de_across_conditions_module <- function(sobjint,
         contrast <- .parse_comp_contrast(comps$contrast[compidx], c1, c0)
         contrast_ds <- contrast
         if (is_deseq) contrast_ds[2:3] <- .sanitize_deseq2_levels(contrast_ds[2:3])
+        dream_coef <- if (is_dream) dream_coef_names[j] else NULL
         
         m_bycluster_crosscondition_de <- lapply(seq_along(groupinglevs), function(i) {
           clust <- groupinglevs[i]
@@ -963,8 +1136,38 @@ de_across_conditions_module <- function(sobjint,
           )
           if (is.null(cellsexp)) return(NULL)
           
-          # --- edgeR: glmLRT with explicit contrast (or exactTest for simple 2-group) ---
-          if (fitobj$type == "edger") {
+          # --- Dream: topTable for this contrast coefficient ---
+          if (fitobj$type == "dream") {
+            coef_use <- dream_coef
+            if (is.null(coef_use) || !(coef_use %in% colnames(fitobj$fit$coefficients))) {
+              # fall back to first contrast column if naming drifted
+              coef_use <- colnames(fitobj$fit$coefficients)[1]
+            }
+            res <- as.data.frame(
+              variancePartition::topTable(
+                fitobj$fit, coef = coef_use, number = Inf, sort.by = "none"
+              )
+            )
+            res <- cbind(rownames(res), res)
+            colnames(res)[1] <- 'gene_symbol'
+            # Harmonize limma column names toward edgeR-style
+            if ("P.Value" %in% colnames(res)) {
+              colnames(res)[colnames(res) == "P.Value"] <- "PValue"
+            }
+            if ("adj.P.Val" %in% colnames(res)) {
+              colnames(res)[colnames(res) == "adj.P.Val"] <- "FDR"
+            }
+            cellsexp <- cellsexp[match(rownames(res), cellsexp$gene), , drop = FALSE]
+            res <- cbind(res, cellsexp[, -1, drop = FALSE])
+            res <- .add_pseudobulk_gene_weights(res, "logFC", "PValue")
+            nc <- edgeR::cpm(fitobj$y)
+            nc <- nc[match(rownames(res), rownames(nc)), , drop = FALSE]
+            rc <- fitobj$gem[match(rownames(res), rownames(fitobj$gem)), , drop = FALSE]
+            colnames(nc) <- paste0('normcounts_', colnames(nc))
+            colnames(rc) <- paste0('rawcounts_', colnames(rc))
+            cbind(res, nc, rc)
+          } else if (fitobj$type == "edger") {
+            # --- edgeR: glmLRT with explicit contrast (or exactTest for simple 2-group) ---
             simple <- .is_simple_condition_design(design_formula)
             n_cond <- length(unique(fitobj$coldata$Condition))
             
@@ -1335,7 +1538,9 @@ de_across_conditions_module <- function(sobjint,
 # Propeller-specific helpers (sourced into sc_pipeline_modules.R build)
 
 .propeller_design <- function(sample_metadata, design_formula) {
-  labels <- attr(terms(design_formula), "term.labels")
+  # Always use fixed-effects-only formula; (1|var) is invalid in model.matrix.
+  fixed_formula <- .fixed_effects_formula(design_formula)
+  labels <- attr(terms(fixed_formula), "term.labels")
   if (!"Condition" %in% labels) {
     stop("Propeller design requires Condition in formula.", call. = FALSE)
   }
@@ -1345,10 +1550,62 @@ de_across_conditions_module <- function(sobjint,
   } else {
     f <- as.formula("~ 0 + Condition")
   }
+  # coldata needs all variables including random-effect block columns
   md <- .prepare_pseudobulk_coldata(sample_metadata, design_formula)
   rownames(md) <- md$Code
   design <- model.matrix(f, data = md)
   list(design = design, coldata = md)
+}
+
+# Paired propeller via limma duplicateCorrelation + blocked lmFit (speckle vignette).
+.propeller_ttest_blocked <- function(prop.list, design, contrasts, block,
+                                     robust = TRUE, trend = FALSE, sort = TRUE) {
+  prop.trans <- prop.list$TransformedProps
+  prop <- prop.list$Proportions
+  if (nrow(prop.trans) <= 2) {
+    message("Setting robust to FALSE for eBayes for less than 3 cell types")
+    robust <- FALSE
+  }
+  block <- as.factor(block)
+  if (length(block) != ncol(prop.trans)) {
+    stop(
+      "block length (", length(block), ") must match number of samples in ",
+      "transformed proportions (", ncol(prop.trans), ").",
+      call. = FALSE
+    )
+  }
+  corfit <- limma::duplicateCorrelation(prop.trans, design, block = block)
+  fit <- limma::lmFit(
+    prop.trans, design,
+    block = block,
+    correlation = corfit$consensus
+  )
+  fit.cont <- limma::contrasts.fit(fit, contrasts = contrasts)
+  fit.cont <- limma::eBayes(fit.cont, robust = robust, trend = trend)
+  if (length(contrasts) == 2) {
+    fit.prop <- limma::lmFit(prop, design)
+    z <- apply(fit.prop$coefficients, 1, function(x) x^contrasts)
+    RR <- apply(z, 2, prod)
+  } else {
+    new.des <- design[, contrasts != 0, drop = FALSE]
+    fit.prop <- limma::lmFit(prop, new.des)
+    new.cont <- contrasts[contrasts != 0]
+    z <- apply(fit.prop$coefficients, 1, function(x) x^new.cont)
+    RR <- apply(z, 2, prod)
+  }
+  fdr <- p.adjust(fit.cont$p.value[, 1], method = "BH")
+  out <- data.frame(
+    PropMean = fit.prop$coefficients,
+    PropRatio = RR,
+    Tstatistic = fit.cont$t[, 1],
+    P.Value = fit.cont$p.value[, 1],
+    FDR = fdr
+  )
+  if (sort) {
+    o <- order(out$P.Value)
+    return(out[o, , drop = FALSE])
+  }
+  out
 }
 
 .propeller_contrast_matrix <- function(design, contrast_entry, c1, c0) {
@@ -3157,11 +3414,11 @@ ORA_crosscondition_module <- function(de_results,
 
 #' Compositional analysis comparing proportional abundnace across conditions for integrated Seurat objects
 #'
-#' This is a modular component of the scDAPP scRNAseq pipeline. Perform compositional analysis across conditions to compare the proportion of cell types. Supports multiple condtions (A vs B vs C). Supports "pseudobulk" replicate-aware analysis as implemented in the propeller test with arcsin transformation, as recommended by Simmons 2022 (https://doi.org/10.1101/2022.02.04.479123). Alternatively supports old-school, non-replicate aware chisq test as implemented by the `prop.test()` function.
+#' This is a modular component of the scDAPP scRNAseq pipeline. Perform compositional analysis across conditions to compare the proportion of cell types. Supports multiple condtions (A vs B vs C). Supports "pseudobulk" replicate-aware analysis as implemented in the propeller test with arcsin transformation, as recommended by Simmons 2022 (https://doi.org/10.1101/2022.02.04.479123). When \code{comps$formula} includes an intercept random effect such as \code{(1|Patient)}, paired testing uses limma \code{duplicateCorrelation} with blocked \code{lmFit}. Alternatively supports old-school, non-replicate aware chisq test as implemented by the `prop.test()` function.
 #'
 #' @param sobjint integrated Seurat object. Metadata should have two columns: "Condition" corresponding to the A vs B conditions to compare across, and "Code" corresponding to sample / replicate names. A third column for clusters or celltypes should also be in the metadata and the name of that column will be passed to the `grouping_variable` parameter.
-#' @param comps data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See `normalize_comps()`.
-#' @param sample_metadata data.frame with Sample, Condition, Code, and any covariates in `comps$formula`.
+#' @param comps data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See `normalize_comps()`. Formulas with \code{(1|var)} enable paired / blocked propeller.
+#' @param sample_metadata data.frame with Sample, Condition, Code, and any covariates (including random-effect block columns) in `comps$formula`.
 #' @param outdir_int string, path to save results to. Will create a sub-directory called "compositional_proportion_analysis" and save inside of there.
 #' @param grouping_variable string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters"
 #' @param compositional_test string, which test to use, either "propeller" or "chisq"; will use chisq if not set and issue a warning
@@ -3305,6 +3562,18 @@ compositional_analysis_module <- function(sobjint,
     c1 <- comps$c1[compidx]
     lab <- comps$label[compidx]
     design_formula <- .parse_comp_formula(comps$formula[compidx])
+    has_re <- .formula_has_random_effect(design_formula)
+    re_vars <- .formula_random_effect_vars(design_formula)
+    if (has_re && length(re_vars) > 1L) {
+      stop(
+        "Propeller paired mode supports one (1|var) block; got: ",
+        paste(re_vars, collapse = ", "),
+        ". Use a single random-effect term in comps$formula for comparison '", lab, "'.",
+        call. = FALSE
+      )
+    }
+    block_var <- if (has_re) re_vars[1] else NULL
+    fixed_formula <- if (has_re) .fixed_effects_formula(design_formula) else design_formula
 
     message(lab)
 
@@ -3321,7 +3590,7 @@ compositional_analysis_module <- function(sobjint,
     ### use propeller if multiple samples ###
 
     if(compositional_test == 'propeller'){
-      use_simple <- .propeller_use_simple_wrapper(design_formula, sample_metadata)
+      use_simple <- !has_re && .propeller_use_simple_wrapper(fixed_formula, sample_metadata)
 
       if (use_simple) {
         bigmd <- sobjint@meta.data
@@ -3361,14 +3630,43 @@ compositional_analysis_module <- function(sobjint,
         contr <- .propeller_contrast_matrix(
           pd$design, comps$contrast[compidx], c1, c0
         )
-        pres <- speckle::propeller.ttest(
-          prop.list,
-          design = pd$design,
-          contrasts = contr,
-          robust = TRUE,
-          trend = FALSE,
-          sort = TRUE
-        )
+        if (has_re) {
+          block <- pd$coldata[[block_var]][match(rownames(pd$design), pd$coldata$Code)]
+          if (anyNA(block)) {
+            stop(
+              "Missing values in block variable '", block_var,
+              "' for propeller paired comparison '", lab, "'.",
+              call. = FALSE
+            )
+          }
+          # Each Code must map to a single block level
+          code_block <- unique(pd$coldata[, c("Code", block_var), drop = FALSE])
+          if (any(duplicated(code_block$Code))) {
+            stop(
+              "Block variable '", block_var,
+              "' is not unique per Code for comparison '", lab, "'.",
+              call. = FALSE
+            )
+          }
+          pres <- .propeller_ttest_blocked(
+            prop.list,
+            design = pd$design,
+            contrasts = contr,
+            block = block,
+            robust = TRUE,
+            trend = FALSE,
+            sort = TRUE
+          )
+        } else {
+          pres <- speckle::propeller.ttest(
+            prop.list,
+            design = pd$design,
+            contrasts = contr,
+            robust = TRUE,
+            trend = FALSE,
+            sort = TRUE
+          )
+        }
         pres <- .propeller_format_pres(pres, c1, c0)
       }
 

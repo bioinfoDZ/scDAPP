@@ -27,7 +27,8 @@ Suggests:
     aPEAR,
     clusterProfiler,
     mclust,
-    RhpcBLASctl
+    RhpcBLASctl,
+    variancePartition
 Imports: 
     tidyverse,
     Matrix,

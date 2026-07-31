@@ -3075,25 +3075,101 @@ if (run_msigdb_celltype_ora) {
 
 ```
 
-```{r integration_auto_params_note, results='asis', eval=!is.null(int_auto_selection)}
+```{r integration_stability_setup, results='hide'}
+# Defaults keep fig.width/fig.height expressions valid when auto tuning is off.
+stab_mod <- NULL
+stab_dims <- list(
+  combinedscore_bar = list(width = 10, height = 8),
+  combinedscore_heatmap = list(width = 10, height = 6),
+  ari_jaccard_scatter = list(width = 10, height = 7),
+  bootstrap_ari = list(width = 10, height = 8),
+  nclust_ref = list(width = 10, height = 8),
+  perclust_jaccard = list(width = 10, height = 4)
+)
+if (!is.null(int_auto_selection)) {
+  stab_mod <- scDAPP::integration_stability_plots_module(
+    stability_dir = int_auto_selection$sweep_dir,
+    selected_params_i = int_auto_selection$selected_params_i,
+    label_top_k = 10L,
+    save = FALSE
+  )
+  stab_dims <- stab_mod$plot_dims
+}
+```
+
+```{r integration_stability_intro, results='asis', eval=!is.null(stab_mod)}
 cat(sprintf(
-  '**Automatic integration parameters:** %d principal components and Louvain resolution %s were selected via bootstrap cluster stability (combined ARI/Jaccard score). Full stability tables are in `%s`.\n',
+  '
+## Automated integration parameter sweep
+
+Automatic tuning selected **%d** principal components and Louvain resolution **%s** (parameter id `%s`) by maximizing a combined bootstrap stability score: `0.5 * mean ARI + 0.5 * mean per-cluster Jaccard`. Each grid point is labeled like `PCs_1-N.res_R`, meaning the first N integration PCs and Louvain resolution R. Full tables and PDF copies of these plots are in `%s`.
+
+',
   int_auto_selection$pcs_int,
   int_auto_selection$res_int,
+  stab_mod$selected_params_i,
   int_auto_selection$sweep_dir
 ))
 ```
 
-```{r integration_stability_plots, fig.width=10, fig.height=6, eval=!is.null(int_auto_selection)}
-stab_mod <- scDAPP::integration_stability_plots_module(
-  stability_dir = int_auto_selection$sweep_dir,
-  selected_params_i = int_auto_selection$selected_params_i,
-  label_top_k = 10L,
-  save = FALSE
-)
-for (p in stab_mod$plots) {
-  print(p)
-}
+```{r integration_stability_bar, results='asis', eval=!is.null(stab_mod), fig.width=stab_dims$combinedscore_bar$width, fig.height=stab_dims$combinedscore_bar$height}
+cat('
+### Cluster stability by parameter combination
+
+This ranked barplot summarizes the combined stability score for every PC × resolution combination tested. Longer bars indicate more reproducible clustering under bootstrap resampling. The highlighted bar is the combination selected for the final integration.
+
+')
+print(stab_mod$plots$combinedscore_bar)
+```
+
+```{r integration_stability_heatmap, results='asis', eval=!is.null(stab_mod), fig.width=stab_dims$combinedscore_heatmap$width, fig.height=stab_dims$combinedscore_heatmap$height}
+cat('
+### Stability score across the PC × resolution grid
+
+The same combined score is shown as a heatmap over the sweep grid (resolution on X, PC count on Y). Hotter colors indicate higher stability. An X marks the selected combination so neighboring PC/resolution choices can be compared visually.
+
+')
+print(stab_mod$plots$combinedscore_heatmap)
+```
+
+```{r integration_stability_scatter, results='asis', eval=!is.null(stab_mod), fig.width=stab_dims$ari_jaccard_scatter$width, fig.height=stab_dims$ari_jaccard_scatter$height}
+cat('
+### Mean ARI versus mean per-cluster Jaccard
+
+Each point is one parameter combination. The X axis is mean Adjusted Rand Index (ARI) between bootstrap clusterings and the full-data reference clustering; the Y axis is the mean of per-cluster Jaccard overlaps. Points near the upper-right corner are both globally and per-cluster stable. The selected combination is drawn last in red so it remains visible when scores are tightly clustered; the top combinations by combined score are labeled.
+
+')
+print(stab_mod$plots$ari_jaccard_scatter)
+```
+
+```{r integration_stability_bootstrap_ari, results='asis', eval=!is.null(stab_mod), fig.width=stab_dims$bootstrap_ari$width, fig.height=stab_dims$bootstrap_ari$height}
+cat('
+### Bootstrap ARI by parameter combination
+
+Boxplots show the distribution of ARI across bootstrap replicates for each parameter combination (ordered by combined score, same as the ranked barplot). Tight, high boxes indicate consistently reproducible assignments; wider boxes indicate more bootstrap-to-bootstrap variability.
+
+')
+print(stab_mod$plots$bootstrap_ari)
+```
+
+```{r integration_stability_nclust, results='asis', eval=!is.null(stab_mod), fig.width=stab_dims$nclust_ref$width, fig.height=stab_dims$nclust_ref$height}
+cat('
+### Reference cluster count by parameter combination
+
+Bars show how many clusters the full-data integration produced for each PC × resolution combination. Higher resolution (and sometimes more PCs) typically yield more clusters. Compare this with the stability plots above: very high cluster counts can reduce stability even if they look more granular.
+
+')
+print(stab_mod$plots$nclust_ref)
+```
+
+```{r integration_stability_perclust, results='asis', eval=!is.null(stab_mod), fig.width=stab_dims$perclust_jaccard$width, fig.height=stab_dims$perclust_jaccard$height}
+cat('
+### Per-cluster Jaccard for the selected combination
+
+For the selected parameter combination only, each tile is one reference cluster’s mean Jaccard overlap with its best-matching bootstrap cluster across replicates (values annotated on tiles; color scale fixed from 0 to 1). Values near 1 mean that cluster’s membership is highly reproducible; lower values flag less stable clusters even when the global ARI looks strong.
+
+')
+print(stab_mod$plots$perclust_jaccard)
 ```
 
 
@@ -4842,7 +4918,8 @@ if(Pseudobulk_mode == T){
     cluster_prefix = T,
     crossconditionDE_padj_thres = crossconditionDE_padj_thres,
     crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
-    crossconditionDE_min.pct = crossconditionDE_min.pct
+    crossconditionDE_min.pct = crossconditionDE_min.pct,
+    workernum = workernum
   )
   
 } else{

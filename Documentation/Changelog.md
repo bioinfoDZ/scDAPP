@@ -2,6 +2,21 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
+## Unreleased
+2026.07.17
+
+### Paired cross-condition analysis (DREAM + blocked Propeller)
+- Pseudobulk DE supports `DE_test = "Dream"` via Bioconductor `variancePartition` (Suggests only). Pairing is declared in `comps$formula` with intercept random effects, e.g. `~ Condition + (1|Patient)`.
+- EdgeR/DESeq2 reject formulas containing `(1|var)`; Dream requires at least one such term. `workernum` is passed to Dream through `BiocParallel`.
+- Compositional propeller automatically uses blocked limma (`duplicateCorrelation` + `lmFit`) when `comps$formula` includes `(1|var)`.
+
+### Cluster-stability auto-tuning report
+- HTML report emits an optional **Automated integration parameter sweep** subsection (only when auto tuning ran), with interpretation text and per-plot figure sizes for each diagnostic.
+- Stability plots: denser Y-axis labels / taller canvases for ranked combined-score bars; selected ARI–Jaccard point drawn on top in red; bootstrap ARI and reference cluster-count plots use `params_i` on the Y axis; per-cluster Jaccard tiles annotate mean values (0–1 fill scale unchanged).
+
+### Docs
+- New [Comparative_Designs.md](Comparative_Designs.md) cookbook for `sample_metadata` / `comps` / `scRNAseq_pipeline_runner()` setups (Wilcox, pseudobulk EdgeR/DESeq2, multi-condition, confounders, interactions, Dream pairing), linked from Usage.md.
+
 ## 2.0.0
 2026.06.09
 

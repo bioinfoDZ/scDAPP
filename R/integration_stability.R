@@ -1699,6 +1699,22 @@ resolve_integration_cluster_params <- function(
     )
 }
 
+#' Adaptive axis text size for dense params_i labels on the Y axis.
+#' @keywords internal
+.stability_param_axis_text_size <- function(n_param) {
+  n_param <- as.integer(n_param)[1]
+  if (is.na(n_param) || n_param <= 16L) {
+    return(8)
+  }
+  if (n_param <= 32L) {
+    return(7)
+  }
+  if (n_param <= 48L) {
+    return(6)
+  }
+  5
+}
+
 #' Save a ggplot to PDF with explicit width and height (non-interactive devices).
 #' @keywords internal
 .save_stability_ggplot <- function(p, path, width, height) {
@@ -1708,7 +1724,7 @@ resolve_integration_cluster_params <- function(
   invisible(path)
 }
 
-#' PDF width/height per plot type for a given sweep grid
+#' PDF/HTML width/height per plot type for a given sweep grid
 #' @keywords internal
 .stability_plot_save_dims <- function(perparam, perclust_df, selected_params_i) {
   perparam <- .prepare_stability_perparam(perparam)
@@ -1716,8 +1732,9 @@ resolve_integration_cluster_params <- function(
   n_pc <- length(unique(perparam$pcs_int))
   n_res <- length(unique(perparam$res_int))
 
+  # Horizontal param labels (Y axis): taller canvases for dense grids
   bar_w <- min(14, max(8, 0.15 * n_param + 6))
-  bar_h <- min(18, max(5, 0.35 * n_param + 2))
+  bar_h <- min(18, max(6, 0.42 * n_param + 2.5))
 
   perclust_sel <- perclust_df[
     perclust_df$cparams_i == selected_params_i,
@@ -1749,6 +1766,7 @@ resolve_integration_cluster_params <- function(
   sel <- .stability_selected_params_i(perparam, selected_params_i)
   plot_df <- perparam
   plot_df$is_selected <- as.character(plot_df$params_i) == sel
+  y_size <- .stability_param_axis_text_size(nrow(plot_df))
 
   ggplot2::ggplot(
     plot_df,
@@ -1771,7 +1789,11 @@ resolve_integration_cluster_params <- function(
       y = NULL
     ) +
     .stability_plot_theme() +
-    ggplot2::theme(legend.position = "bottom")
+    ggplot2::theme(
+      legend.position = "bottom",
+      axis.text.x = ggplot2::element_text(angle = 0, hjust = 0.5),
+      axis.text.y = ggplot2::element_text(size = y_size)
+    )
 }
 
 #' Heatmap of combined stability score over PC x resolution grid.
@@ -1831,31 +1853,45 @@ resolve_integration_cluster_params <- function(
     plot_df$label_me[ord[seq_len(top_k)]] <- TRUE
   }
 
+  other_df <- plot_df[!plot_df$is_selected, , drop = FALSE]
+  sel_df <- plot_df[plot_df$is_selected, , drop = FALSE]
+
   p <- ggplot2::ggplot(
     plot_df,
     ggplot2::aes(
       x = .data$ARI_mean,
       y = .data$Jaccard_mean_of_clustermeans,
-      color = .data$is_selected,
       size = .data$combinedscore
     )
   ) +
-    ggplot2::geom_point(alpha = 0.85) +
-    ggplot2::scale_color_manual(
-      values = c("FALSE" = "grey50", "TRUE" = "#B2182B"),
-      labels = c("FALSE" = "grid point", "TRUE" = "selected"),
-      name = NULL
+    ggplot2::geom_point(
+      data = other_df,
+      color = "grey50",
+      alpha = 0.75
+    ) +
+    ggplot2::geom_point(
+      data = sel_df,
+      color = "#B2182B",
+      alpha = 1,
+      stroke = 0.6
     ) +
     ggplot2::scale_size_continuous(range = c(2, 6), name = "Combined\nscore") +
     ggplot2::labs(
       title = "Mean ARI vs mean per-cluster Jaccard",
-      subtitle = sprintf("Top %d combinations labeled by combined score", top_k),
+      subtitle = sprintf(
+        "Top %d combinations labeled; selected point drawn on top in red",
+        top_k
+      ),
       x = "Mean ARI (bootstrap vs reference)",
-      y = "Mean per-cluster Jaccard"
+      y = "Mean per-cluster Jaccard",
+      caption = "Red = selected parameter combination; grey = other grid points"
     ) +
     ggplot2::coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
     .stability_plot_theme() +
-    ggplot2::theme(legend.position = "right")
+    ggplot2::theme(
+      legend.position = "right",
+      axis.text.x = ggplot2::element_text(angle = 0, hjust = 0.5)
+    )
 
   if (any(plot_df$label_me)) {
     p <- p + ggrepel::geom_text_repel(
@@ -1864,7 +1900,8 @@ resolve_integration_cluster_params <- function(
       size = 3,
       max.overlaps = 20,
       box.padding = 0.35,
-      show.legend = FALSE
+      show.legend = FALSE,
+      color = "grey20"
     )
   }
   p
@@ -1879,23 +1916,28 @@ resolve_integration_cluster_params <- function(
     plot_df$params_i,
     levels = levels(perparam$params_i)
   )
+  y_size <- .stability_param_axis_text_size(nlevels(plot_df$params_i))
 
   ggplot2::ggplot(
     plot_df,
     ggplot2::aes(
-      x = .data$params_i,
-      y = .data$ARI,
+      x = .data$ARI,
+      y = .data$params_i,
       group = .data$params_i
     )
   ) +
     ggplot2::geom_boxplot(fill = "grey85", outlier.size = 0.8, width = 0.6) +
-    ggplot2::geom_jitter(width = 0.12, alpha = 0.5, size = 0.9) +
+    ggplot2::geom_jitter(height = 0.12, alpha = 0.5, size = 0.9) +
     ggplot2::labs(
       title = "Bootstrap ARI by parameter combination",
-      x = NULL,
-      y = "ARI (bootstrap vs reference)"
+      x = "ARI (bootstrap vs reference)",
+      y = NULL
     ) +
-    .stability_plot_theme()
+    .stability_plot_theme() +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 0, hjust = 0.5),
+      axis.text.y = ggplot2::element_text(size = y_size)
+    )
 }
 
 #' Bar chart of reference cluster counts per params_i (full-data integration).
@@ -1905,12 +1947,13 @@ resolve_integration_cluster_params <- function(
   sel <- .stability_selected_params_i(perparam, selected_params_i)
   plot_df <- perparam
   plot_df$is_selected <- as.character(plot_df$params_i) == sel
+  y_size <- .stability_param_axis_text_size(nrow(plot_df))
 
   ggplot2::ggplot(
     plot_df,
     ggplot2::aes(
-      x = .data$params_i,
-      y = .data$nClust_Ref,
+      x = .data$nClust_Ref,
+      y = .data$params_i,
       fill = .data$is_selected
     )
   ) +
@@ -1921,10 +1964,14 @@ resolve_integration_cluster_params <- function(
     ) +
     ggplot2::labs(
       title = "Reference cluster count by parameter combination",
-      x = NULL,
-      y = "Number of clusters (full data)"
+      x = "Number of clusters (full data)",
+      y = NULL
     ) +
-    .stability_plot_theme()
+    .stability_plot_theme() +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 0, hjust = 0.5),
+      axis.text.y = ggplot2::element_text(size = y_size)
+    )
 }
 
 #' Heatmap of per-cluster Jaccard scores for the selected winning params_i.
@@ -1946,6 +1993,7 @@ resolve_integration_cluster_params <- function(
     plot_df$cluster,
     levels = plot_df$cluster[order(-plot_df$perclust_jaccard_mean)]
   )
+  plot_df$jaccard_lab <- sprintf("%.3f", plot_df$perclust_jaccard_mean)
 
   ggplot2::ggplot(
     plot_df,
@@ -1956,6 +2004,11 @@ resolve_integration_cluster_params <- function(
     )
   ) +
     ggplot2::geom_tile(color = "white", linewidth = 0.3) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = .data$jaccard_lab),
+      color = "black",
+      size = 3.2
+    ) +
     ggplot2::scale_fill_viridis_c(
       option = "C",
       name = "Mean\nJaccard",
@@ -1965,7 +2018,11 @@ resolve_integration_cluster_params <- function(
       title = "Per-cluster Jaccard (selected parameter combination)",
       subtitle = selected_params_i,
       x = "Reference cluster",
-      y = NULL
+      y = NULL,
+      caption = paste0(
+        "Mean best-matched membership overlap vs reference clustering ",
+        "across bootstrap replicates (0-1 scale; near 1 = highly reproducible)"
+      )
     ) +
     .stability_plot_theme() +
     ggplot2::theme(
@@ -1978,10 +2035,10 @@ resolve_integration_cluster_params <- function(
 #' Integration cluster-stability visualization module
 #'
 #' Builds diagnostic plots from \code{cluster_stability_sweep()} tables:
-#' ranked combined-score bar chart, PC x resolution heatmap, ARI vs Jaccard
-#' scatter (top combinations labeled), bootstrap ARI boxplots, reference cluster
-#' counts, and a per-cluster Jaccard heatmap for the selected parameter
-#' combination only.
+#' ranked combined-score bar chart (params on Y), PC x resolution heatmap,
+#' ARI vs Jaccard scatter (selected point drawn last), bootstrap ARI boxplots
+#' and reference cluster-count bars (params on Y), and a per-cluster Jaccard
+#' heatmap for the selected parameter combination only (tile values annotated).
 #'
 #' @param stability Optional list returned by \code{cluster_stability_sweep()}
 #'   (or a subset with the three main tables).
@@ -1996,7 +2053,8 @@ resolve_integration_cluster_params <- function(
 #' @param save Logical; write PDFs to \code{outdir}. When \code{TRUE}, PDF width and
 #'   height are computed from the sweep grid (see \code{?cluster_stability_sweep} docs).
 #' @param width,height Ignored when \code{save = TRUE} (reserved for compatibility).
-#' @return List with \code{plots} (named ggplot objects), \code{plot_paths}
+#' @return List with \code{plots} (named ggplot objects), \code{plot_dims}
+#'   (named width/height inches for HTML or PDF), \code{plot_paths}
 #'   (when saved), and \code{selected_params_i}.
 #' @export
 integration_stability_plots_module <- function(
@@ -2036,17 +2094,18 @@ integration_stability_plots_module <- function(
     )
   )
 
+  plot_dims <- .stability_plot_save_dims(
+    tabs$perparam_meanscores,
+    tabs$perclust_jaccard_mean_acrossbootstraps,
+    sel
+  )
+
   plot_paths <- NULL
   if (isTRUE(save)) {
     if (is.null(outdir) || !nzchar(outdir)) {
       stop("outdir is required when save = TRUE.", call. = FALSE)
     }
     dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
-    plot_dims <- .stability_plot_save_dims(
-      tabs$perparam_meanscores,
-      tabs$perclust_jaccard_mean_acrossbootstraps,
-      sel
-    )
     plot_paths <- vapply(names(plots), function(nm) {
       path <- file.path(outdir, paste0("stability_", nm, ".pdf"))
       dims <- plot_dims[[nm]]
@@ -2062,6 +2121,7 @@ integration_stability_plots_module <- function(
 
   list(
     plots = plots,
+    plot_dims = plot_dims,
     plot_paths = plot_paths,
     selected_params_i = sel
   )

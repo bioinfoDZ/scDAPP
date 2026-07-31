@@ -1,0 +1,12 @@
+---
+description: When the user says interaction model, prioritize the interaction term itself
+alwaysApply: true
+---
+
+# Interaction model means the interaction term
+
+When the user talks about an **interaction model** (e.g. Condition × Batch, `~ Condition * Batch`, or `Condition:Batch`):
+
+- Assume they are almost always interested in the **interaction term / coefficient** itself — log2FC, p-value, FDR, etc. for that term — **not** only the main-effect terms under an interaction formula.
+- Prefer designs, contrasts, docs, tests, and implementations that surface or extract the interaction coefficient (e.g. `ConditionCOVID_SEV:BatchJa005E`).
+- If the current codebase only supports factor-level main-effect contrasts (`Variable;numerator;denominator`) and cannot yet report the interaction coefficient, say so clearly and treat that as a gap relative to the user’s intent.
