@@ -281,11 +281,11 @@ You can put simple, additive, and interaction formulas in one comps file (same r
 | COVID_MILD | COVID_SEV | `~ Condition` | Condition;COVID_SEV;COVID_MILD | SEV_vs_MILD_simple |
 | COVID_MILD | COVID_SEV | `~ Condition + Batch` | Condition;COVID_SEV;COVID_MILD | SEV_vs_MILD_batch_adj |
 | COVID_MILD | COVID_SEV | `~ Condition * Batch` | Condition;COVID_SEV;COVID_MILD | SEV_vs_MILD_main_effect_in_interaction_model |
-| COVID_MILD | COVID_SEV | `~ Condition * Batch` | Batch;Ja005E;Ja001E | Batch_Ja005E_vs_Ja001E_in_interaction_model |
+| COVID_MILD | COVID_SEV | `~ Condition * Batch` | not implemented yet | SEV_x_Batch_interaction_term |
 
 - Rows 1–2: Condition effect under simpler designs.
 - Row 3: still the **main Condition effect** under `~ Condition * Batch` (reference-level Batch coding), **not** the Condition×Batch interaction coefficient.
-- Row 4: non-default **Batch** contrast under the same interaction formula.
+- Row 4: intended target is the **Condition×Batch interaction coefficient** (LFC/p); `contrast` for that is **not implemented yet**.
 
 ### Runner
 
@@ -374,7 +374,7 @@ Interaction + pairing in one formula is allowed for Dream DE, e.g. `~ Condition 
 | Confounders (Condition effect) | `TRUE` | EdgeR / DESeq2 family | `~ Condition + Batch` | `Condition;c1;c0` |
 | Confounders (Batch effect) | `TRUE` | EdgeR / DESeq2 family | `~ Condition + Batch` | `Batch;level1;level0` |
 | Interactions (Condition main effect) | `TRUE` | EdgeR / DESeq2 family | `~ Condition * Batch` | `Condition;c1;c0` |
-| Interactions (Batch contrast) | `TRUE` | EdgeR / DESeq2 family | `~ Condition * Batch` | `Batch;level1;level0` |
+| Interactions (Interaction term) | `TRUE` | EdgeR / DESeq2 family | `~ Condition * Batch` | not implemented yet |
 | Paired / random intercept | `TRUE` | `Dream` | `~ Condition + (1\|Patient)` | `Condition;c1;c0` |
 
 ---
