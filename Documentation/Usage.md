@@ -96,6 +96,8 @@ KO1,KO2
 
 Optional columns: `formula` (default `~ Condition`), `contrast`, `label`. Legacy files with `c1,c2` still work (`c2` is renamed to `c0`).
 
+`contrast` grammar depends on `DE_test`: EdgeR / EdgeR-LRT / EdgeR-QLF / Dream use design-coefficient expressions (e.g. `ConditionKO - ConditionControl` or `ConditionA:BatchB`); DESeq2 / DESeq2-LRT use `Factor;num;denom` or `name=ResultsName`. Blank contrast auto-fills for the active style. See [Comparative_Designs.md](Comparative_Designs.md) (includes a short EdgeR-QLF vs EdgeR-LRT pros/cons note).
+
 This is used to tell the pipeline which conditions to compare. Each row sets up a comparison with **c1** (test) vs **c0** (reference). Positive log2FC means higher expression or cell-type proportion in c1.
 
 For batch-adjusted analyses, add covariates to `sample_metadata` and set `formula`, e.g. `~ Condition + Batch` on each row (same formula can be repeated across rows with different c0/c1 pairs).
@@ -370,7 +372,7 @@ The pipeline **no longer** writes `multisample_integration/pathwayanalysis_cross
 
 Supported species for ortholog mapping are listed in `msigdbr::msigdbr_species()`. If your study organism is not listed, you may still run the pipeline using the closest available species for pathway gene symbols, but interpret pathway results accordingly.
 
-- `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. For pseudobulk can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", or "Dream" (paired mixed models via `variancePartition`; requires `(1|var)` in `comps$formula`). For single-cell mode, any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 or variancePartition may require installation. Dream uses `workernum` for `BiocParallel` workers.
+- `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. For pseudobulk can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" (paired mixed models via `variancePartition`; requires `(1|var)` in `comps$formula`). `EdgeR-QLF` uses the same comps/contrasts as `EdgeR-LRT` (quasi-likelihood F-test; see [Comparative_Designs.md](Comparative_Designs.md) §2). For single-cell mode, any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 or variancePartition may require installation. Dream uses `workernum` for `BiocParallel` workers.
 
 - `run_ORA` - T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
 - `run_msigdb_celltype_ora` - T/F, default is TRUE. Whether to run ORA of per-sample and integrated cluster markers against MSigDB cell-type signature gene sets. Uses up to the top 100 markers per cluster (by score) with `p_val_adj` below `msigdb_celltype_ora_marker_padj_thres`. Saves CSV tables and a summary dotplot PDF under `{outdir}/individualsample_analysis/celltype_marker_prediction/` and `{outdir}/multisample_integration/celltype_marker_prediction/`. Requires clusterProfiler.

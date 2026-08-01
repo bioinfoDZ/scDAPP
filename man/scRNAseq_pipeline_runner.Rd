@@ -120,7 +120,7 @@ on the full unfiltered matrix before autofilter (for cluster-level QC diagnostic
 
 \item{integration_method}{character; sample integration backend. One of \code{RISC} (default) or Seurat v5 \code{IntegrateLayers} methods (\code{CCAIntegration}, \code{RPCAIntegration}, \code{CCAIntegration_SCT}, \code{RPCAIntegration_SCT}, \code{HarmonyIntegration}). See \code{integration_method_choices()}.}
 
-\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be either "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
+\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
 
 \item{crossconditionDE_padj_thres}{numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if \code{Pseudobulk_mode} is set to T default is 0.1; if \code{Pseudobulk_mode} is F default is 0.05}
 

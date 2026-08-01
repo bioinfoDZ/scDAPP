@@ -463,6 +463,15 @@ for (i in seq_len(nrow(comps))) {
   }
 }
 
+## Preflight formulas/contrasts vs DE_test style (EdgeR expr vs DESeq2 triple/name=)
+scDAPP:::.preflight_comps_design(
+  sample_metadata = sample_metadata,
+  comps = comps,
+  DE_test = DE_test,
+  Pseudobulk_mode = Pseudobulk_mode
+)
+comps <- scDAPP:::.apply_contrast_defaults(comps, DE_test)
+
 
 
 
@@ -4703,7 +4712,8 @@ comp_result <- compositional_analysis_module(sobjint = sobjint,
                                              sample_metadata = sample_metadata,
                                              outdir_int = outdir_int,
                                              grouping_variable = 'seurat_clusters',
-                                             compositional_test = compositional_test)
+                                             compositional_test = compositional_test,
+                                             DE_test = DE_test)
 
 
 composition_results <- comp_result$composition_results

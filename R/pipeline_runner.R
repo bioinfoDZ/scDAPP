@@ -76,7 +76,7 @@ r_package_test <- function() {
 #' @param RISC_louvain_neighbors integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()` or `scDAPP::scCluster_louvain_res()` where implementation of this is unchanged
 #' @param integration_method character; sample integration backend. One of `RISC` (default) or Seurat v5 `IntegrateLayers` methods (`CCAIntegration`, `RPCAIntegration`, `CCAIntegration_SCT`, `RPCAIntegration_SCT`, `HarmonyIntegration`). See `integration_method_choices()`.
 #' @param Pseudobulk_mode T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR (or Dream) for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the `prop.test()` function for compositional analysis.
-#' @param DE_test a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", or "Dream" for pseudobulk (Dream requires Bioconductor `variancePartition` and a `(1|var)` term in `comps$formula`, e.g. `~ Condition + (1|Patient)`), or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
+#' @param DE_test a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" for pseudobulk (Dream requires Bioconductor `variancePartition` and a `(1|var)` term in `comps$formula`, e.g. `~ Condition + (1|Patient)`), or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
 #' @param crossconditionDE_padj_thres numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if `Pseudobulk_mode` is set to T default is 0.1; if `Pseudobulk_mode` is F default is 0.05
 #' @param crossconditionDE_lfc_thres numeric, absolute value of LFC threshold for significant DE genes in cross condition DE; if `Pseudobulk_mode` is T default is 0 (no minimum LFC); if `Pseudobulk_mode` is F default is 0.25
 #' @param crossconditionDE_min.pct numeric, minimum expression fraction for DEG counting and ORA (`pct.1` if up, `pct.2` if down); if `Pseudobulk_mode` is T default is 0.1; if F default is 0. Pass `NULL` to use mode defaults via `crosscondition_de_threshold_defaults()`.
@@ -309,8 +309,8 @@ scRNAseq_pipeline_runner <- function(  datadir,
   #DE tests must be in a set of tests
   if(Pseudobulk_mode == T){
     
-    if(!DE_test %in% c('EdgeR', 'EdgeR-LRT', 'DESeq2', 'DESeq2-LRT', 'Dream')){
-      stop("With 'Pseudobulk_mode' set to T, DE_test must be one of: 'EdgeR', 'EdgeR-LRT', 'DESeq2', 'DESeq2-LRT', 'Dream'; value ", DE_test, " was passed")
+    if(!DE_test %in% c('EdgeR', 'EdgeR-LRT', 'EdgeR-QLF', 'DESeq2', 'DESeq2-LRT', 'Dream')){
+      stop("With 'Pseudobulk_mode' set to T, DE_test must be one of: 'EdgeR', 'EdgeR-LRT', 'EdgeR-QLF', 'DESeq2', 'DESeq2-LRT', 'Dream'; value ", DE_test, " was passed")
     }
     
   }

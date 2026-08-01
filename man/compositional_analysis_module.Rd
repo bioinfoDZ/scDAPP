@@ -11,15 +11,16 @@ compositional_analysis_module(
   outdir_int,
   grouping_variable,
   compositional_test,
-  fill_barplots
+  fill_barplots,
+  DE_test = "EdgeR-LRT"
 )
 }
 \arguments{
 \item{sobjint}{integrated Seurat object. Metadata should have two columns: "Condition" corresponding to the A vs B conditions to compare across, and "Code" corresponding to sample / replicate names. A third column for clusters or celltypes should also be in the metadata and the name of that column will be passed to the \code{grouping_variable} parameter.}
 
-\item{comps}{data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See \code{normalize_comps()}.}
+\item{comps}{data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See \code{normalize_comps()}. Formulas with \code{(1|var)} enable paired / blocked propeller.}
 
-\item{sample_metadata}{data.frame with Sample, Condition, Code, and any covariates in \code{comps$formula}.}
+\item{sample_metadata}{data.frame with Sample, Condition, Code, and any covariates (including random-effect block columns) in \code{comps$formula}.}
 
 \item{outdir_int}{string, path to save results to. Will create a sub-directory called "compositional_proportion_analysis" and save inside of there.}
 
@@ -28,6 +29,8 @@ compositional_analysis_module(
 \item{compositional_test}{string, which test to use, either "propeller" or "chisq"; will use chisq if not set and issue a warning}
 
 \item{fill_barplots}{T/F, whether to "fill" the annotation barplots on the side of the heatmap, normalizing to 1; default = T}
+
+\item{DE_test}{string, same as pipeline \code{DE_test}; selects contrast grammar for propeller (\code{edger_expr} for EdgeR*/Dream, \code{deseq2} for DESeq2*). Default \code{"EdgeR-LRT"}.}
 }
 \value{
 A list with \code{composition_results} (flat data.frame: one row per cluster x comparison),

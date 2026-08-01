@@ -3,19 +3,12 @@
 For all changes, please update changelog and use Year-Month-Day
 
 ## Unreleased
-2026.07.17
+2026.08.01
 
-### Paired cross-condition analysis (DREAM + blocked Propeller)
-- Pseudobulk DE supports `DE_test = "Dream"` via Bioconductor `variancePartition` (Suggests only). Pairing is declared in `comps$formula` with intercept random effects, e.g. `~ Condition + (1|Patient)`.
-- EdgeR/DESeq2 reject formulas containing `(1|var)`; Dream requires at least one such term. `workernum` is passed to Dream through `BiocParallel`.
-- Compositional propeller automatically uses blocked limma (`duplicateCorrelation` + `lmFit`) when `comps$formula` includes `(1|var)`.
-
-### Cluster-stability auto-tuning report
-- HTML report emits an optional **Automated integration parameter sweep** subsection (only when auto tuning ran), with interpretation text and per-plot figure sizes for each diagnostic.
-- Stability plots: denser Y-axis labels / taller canvases for ranked combined-score bars; selected ARI–Jaccard point drawn on top in red; bootstrap ARI and reference cluster-count plots use `params_i` on the Y axis; per-cluster Jaccard tiles annotate mean values (0–1 fill scale unchanged).
-
-### Docs
-- New [Comparative_Designs.md](Comparative_Designs.md) cookbook for `sample_metadata` / `comps` / `scRNAseq_pipeline_runner()` setups (Wilcox, pseudobulk EdgeR/DESeq2, multi-condition, confounders, interactions, Dream pairing), linked from Usage.md.
+- Pseudobulk contrasts: EdgeR/Dream use `A - B` (or single coef); DESeq2* use `Factor;num;denom` (plus `name=` when needed). Blank `contrast` defaults to Condition c1 vs c0; preflight validates early; sparse clusters soft-skip.
+- New `DE_test = "EdgeR-QLF"`; Dream paired DE (`(1|Patient)`) with blocked propeller; propeller supports interaction-term contrasts; `DESeq2-LRT` uses nested LRT per comps row.
+- Stability auto-tuning HTML report polish (sweep subsection + clearer diagnostic plots).
+- [Comparative_Designs.md](Comparative_Designs.md) cookbook for comps/sample_metadata setups (Treatment/Control, Batch, Genotype, Dream); sample_metadata order sets design reference levels.
 
 ## 2.0.0
 2026.06.09
