@@ -7,3 +7,4 @@ Documentation/Testing.md
 inst/scripts/
 .lintr
 R/TestNewFunctions/
+.cursor/
