@@ -334,6 +334,19 @@ These parameters are required to run the pipeline and tell it where the data is 
 
 - `datadir` string, path to folder containing Cellranger output folders for each sample
 - `outdir` string, path to output folder, will be created if doesn't already exist
+
+### Pipeline resume
+
+Re-running the pipeline into an **existing** `outdir` can skip expensive stages when inputs match:
+
+1. **Per-sample QC / processing** (including DoubletFinder, SCT, clustering, optional label transfer)
+2. **Cluster-stability auto-tuning** (when `pcs_int` / `res_int` is `"auto"`)
+3. **Integration** (loads saved Seurat / RISC objects and InPlot when present)
+
+Caches live under `{outdir}/.scdapp_resume/` and are gated by fingerprints of `sample_metadata` (Sample/Code/Condition) plus QC, per-sample, and integration parameters. **`comps` and DE/pathway/ORA settings are not part of the fingerprint** — comparative modules always re-run so HTML stays current. Changing a fingerprinted parameter invalidates that stage and all downstream stages. Stale stability `RawOuts/` are removed when the stability fingerprint no longer matches.
+
+To force a full recompute: use a new `outdir`, or delete `{outdir}/.scdapp_resume/` (and optionally `multisample_integration/cluster_stability/RawOuts/` if present).
+
 - `sample_metadata` string, path to a .csv file containing at least two columns: "Sample", matching exactly the sample names in `datadir`, and "Condition", giving the experiment status of that sample, such as WT or KO, Case vs Control, etc. Optionally, can provide a third column "Code" giving a nickname for each sample; this is set to "Sample_Condition" for each sample if not.
 - `comps` string, path to a .csv file with columns **c0** (reference) and **c1** (test), and optional `formula`, `contrast`, `label`. Legacy `c2` is accepted as alias for `c0`. Multiple comparisons are supported.
 - `input_seurat_obj` T/F. If true, will read in Seurat objects from `datadir` with names matching the sample column of `sample_metadata`. Ie, if datadir contains objects called "Sample1.rds", "Sample2.rds", and psuedobulk_metadata has "Sample1" in the Sample column, only Sample1.rds will be read in. Useful for data with some preprocessing or hashed data input.

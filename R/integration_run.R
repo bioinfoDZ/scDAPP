@@ -22,6 +22,7 @@
 #' @param stability_sweep_maxPCs PC grid for auto \code{pcs_int}.
 #' @param stability_sweep_res Resolution grid for auto \code{res_int}.
 #' @param stability_propcells.perrep Cell fraction per bootstrap replicate.
+#' @param pipeline_outdir Pipeline root outdir for \code{.scdapp_resume/} (default: parent of \code{outdir_int}).
 #' @return List with \code{sobjint}, \code{int_clust_lab}, \code{ip}, \code{config}.
 #'   For RISC, also \code{refscore} (named by sample Code) and
 #'   \code{selected_risc_reference}; both are \code{NULL} for Seurat methods.
@@ -47,41 +48,81 @@ run_integration <- function(
     stability_numreps = 50L,
     stability_sweep_maxPCs = c(5, 10, 15, 20, 25, 30, 40, 50),
     stability_sweep_res = seq(0.1, 1.5, by = 0.2),
-    stability_propcells.perrep = 0.8
+    stability_propcells.perrep = 0.8,
+    pipeline_outdir = NULL
 ) {
   integration_method <- match.arg(integration_method, integration_method_choices())
   auto_requested <- .integration_param_needs_auto(pcs_int, res_int)
 
+  if (is.null(pipeline_outdir) || !nzchar(as.character(pipeline_outdir)[1])) {
+    pipeline_outdir <- normalizePath(file.path(outdir_int, ".."), mustWork = FALSE)
+  }
+
+  if (is.null(stability_outdir)) {
+    stability_outdir <- file.path(outdir_int, "cluster_stability")
+  }
+
   auto_result <- NULL
   if (auto_requested) {
-    if (is.null(stability_outdir)) {
-      stability_outdir <- file.path(outdir_int, "cluster_stability")
-    }
-    if (is.null(tmpobjdir) && !is.null(outdir_indi)) {
-      tmpobjdir <- file.path(outdir_indi, ".tmp_Seurat_objects")
-    }
-    matlist_path <- file.path(outdir_int, "data_objects", ".concatmatrix.rds")
-    auto_result <- auto_integration_cluster_params(
-      integration_method = integration_method,
+    fp_stab <- .resume_fingerprint_stability(
       sample_metadata = sample_metadata,
+      integration_method = integration_method,
       pcs_int = pcs_int,
       res_int = res_int,
-      tmpobjdir = tmpobjdir,
-      mdlist = mdlist,
-      matlist_path = matlist_path,
-      datadir = datadir,
-      outdir = stability_outdir,
-      numreps = stability_numreps,
-      propcells.perrep = stability_propcells.perrep,
-      sweep_maxPCs = stability_sweep_maxPCs,
-      sweep_res = stability_sweep_res,
-      workernum = workernum,
-      stability_workernum = stability_workernum,
+      stability_numreps = stability_numreps,
+      stability_sweep_maxPCs = stability_sweep_maxPCs,
+      stability_sweep_res = stability_sweep_res,
+      stability_propcells.perrep = stability_propcells.perrep,
       risc_reference = risc_reference,
       RISC_louvain_neighbors = RISC_louvain_neighbors,
       input_seurat_obj = input_seurat_obj,
-      verbose = TRUE
+      stability_outdir = stability_outdir
     )
+    can_skip_stab <- .resume_can_load(
+      "stability",
+      pipeline_outdir,
+      fp_stab,
+      stability_outdir = stability_outdir
+    )
+    if (isTRUE(can_skip_stab)) {
+      message(
+        "Pipeline resume: loading completed stability sweep from ",
+        stability_outdir
+      )
+      auto_result <- .resume_load_stability_auto_selection(stability_outdir)
+    } else {
+      fps <- .resume_read_fingerprints(pipeline_outdir)
+      if (!is.null(fps$stability) && !identical(fps$stability, fp_stab)) {
+        .resume_invalidate_stability_rawouts(stability_outdir)
+      }
+      .resume_invalidate_from(pipeline_outdir, "stability")
+      if (is.null(tmpobjdir) && !is.null(outdir_indi)) {
+        tmpobjdir <- file.path(outdir_indi, ".tmp_Seurat_objects")
+      }
+      matlist_path <- file.path(outdir_int, "data_objects", ".concatmatrix.rds")
+      auto_result <- auto_integration_cluster_params(
+        integration_method = integration_method,
+        sample_metadata = sample_metadata,
+        pcs_int = pcs_int,
+        res_int = res_int,
+        tmpobjdir = tmpobjdir,
+        mdlist = mdlist,
+        matlist_path = matlist_path,
+        datadir = datadir,
+        outdir = stability_outdir,
+        numreps = stability_numreps,
+        propcells.perrep = stability_propcells.perrep,
+        sweep_maxPCs = stability_sweep_maxPCs,
+        sweep_res = stability_sweep_res,
+        workernum = workernum,
+        stability_workernum = stability_workernum,
+        risc_reference = risc_reference,
+        RISC_louvain_neighbors = RISC_louvain_neighbors,
+        input_seurat_obj = input_seurat_obj,
+        verbose = TRUE
+      )
+      .resume_mark_ok(pipeline_outdir, "stability", fp_stab)
+    }
     resolved <- resolve_integration_cluster_params(pcs_int, res_int, auto_result)
     pcs_int <- resolved$pcs_int
     res_int <- resolved$res_int
@@ -94,47 +135,105 @@ run_integration <- function(
   )
   check_integration_dependencies(config, pcs_int = pcs_int, res_int = res_int)
 
-  if (config$engine == "RISC") {
-    if (is.null(mdlist)) {
-      stop("mdlist is required for RISC integration.", call. = FALSE)
-    }
-    matlist_path <- file.path(outdir_int, "data_objects", ".concatmatrix.rds")
-    if (!file.exists(matlist_path) && !isTRUE(input_seurat_obj) && is.null(datadir)) {
-      stop(
-        "RISC requires prepare_integration_inputs() or datadir when input_seurat_obj is FALSE.",
-        call. = FALSE
-      )
-    }
-    res <- run_risc_integration(
-      mdlist = mdlist,
-      sample_metadata = sample_metadata,
-      outdir_int = outdir_int,
-      config = config,
-      matlist_path = matlist_path,
-      risc_reference = risc_reference,
-      workernum = workernum,
-      RISC_louvain_neighbors = RISC_louvain_neighbors
-    )
-  } else {
-    if (is.null(tmpobjdir)) {
-      if (!is.null(outdir_indi)) {
-        tmpobjdir <- file.path(outdir_indi, ".tmp_Seurat_objects")
-      } else {
-        stop("tmpobjdir or outdir_indi required for Seurat integration.", call. = FALSE)
-      }
-    }
-    res <- run_seurat_integration(
-      tmpobjdir = tmpobjdir,
-      sample_metadata = sample_metadata,
-      outdir_int = outdir_int,
-      config = config,
-      workernum = workernum
-    )
-  }
-
   outdir_int_objects <- file.path(outdir_int, "data_objects")
   dir.create(outdir_int_objects, recursive = TRUE, showWarnings = FALSE)
-  saveRDS(res$sobjint, file.path(outdir_int_objects, "Seurat-object_integrated.rds"))
+
+  fp_int <- .resume_fingerprint_integration(
+    sample_metadata = sample_metadata,
+    integration_method = integration_method,
+    pcs_int = pcs_int,
+    res_int = res_int,
+    risc_reference = risc_reference,
+    RISC_louvain_neighbors = RISC_louvain_neighbors,
+    input_seurat_obj = input_seurat_obj
+  )
+  can_skip_int <- .resume_can_load(
+    "integration",
+    pipeline_outdir,
+    fp_int,
+    outdir_int = outdir_int,
+    engine = config$engine
+  )
+
+  if (isTRUE(can_skip_int)) {
+    message(
+      "Pipeline resume: loading integrated objects from ",
+      outdir_int_objects
+    )
+    meta <- readRDS(file.path(outdir_int_objects, "integration_meta.rds"))
+    sobjint <- readRDS(file.path(outdir_int_objects, "Seurat-object_integrated.rds"))
+    ip <- NULL
+    ip_path <- file.path(outdir_int_objects, "integration_InPlot.rds")
+    if (file.exists(ip_path)) {
+      ip <- readRDS(ip_path)
+    }
+    if (is.null(ip)) {
+      ip <- meta$ip
+    }
+    res <- list(
+      sobjint = sobjint,
+      int_clust_lab = meta$int_clust_lab,
+      ip = ip,
+      refscore = meta$refscore,
+      selected_risc_reference = meta$selected_risc_reference
+    )
+  } else {
+    .resume_invalidate_from(pipeline_outdir, "integration")
+    if (config$engine == "RISC") {
+      if (is.null(mdlist)) {
+        stop("mdlist is required for RISC integration.", call. = FALSE)
+      }
+      matlist_path <- file.path(outdir_int, "data_objects", ".concatmatrix.rds")
+      if (!file.exists(matlist_path) && !isTRUE(input_seurat_obj) && is.null(datadir)) {
+        stop(
+          "RISC requires prepare_integration_inputs() or datadir when input_seurat_obj is FALSE.",
+          call. = FALSE
+        )
+      }
+      res <- run_risc_integration(
+        mdlist = mdlist,
+        sample_metadata = sample_metadata,
+        outdir_int = outdir_int,
+        config = config,
+        matlist_path = matlist_path,
+        risc_reference = risc_reference,
+        workernum = workernum,
+        RISC_louvain_neighbors = RISC_louvain_neighbors
+      )
+    } else {
+      if (is.null(tmpobjdir)) {
+        if (!is.null(outdir_indi)) {
+          tmpobjdir <- file.path(outdir_indi, ".tmp_Seurat_objects")
+        } else {
+          stop("tmpobjdir or outdir_indi required for Seurat integration.", call. = FALSE)
+        }
+      }
+      res <- run_seurat_integration(
+        tmpobjdir = tmpobjdir,
+        sample_metadata = sample_metadata,
+        outdir_int = outdir_int,
+        config = config,
+        workernum = workernum
+      )
+    }
+
+    saveRDS(res$sobjint, file.path(outdir_int_objects, "Seurat-object_integrated.rds"))
+    if (!is.null(res$ip)) {
+      saveRDS(res$ip, file.path(outdir_int_objects, "integration_InPlot.rds"))
+    }
+    saveRDS(
+      list(
+        int_clust_lab = res$int_clust_lab,
+        ip = res$ip,
+        refscore = res$refscore,
+        selected_risc_reference = res$selected_risc_reference,
+        pcs_int = as.integer(pcs_int)[1],
+        res_int = as.numeric(res_int)[1]
+      ),
+      file.path(outdir_int_objects, "integration_meta.rds")
+    )
+    .resume_mark_ok(pipeline_outdir, "integration", fp_int)
+  }
 
   out <- c(res, list(config = config))
   if (!is.null(auto_result)) {

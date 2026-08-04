@@ -56,7 +56,6 @@ params:
   input_seurat_obj: FALSE
   title: scDAPP Report
   author: Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues
-  force_redo: FALSE  
 title: "`r params$title`"
 date: "`r Sys.Date()`"
 author: "`r params$author`"
@@ -177,8 +176,7 @@ set.seed(2022)
 #   pathway_padj_thres = 0.1,
 #   species = 'Homo sapiens',
 #   workernum = 6,
-#   input_seurat_obj = T,
-#   force_redo = F
+#   input_seurat_obj = T
 # )
 
 
@@ -364,10 +362,6 @@ msigdb_celltype_ora_top_markers <- params$msigdb_celltype_ora_top_markers
 
 workernum <- params$workernum
 
-#redo / overwrite
-# force_redo <- params$force_redo
-force_redo = T
-
 
 # ## save the parameter choices
 # paramsave <- lapply(1:length(params), function(i){
@@ -531,6 +525,43 @@ pldf <- data.frame(parameter = names(pl),
 
 #write it out
 write.csv(pldf, paste0(outdir, '/pipeline_parameters.csv'), quote = F, row.names = F)
+
+# Pipeline resume: samples-stage fingerprint (comps/DE excluded)
+.resume_fp_samples <- scDAPP:::.resume_fingerprint_samples(
+  sample_metadata = sample_metadata,
+  datadir = datadir,
+  input_seurat_obj = input_seurat_obj,
+  min_num_UMI = min_num_UMI,
+  min_num_Feature = min_num_Feature,
+  max_perc_mito = max_perc_mito,
+  max_perc_hemoglobin = max_perc_hemoglobin,
+  autofilter_complexity = autofilter_complexity,
+  autofilter_mito = autofilter_mito,
+  autofilter_nUMI = autofilter_nUMI,
+  autofilter_medianabsolutedev_threshold = autofilter_medianabsolutedev_threshold,
+  autofilter_loess_negative_residual_threshold = autofilter_loess_negative_residual_threshold,
+  doubletFinder = doubletFinder,
+  cluster_unfiltered = cluster_unfiltered,
+  pcs_indi = pcs_indi,
+  res_indi = res_indi,
+  use_labeltransfer = use_labeltransfer,
+  refdatapath = if (exists("refdatapath")) refdatapath else NULL,
+  m_reference = if (exists("m_reference")) m_reference else NULL
+)
+resume_samples <- scDAPP:::.resume_can_load(
+  "samples",
+  outdir,
+  .resume_fp_samples,
+  sample_codes = as.character(sample_metadata$Code)
+)
+if (isTRUE(resume_samples)) {
+  message(
+    "Pipeline resume: will load per-sample QC/processing cache from ",
+    scDAPP:::.resume_root(outdir)
+  )
+} else {
+  scDAPP:::.resume_invalidate_from(outdir, "samples")
+}
 
 
 ```
@@ -825,14 +856,6 @@ if(input_seurat_obj == T){## read in
 
 ```{r filtering_main, message='hold', results='hide', message=F, fig.keep='all'}
 
-
-
-sobjlist <- lapply(sobjlist, scDAPP::add_per_sample_qc_metadata)
-
-
-
-#here we do most of the filtering 
-
 rawobjsdir <- paste0(outdir_indi, '/unfiltered_Seurat_objects')
 dir.create(rawobjsdir, recursive = T)
 
@@ -842,10 +865,20 @@ dir.create(outdir_indi_seuratobjs, recursive = T)
 qcdir <- paste0(outdir_indi, '/qualitycontrol_filtering')
 dir.create(qcdir, recursive = T)
 
+qctmpdir <- paste0(qcdir, '/qctmpdir/')
+
+if (isTRUE(resume_samples)) {
+  message("Pipeline resume: skipping QC/DoubletFinder; loading qc_report_state")
+  .resume_loaded <- scDAPP:::.resume_load_samples(outdir, as.character(sample_metadata$Code))
+  aflist <- .resume_loaded$aflist
+  mdlist <- .resume_loaded$mdlist
+  rm(.resume_loaded)
+} else {
+
+sobjlist <- lapply(sobjlist, scDAPP::add_per_sample_qc_metadata)
 
 #make a temp dir and run one at a time or parallel with foreach...
 ## remove seurat objects; save to tmp files instead...
-qctmpdir <- paste0(qcdir, '/qctmpdir/')
 dir.create(qctmpdir, recursive = T)
 sobjlist <- lapply(sobjlist, function(sobj){
   code <- sobj@project.name
@@ -935,6 +968,8 @@ names(mdlist) <- sample_metadata$Code
 #clean mem
 rm(af_md_list)
 invisible(gc(full = T, reset = F, verbose = F))
+
+} # end else (!resume_samples) QC compute
 
 
 
@@ -1461,7 +1496,11 @@ By default, we set the number of PCs to use as 30, which will be appropriate for
 
 ```{r preproc_individual_SCT, message='hold', results='hide', message=F, fig.keep='all'}
 
-
+# Stash QC report objects for resume cache (before cleanup)
+if (!isTRUE(resume_samples)) {
+  .resume_aflist_stash <- aflist
+  .resume_mdlist_stash <- mdlist
+}
 
 #clean up env
 rm(aflist, bsl, combmd, 
@@ -1474,38 +1513,23 @@ rm(aflist, bsl, combmd,
 
 invisible(gc(full = T, reset = F, verbose = F))
 
-
-#test if force_redo is T or if saved sobj result does not exist
-## if test == T, do it, if not skip it
-### WILL IMPLEMENT LATER
-
-
-### may implement later: read in serial, process parallel?
-# readin serial, split up according to num workers 
-# https://stackoverflow.com/questions/3318333/split-a-vector-into-chunks
-# x = sample_metadata$code; split(x, ceiling(seq_along(x)/workernum))
-
-# force_redo_test <- T
-
-
-
-
+if (isTRUE(resume_samples)) {
+  message("Pipeline resume: loading processed per-sample objects (skip SCT)")
+  .resume_loaded <- scDAPP:::.resume_load_samples(outdir, as.character(sample_metadata$Code))
+  sobjlist <- .resume_loaded$sobjlist
+  rm(.resume_loaded)
+} else {
 #read in data and run PCA
 
 sobjlist <- lapply(sample_metadata$Code, function(code){
   
   sobjfile <- paste0(qctmpdir, '/', code, '.rds')
-  # sobjfile <- paste0(outdir_indi_seuratobjs, '/SeuratObject-', code, '.rds')
   
   sobj <- readRDS(sobjfile)
   
   DefaultAssay(sobj) <- 'RNA'
   
   sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose, method = 'glmGamPoi', vst.flavor='v2')
-  #as of Aug 3 2024, turn off glmGamPoi due to error related to future global maxsize??
-  # also, vst.flaver = 'v2' appears to be the default
-  # sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose )
-  
   
   sobj <- RunPCA(sobj, assay = "SCT", verbose = verbose)
   
@@ -1515,13 +1539,8 @@ sobjlist <- lapply(sample_metadata$Code, function(code){
 
 names(sobjlist) <- sample_metadata$Code
 
-# #read from tmp dir
-# sobjfile <- paste0(qctmpdir, '/SeuratObject-', code, '.rds')
-
-# #remove tmp dir
 unlink(qctmpdir, recursive = T)
-
-
+} # end else SCT compute
 
 ## check elbow plot
 
@@ -1575,6 +1594,7 @@ This process allows us to group cells together based on transcriptomic similarit
 rm(elbowplots)
 invisible(gc(full = T, reset = F, verbose = F))
 
+if (!isTRUE(resume_samples)) {
 
 # ## using ndims_vec, continue individual sample pre-processing.
 # 
@@ -1660,7 +1680,22 @@ mlist_individualsamples_clusters <- lapply(sample_metadata$Code, function(code){
 
 names(mlist_individualsamples_clusters) <- sample_metadata$Code
 
-if (run_msigdb_celltype_ora) {
+} else {
+  # Resume: reload per-sample markers from prior CSV outputs when present
+  indimarkerdir <- paste0(outdir_indi, '/individualsample_clustermarkers/')
+  sampmarkersave <- paste0(indimarkerdir, '/markers-PCs_', pcs_indi, '-res_', res_indi, '/' )
+  mlist_individualsamples_clusters <- lapply(sample_metadata$Code, function(code) {
+    f <- paste0(sampmarkersave, code, '_clustermarkers.csv')
+    if (file.exists(f)) {
+      utils::read.csv(f, stringsAsFactors = FALSE)
+    } else {
+      data.frame()
+    }
+  })
+  names(mlist_individualsamples_clusters) <- sample_metadata$Code
+}
+
+if (run_msigdb_celltype_ora && !isTRUE(resume_samples)) {
   if (!("clusterProfiler" %in% rownames(utils::installed.packages()))) {
     stop("run_msigdb_celltype_ora is set to TRUE. Please install clusterProfiler first.")
   }
@@ -1736,7 +1771,7 @@ One way to do this is via "label transfer", an integration-based machine learnin
 
 
 
-if(use_labeltransfer == T){
+if(use_labeltransfer == T && !isTRUE(resume_samples)){
   
   
   labeltransfer_outdir_indi <- paste0(outdir_indi, '/labeltransfer/')
@@ -1912,6 +1947,21 @@ if(use_labeltransfer == T){
 
 
 
+```
+
+# Save per-sample resume cache (QC report + post-processing objects) after first successful run
+```{r resume_save_samples, results='hide', message=TRUE}
+if (!isTRUE(resume_samples) && exists(".resume_aflist_stash") && exists(".resume_mdlist_stash")) {
+  scDAPP:::.resume_save_samples(
+    outdir = outdir,
+    sobjlist = sobjlist,
+    aflist = .resume_aflist_stash,
+    mdlist = .resume_mdlist_stash,
+    fingerprint = .resume_fp_samples
+  )
+  rm(.resume_aflist_stash, .resume_mdlist_stash)
+  invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
+}
 ```
 
 
@@ -3014,7 +3064,8 @@ int_res <- scDAPP::run_integration(
   stability_numreps = stability_numreps,
   stability_sweep_maxPCs = stability_sweep_maxPCs,
   stability_sweep_res = stability_sweep_res,
-  stability_propcells.perrep = stability_propcells.perrep
+  stability_propcells.perrep = stability_propcells.perrep,
+  pipeline_outdir = outdir
 )
 
 sobjint <- int_res$sobjint
@@ -3208,8 +3259,12 @@ dir.create(outdir_indi_seuratobjs, recursive = T)
 
 predictionmats <- lapply(sample_metadata$Code, function(code){
   
-  #read in from temp dir
-  sobj <- readRDS(paste0(tmpobjdir, '/', code, '.rds'))
+  #read in from temp dir (or resume samples cache)
+  tmp_fp <- paste0(tmpobjdir, '/', code, '.rds')
+  if (!file.exists(tmp_fp)) {
+    tmp_fp <- file.path(scDAPP:::.resume_samples_dir(outdir), paste0(code, ".rds"))
+  }
+  sobj <- readRDS(tmp_fp)
   
   #subset intmd for this sample
   intmd_sub <- intmd[intmd$Code == code,]

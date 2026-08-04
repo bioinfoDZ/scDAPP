@@ -45,7 +45,10 @@ r_package_test <- function() {
 #' This will run a pipeline of Seurat individual sample analysis, RISC integration, and comparative DE. Multiple conditions (A vs B vs C) are supported. Also, pseudobulk DE or Wilcox are available for comparative DE. Finally, there is an option to use label transfer with a reference single-cell RNAseq dataset.
 #'
 #' @param datadir string, path to folder containing Cellranger output folders for each sample
-#' @param outdir string, path to output folder, will be created if doesn't already exist
+#' @param outdir string, path to output folder, will be created if doesn't already exist.
+#'   Re-runs into the same folder may resume QC, stability auto-tuning, and integration
+#'   from `{outdir}/.scdapp_resume/` when fingerprints match (see Documentation/Usage.md).
+#'   Comparative DE always re-runs. Delete `.scdapp_resume/` or use a new outdir to force full recompute.
 #' @param use_labeltransfer T/F, whether to use labeltransfer for cell type prediction, default = F
 #' @param refdatapath string, path to a Seurat object .rds file for labe latransfer, pre-processed with `Seurat::SCTransform()`, with a column called "Celltype" in its meta.data. Ignored if `use_labeltransfer` = F.
 #' @param m_reference string, path to .rds file containing output of `Seurat::FindAllMarkers` run on the reference object specified above. Ignored if `use_labeltransfer` = F
@@ -452,9 +455,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       input_seurat_obj = input_seurat_obj,
                       
                       title = title,
-                      author = author,
-                      
-                      force_redo = FALSE #maybe in future...
+                      author = author
                     ),
                     
                     #this line ensures html prints to outdir folder

@@ -13,6 +13,7 @@ For all changes, please update changelog and use Year-Month-Day
 - MSigDB pathway cache; cell-type marker ORA; DEG bar/dot plots; per-sample QC modules and `attach_scDAPP_pipeline_libraries()`.
 - New comparative designs cookbook ([Comparative_Designs.md](Comparative_Designs.md)) and Usage updates.
 - Apptainer-friendly pipeline render: copy Rmd to outdir before knitting.
+- Safe pipeline resume: fingerprint-gated caches under `{outdir}/.scdapp_resume/` for per-sample QC/processing, stability auto-tuning, and integration (including saved InPlot); comps/DE always re-run. Force a full recompute with a new outdir or by deleting `.scdapp_resume/`.
 
 ## 1.3.1
 2025.05.14
