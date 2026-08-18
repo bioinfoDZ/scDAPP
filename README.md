@@ -186,7 +186,7 @@ If you used scDAPP v1.3.x, note these **v2.0** breaking changes (full detail in 
 - **`comps.csv`:** use `c0` (reference) and `c1` (test); legacy `c2` is auto-renamed to `c0`.
 - **Integrated assay:** batch-corrected RISC expression is stored in Seurat assay **`Integrated_RISC`** (formerly `"RISC"`).
 - **MSigDB cache:** prepared pathway tables are cached under the user/R cache, not `multisample_integration/pathwayanalysis_crosscondition/msigdb_pathways.rds`.
-- **`cluster_unfiltered`:** default is `FALSE`; unfiltered Seurat RDS files are written only when set to `TRUE`.
+- **`cluster_unfiltered`:** default is `FALSE`; the `unfiltered_Seurat_objects/` folder and unfiltered Seurat RDS files are created only when set to `TRUE`.
 - **Module return types:** cross-condition modules return flat tables; see the Changelog if you call modules programmatically (the subclustering vignette is not yet fully updated).
 
 <br />

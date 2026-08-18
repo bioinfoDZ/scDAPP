@@ -20,7 +20,7 @@ auto_integration_cluster_params(
   sweep_res = seq(0.1, 1.5, by = 0.2),
   workernum = 1L,
   stability_workernum = NULL,
-  risc_reference = NULL,
+  risc_reference = "autoV2",
   RISC_louvain_neighbors = 10L,
   input_seurat_obj = FALSE,
   verbose = TRUE
@@ -57,7 +57,8 @@ auto_integration_cluster_params(
 
 \item{stability_workernum}{Parallel workers for sweep \code{foreach} stages; \code{NULL} uses \code{workernum}.}
 
-\item{risc_reference}{Optional RISC reference (Code or Sample).}
+\item{risc_reference}{Optional RISC reference: \code{"autoV2"} (default),
+\code{"auto"} for the legacy heuristic, or a sample Code/Sample name.}
 
 \item{RISC_louvain_neighbors}{RISC Louvain neighbors.}
 
@@ -66,7 +67,8 @@ auto_integration_cluster_params(
 \item{verbose}{Logical.}
 }
 \value{
-List with \code{pcs_int}, \code{res_int}, \code{stability}, \code{sweep_dir}.
+List with \code{pcs_int}, \code{res_int}, \code{stability}, \code{sweep_dir},
+and for RISC \code{selected_risc_reference} plus \code{risc_reference_selection}.
 }
 \description{
 Select integration PCs and resolution via cluster stability

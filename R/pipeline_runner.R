@@ -54,7 +54,7 @@ r_package_test <- function() {
 #' @param m_reference string, path to .rds file containing output of `Seurat::FindAllMarkers` run on the reference object specified above. Ignored if `use_labeltransfer` = F
 #' @param sample_metadata string, path to a .csv file containing at least two columns: "Sample", matching exactly the sample names in `datadir`, and "Condition", giving the experiment status of that sample, such as WT or KO, Case vs Control, etc. Optionally, can provide a third column "Code" giving a nickname for each sample; this is set to "Sample_Condition" for each sample if not.
 #' @param comps string, path to a .csv file with columns c0 (reference), c1 (test), and optional formula, contrast, label. Legacy c2 is accepted as alias for c0. Multiple comparisons are supported.
-#' @param risc_reference string, name of sample to use as RISC reference sample, if not provided will automate the choice
+#' @param risc_reference string; RISC reference sample. Default `"autoV2"` ranks InPlot-equivalent cluster > Stv > KS scores with a KS outlier veto. Use `"auto"` (alias `"autoV1"`) for the legacy size-weighted cluster-variance heuristic. Set to a sample `Code` or `Sample` name to force that reference (used for both the PC/res stability sweep and the final integration). `NULL` is the same as `"autoV2"`. RISC integration only.
 #' @param min_num_UMI numeric, default is 500, if no filter is desired set to -Inf
 #' @param min_num_Feature numeric, default is 200, if no filter is desired set to -Inf
 #' @param max_perc_mito numeric, default is 25, if no filter is desired set to Inf
@@ -248,7 +248,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(sample_metadata)){ sample_metadata = NULL}
   if(missing(comps)){ comps = NULL}
   
-  if(missing(risc_reference)){ risc_reference =  NULL}
+  if(missing(risc_reference)){ risc_reference =  "autoV2"}
   
   if(missing(min_num_UMI)){ min_num_UMI =  500}
   if(missing(min_num_Feature)){ min_num_Feature =  200}

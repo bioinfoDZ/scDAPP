@@ -396,40 +396,17 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
   risclist
 }
 
-#' Auto-select or validate RISC reference sample for stability integration.
+#' Look up a frozen RISC reference in a (possibly subset) risclist.
+#'
+#' Does not auto-select. Returns \code{NA} if the sample is absent (e.g. bootstrap dropout).
 #' @keywords internal
 .risc_stability_select_reference <- function(
     risclist,
     sample_metadata,
     risc_reference = NULL
 ) {
-  ref <- NULL
-  if (!is.null(risc_reference)) {
-    if (any(risc_reference %in% sample_metadata$Code)) {
-      ref <- which(sample_metadata$Code == risc_reference)[1]
-    } else if (any(risc_reference %in% sample_metadata$Sample)) {
-      ref <- which(sample_metadata$Sample == risc_reference)[1]
-    }
-  }
-  numclusts <- vapply(risclist, function(dat0) length(unique(dat0@coldata$seurat_clusters)), integer(1))
-  numcells_per_sample <- vapply(risclist, function(dat0) nrow(dat0@coldata), numeric(1))
-  numcells_per_sample <- numcells_per_sample / max(numcells_per_sample)
-  numclusts <- numclusts * numcells_per_sample
-  pbvar <- vapply(risclist, function(dat0) {
-    mat <- dat0@assay$logcount
-    md <- dat0@coldata
-    pb <- scDAPP::pseudobulk(obj = mat, metadata = md, grouping_colname_in_md = "seurat_clusters")
-    numcells <- table(md$seurat_clusters)
-    pb <- sweep(pb, 2, numcells, FUN = "/")
-    clustervar <- apply(pb, 2, var)
-    mean(clustervar)
-  }, numeric(1))
-  refscore <- numclusts * pbvar
-  names(refscore) <- sample_metadata$Code
-  if (is.null(ref)) {
-    ref <- which.max(refscore)
-  }
-  list(ref = ref, refscore = refscore)
+  ref <- .risc_reference_index_in_list(risclist, sample_metadata, risc_reference)
+  list(ref = ref, refscore = NULL)
 }
 
 #' Integrate RISC objects at given PC count
@@ -444,17 +421,14 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
   var0 <- Reduce(intersect, lapply(risclist, function(x) x@rowdata$Symbol))
   ref_info <- .risc_stability_select_reference(risclist, sample_metadata, risc_reference)
   ref <- ref_info$ref
-  if (ref != 1L) {
-    data0 <- list(risclist[[ref]])
-    names(data0) <- names(risclist)[ref]
-    for (i in seq_along(risclist)) {
-      if (i != ref) {
-        data0[[names(risclist)[i]]] <- risclist[[i]]
-      }
-    }
-  } else {
-    data0 <- risclist
+  if (is.na(ref) || is.null(ref)) {
+    stop(
+      "RISC reference '", risc_reference,
+      "' is not present in this RISC object list.",
+      call. = FALSE
+    )
   }
+  data0 <- .risc_put_reference_first(risclist, ref)
   data0 <- RISC::scMultiIntegrate(
     objects = data0,
     eigens = as.integer(pcs_int)[1],
@@ -606,33 +580,46 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
       cell_rownames = subcells,
       risc_ncore = risc_ncore
     )
-    backend <- list(
-      integrate_at_pcs = function(pcs) {
-        scDAPP:::.risc_stability_integrate(
-          risclist,
-          sample_metadata,
-          pcs,
-          risc_reference = risc_reference,
-          risc_ncore = risc_ncore
-        )
-      },
-      cluster_at_integrated = function(risc_state, pcs, res) {
-        scDAPP:::.risc_stability_cluster_at(
-          risc_state,
-          pcs,
-          res,
-          RISC_louvain_neighbors = RISC_louvain_neighbors
-        )
-      }
+    ref_idx <- scDAPP:::.risc_reference_index_in_list(
+      risclist,
+      sample_metadata,
+      risc_reference
     )
-    scDAPP:::.stability_sweep_save_params(
-      backend,
-      paramfield,
-      bootstrapresdir,
-      filename_prefix = paste0(bs_id, "."),
-      verbose = verbose
-    )
-    invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
+    if (is.na(ref_idx)) {
+      warning(
+        bs_id, ": RISC reference '", risc_reference,
+        "' missing from subsample; skipping replicate.",
+        call. = FALSE
+      )
+    } else {
+      backend <- list(
+        integrate_at_pcs = function(pcs) {
+          scDAPP:::.risc_stability_integrate(
+            risclist,
+            sample_metadata,
+            pcs,
+            risc_reference = risc_reference,
+            risc_ncore = risc_ncore
+          )
+        },
+        cluster_at_integrated = function(risc_state, pcs, res) {
+          scDAPP:::.risc_stability_cluster_at(
+            risc_state,
+            pcs,
+            res,
+            RISC_louvain_neighbors = RISC_louvain_neighbors
+          )
+        }
+      )
+      scDAPP:::.stability_sweep_save_params(
+        backend,
+        paramfield,
+        bootstrapresdir,
+        filename_prefix = paste0(bs_id, "."),
+        verbose = verbose
+      )
+      invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
+    }
   }, silent = !verbose)
   invisible(NULL)
 }
@@ -735,6 +722,9 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     get_globmd = function() state$globmd,
     get_risclist = function() state$risclist,
     get_matlist = function() state$matlist,
+    set_risc_reference = function(code) {
+      state$risc_reference <<- code
+    },
     prep_reference = function() {
       state$matlist <<- .stability_load_matlist(
         matlist_path = state$matlist_path,
@@ -1113,6 +1103,38 @@ cluster_stability_sweep <- function(
   samplecolumn <- backend$samplecolumn
   is_risc <- identical(backend$engine, "RISC")
   stability_workernum <- as.integer(stability_workernum)[1]
+  risc_reference_selection <- NULL
+
+  if (is_risc) {
+    existing_sel <- .risc_reference_selection_read(outdir)
+    spec_now <- .parse_risc_reference_arg(backend$risc_reference)
+    reuse_sel <- !is.null(existing_sel) &&
+      !is.null(existing_sel$selected_code) &&
+      identical(existing_sel$user_arg, spec_now$raw) &&
+      existing_sel$selected_code %in% backend$sample_metadata$Code
+    if (is.null(backend$get_risclist())) {
+      if (verbose) message("Preparing RISC objects for stability sweep")
+      backend$prep_reference()
+    }
+    if (isTRUE(reuse_sel)) {
+      risc_reference_selection <- existing_sel
+      if (is.function(backend$set_risc_reference)) {
+        backend$set_risc_reference(existing_sel$selected_code)
+      }
+      backend$risc_reference <- existing_sel$selected_code
+      if (verbose) {
+        message(
+          "RISC reference (", existing_sel$mode, "): ",
+          existing_sel$selected_code, " (from previous selection)"
+        )
+      }
+    } else {
+      risc_reference_selection <- .stability_risc_freeze_reference(
+        backend, outdir, verbose
+      )
+      backend$risc_reference <- risc_reference_selection$selected_code
+    }
+  }
 
   # --- Global reference clustering ---
   saved_globrefs <- gsub("\\.rds$", "", list.files(globrefdir))
@@ -1124,8 +1146,10 @@ cluster_stability_sweep <- function(
       if (verbose) message("Downsizing Seurat object to counts")
       backend$set_sobj(.stability_downsize_seurat_counts(backend$get_sobj()))
     }
-    if (verbose) message("Preparing reference data (integrate per PC during sweep)")
-    backend$prep_reference()
+    if (!is_risc) {
+      if (verbose) message("Preparing reference data (integrate per PC during sweep)")
+      backend$prep_reference()
+    }
 
     ref_workers <- .stability_effective_workers(
       length(globparamfield_run),
@@ -1466,6 +1490,10 @@ cluster_stability_sweep <- function(
     }
   }
 
+  if (!is.null(risc_reference_selection)) {
+    fulloutlist$risc_reference_selection <- risc_reference_selection
+  }
+
   fulloutlist
 }
 
@@ -1485,13 +1513,15 @@ cluster_stability_sweep <- function(
 #' @param sweep_res Resolution grid when \code{res_int = "auto"}.
 #' @param workernum Pipeline workers (used for final RISC integration and RISC ncore when sweep is serial).
 #' @param stability_workernum Parallel workers for sweep \code{foreach} stages; \code{NULL} uses \code{workernum}.
-#' @param risc_reference Optional RISC reference (Code or Sample).
+#' @param risc_reference Optional RISC reference: \code{"autoV2"} (default),
+#'   \code{"auto"} for the legacy heuristic, or a sample Code/Sample name.
 #' @param RISC_louvain_neighbors RISC Louvain neighbors.
 #' @param matlist_path \code{.concatmatrix.rds} from prep (RISC when \code{input_seurat_obj = TRUE}).
 #' @param datadir Raw h5 path (RISC when \code{input_seurat_obj = FALSE}).
 #' @param input_seurat_obj If \code{TRUE}, use \code{matlist_path}/\code{tmpobjdir} not \code{datadir}.
 #' @param verbose Logical.
-#' @return List with \code{pcs_int}, \code{res_int}, \code{stability}, \code{sweep_dir}.
+#' @return List with \code{pcs_int}, \code{res_int}, \code{stability}, \code{sweep_dir},
+#'   and for RISC \code{selected_risc_reference} plus \code{risc_reference_selection}.
 #' @export
 auto_integration_cluster_params <- function(
     integration_method,
@@ -1509,7 +1539,7 @@ auto_integration_cluster_params <- function(
     sweep_res = seq(0.1, 1.5, by = 0.2),
     workernum = 1L,
     stability_workernum = NULL,
-    risc_reference = NULL,
+    risc_reference = "autoV2",
     RISC_louvain_neighbors = 10L,
     input_seurat_obj = FALSE,
     verbose = TRUE
@@ -1573,7 +1603,13 @@ auto_integration_cluster_params <- function(
     sweep_dir = outdir,
     selected_params_i = stability$perparam_meanscores$params_i[
       stability$perparam_meanscores$MAX == "*"
-    ][1]
+    ][1],
+    selected_risc_reference = if (!is.null(stability$risc_reference_selection)) {
+      stability$risc_reference_selection$selected_code
+    } else {
+      NULL
+    },
+    risc_reference_selection = stability$risc_reference_selection
   )
 }
 
@@ -1670,7 +1706,18 @@ resolve_integration_cluster_params <- function(
   perparam$pcs_int <- vapply(parsed, function(x) x$pcs_int, integer(1L))
   perparam$res_int <- vapply(parsed, function(x) x$res_int, numeric(1))
   perparam <- perparam[order(-perparam$combinedscore), , drop = FALSE]
-  perparam$params_i <- factor(perparam$params_i, levels = rev(unique(perparam$params_i)))
+  id_levels <- rev(unique(as.character(perparam$params_i)))
+  perparam$params_i <- factor(perparam$params_i, levels = id_levels)
+  lab_map <- unique(data.frame(
+    params_i = as.character(perparam$params_i),
+    params_lab = sprintf("PC%d / res %s", perparam$pcs_int, perparam$res_int),
+    stringsAsFactors = FALSE
+  ))
+  lab_levels <- lab_map$params_lab[match(id_levels, lab_map$params_i)]
+  perparam$params_lab <- factor(
+    lab_map$params_lab[match(as.character(perparam$params_i), lab_map$params_i)],
+    levels = lab_levels
+  )
   perparam
 }
 
@@ -1704,15 +1751,12 @@ resolve_integration_cluster_params <- function(
 .stability_param_axis_text_size <- function(n_param) {
   n_param <- as.integer(n_param)[1]
   if (is.na(n_param) || n_param <= 16L) {
-    return(8)
+    return(10)
   }
   if (n_param <= 32L) {
-    return(7)
+    return(9)
   }
-  if (n_param <= 48L) {
-    return(6)
-  }
-  5
+  8
 }
 
 #' Save a ggplot to PDF with explicit width and height (non-interactive devices).
@@ -1724,7 +1768,9 @@ resolve_integration_cluster_params <- function(
   invisible(path)
 }
 
-#' PDF/HTML width/height per plot type for a given sweep grid
+#' PDF/HTML width/height per plot type for a given sweep grid.
+#' Ranked Y-axis plots (bar, bootstrap ARI, nclust) cap near 8-10 in so HTML
+#' does not downscale labels off the page.
 #' @keywords internal
 .stability_plot_save_dims <- function(perparam, perclust_df, selected_params_i) {
   perparam <- .prepare_stability_perparam(perparam)
@@ -1732,9 +1778,10 @@ resolve_integration_cluster_params <- function(
   n_pc <- length(unique(perparam$pcs_int))
   n_res <- length(unique(perparam$res_int))
 
-  # Horizontal param labels (Y axis): taller canvases for dense grids
-  bar_w <- min(14, max(8, 0.15 * n_param + 6))
-  bar_h <- min(18, max(6, 0.42 * n_param + 2.5))
+  # Ranked Y-axis plots: keep height near the HTML column so labels are not
+  # downscaled; width stays close to typical report width (~8-10 in).
+  bar_w <- min(10, max(8, 0.05 * n_param + 7.5))
+  bar_h <- min(10, max(6, 0.12 * n_param + 4))
 
   perclust_sel <- perclust_df[
     perclust_df$cparams_i == selected_params_i,
@@ -1772,7 +1819,7 @@ resolve_integration_cluster_params <- function(
     plot_df,
     ggplot2::aes(
       x = .data$combinedscore,
-      y = .data$params_i,
+      y = .data$params_lab,
       fill = .data$is_selected
     )
   ) +
@@ -1912,18 +1959,18 @@ resolve_integration_cluster_params <- function(
 .plot_stability_bootstrap_ari <- function(perbootstrap, perparam) {
   perparam <- .prepare_stability_perparam(perparam)
   plot_df <- perbootstrap
-  plot_df$params_i <- factor(
-    plot_df$params_i,
-    levels = levels(perparam$params_i)
+  plot_df$params_lab <- factor(
+    perparam$params_lab[match(as.character(plot_df$params_i), as.character(perparam$params_i))],
+    levels = levels(perparam$params_lab)
   )
-  y_size <- .stability_param_axis_text_size(nlevels(plot_df$params_i))
+  y_size <- .stability_param_axis_text_size(nlevels(plot_df$params_lab))
 
   ggplot2::ggplot(
     plot_df,
     ggplot2::aes(
       x = .data$ARI,
-      y = .data$params_i,
-      group = .data$params_i
+      y = .data$params_lab,
+      group = .data$params_lab
     )
   ) +
     ggplot2::geom_boxplot(fill = "grey85", outlier.size = 0.8, width = 0.6) +
@@ -1953,7 +2000,7 @@ resolve_integration_cluster_params <- function(
     plot_df,
     ggplot2::aes(
       x = .data$nClust_Ref,
-      y = .data$params_i,
+      y = .data$params_lab,
       fill = .data$is_selected
     )
   ) +

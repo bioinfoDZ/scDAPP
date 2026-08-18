@@ -15,7 +15,7 @@ run_integration(
   outdir_indi = NULL,
   pcs_int = 30L,
   res_int = 0.5,
-  risc_reference = NULL,
+  risc_reference = "autoV2",
   RISC_louvain_neighbors = 10L,
   workernum = 1L,
   stability_workernum = NULL,
@@ -24,7 +24,8 @@ run_integration(
   stability_numreps = 50L,
   stability_sweep_maxPCs = c(5, 10, 15, 20, 25, 30, 40, 50),
   stability_sweep_res = seq(0.1, 1.5, by = 0.2),
-  stability_propcells.perrep = 0.8
+  stability_propcells.perrep = 0.8,
+  pipeline_outdir = NULL
 )
 }
 \arguments{
@@ -48,7 +49,9 @@ run_integration(
 
 \item{res_int}{Louvain resolution, or \code{"auto"}.}
 
-\item{risc_reference}{RISC reference sample (Code or Sample); NULL = auto.}
+\item{risc_reference}{RISC reference: \code{"autoV2"} (default; InPlot-faithful),
+\code{"auto"} / \code{"autoV1"} (legacy heuristic), a sample Code/Sample name,
+or \code{NULL} (same as \code{"autoV2"}).}
 
 \item{RISC_louvain_neighbors}{Louvain neighbors (RISC only).}
 
@@ -67,11 +70,14 @@ run_integration(
 \item{stability_sweep_res}{Resolution grid for auto \code{res_int}.}
 
 \item{stability_propcells.perrep}{Cell fraction per bootstrap replicate.}
+
+\item{pipeline_outdir}{Pipeline root outdir for \code{.scdapp_resume/} (default: parent of \code{outdir_int}).}
 }
 \value{
 List with \code{sobjint}, \code{int_clust_lab}, \code{ip}, \code{config}.
-For RISC, also \code{refscore} (named by sample Code) and
-\code{selected_risc_reference}; both are \code{NULL} for Seurat methods.
+For RISC, also \code{refscore} (legacy auto named vector or NULL),
+\code{selected_risc_reference}, and \code{risc_reference_selection}.
+All three are \code{NULL} for Seurat methods.
 When auto tuning was used, includes \code{stability} and \code{auto_selection}.
 }
 \description{

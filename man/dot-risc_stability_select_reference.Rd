@@ -2,7 +2,7 @@
 % Please edit documentation in R/integration_stability.R
 \name{.risc_stability_select_reference}
 \alias{.risc_stability_select_reference}
-\title{Auto-select or validate RISC reference sample for stability integration.}
+\title{Look up a frozen RISC reference in a (possibly subset) risclist.}
 \usage{
 .risc_stability_select_reference(
   risclist,
@@ -11,6 +11,6 @@
 )
 }
 \description{
-Auto-select or validate RISC reference sample for stability integration.
+Does not auto-select. Returns \code{NA} if the sample is absent (e.g. bootstrap dropout).
 }
 \keyword{internal}

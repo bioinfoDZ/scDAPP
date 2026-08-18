@@ -10,7 +10,9 @@ run_risc_integration(
   outdir_int,
   config,
   matlist_path = NULL,
-  risc_reference = NULL,
+  risc_reference = "autoV2",
+  frozen_risc_reference = NULL,
+  risc_reference_selection = NULL,
   workernum = 1L,
   RISC_louvain_neighbors = 10L
 )
@@ -26,7 +28,14 @@ run_risc_integration(
 
 \item{matlist_path}{Path to \code{.concatmatrix.rds} from \code{prepare_integration_inputs()}.}
 
-\item{risc_reference}{Optional Code or Sample name for reference; NULL = auto.}
+\item{risc_reference}{Method keyword (\code{"autoV2"}, \code{"auto"}) or a
+sample Code/Sample name; \code{NULL} is the same as \code{"autoV2"}.}
+
+\item{frozen_risc_reference}{Optional Code already chosen (stability sweep);
+when set, this sample is used and is not re-selected.}
+
+\item{risc_reference_selection}{Optional list from \code{.risc_resolve_reference()}
+(reused for the report when the sweep already selected a reference).}
 
 \item{workernum}{Parallel workers.}
 
@@ -34,8 +43,9 @@ run_risc_integration(
 }
 \value{
 List with \code{sobjint}, \code{int_clust_lab}, \code{ip} (InPlot patchwork),
-\code{refscore} (named numeric vector by sample Code), and
-\code{selected_risc_reference} (Code of the reference sample used).
+\code{refscore} (legacy auto named vector or NULL),
+\code{selected_risc_reference}, \code{risc_reference_selection},
+and \code{risc_reference_mode}.
 }
 \description{
 Run RISC scMultiIntegrate workflow and build Integrated_RISC Seurat object.

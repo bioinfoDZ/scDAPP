@@ -12,7 +12,9 @@
 #' @param outdir_indi Individual-sample output folder.
 #' @param pcs_int PCs for integration, or \code{"auto"} for stability-based selection.
 #' @param res_int Louvain resolution, or \code{"auto"}.
-#' @param risc_reference RISC reference sample (Code or Sample); NULL = auto.
+#' @param risc_reference RISC reference: \code{"autoV2"} (default; InPlot-faithful),
+#'   \code{"auto"} / \code{"autoV1"} (legacy heuristic), a sample Code/Sample name,
+#'   or \code{NULL} (same as \code{"autoV2"}).
 #' @param RISC_louvain_neighbors Louvain neighbors (RISC only).
 #' @param workernum Parallel workers for final RISC integration (\code{InPlot}, \code{scMultiIntegrate}).
 #' @param stability_workernum Parallel workers for auto stability sweep; \code{NULL} uses \code{workernum}.
@@ -24,8 +26,9 @@
 #' @param stability_propcells.perrep Cell fraction per bootstrap replicate.
 #' @param pipeline_outdir Pipeline root outdir for \code{.scdapp_resume/} (default: parent of \code{outdir_int}).
 #' @return List with \code{sobjint}, \code{int_clust_lab}, \code{ip}, \code{config}.
-#'   For RISC, also \code{refscore} (named by sample Code) and
-#'   \code{selected_risc_reference}; both are \code{NULL} for Seurat methods.
+#'   For RISC, also \code{refscore} (legacy auto named vector or NULL),
+#'   \code{selected_risc_reference}, and \code{risc_reference_selection}.
+#'   All three are \code{NULL} for Seurat methods.
 #'   When auto tuning was used, includes \code{stability} and \code{auto_selection}.
 #' @export
 run_integration <- function(
@@ -39,7 +42,7 @@ run_integration <- function(
     outdir_indi = NULL,
     pcs_int = 30L,
     res_int = 0.5,
-    risc_reference = NULL,
+    risc_reference = "autoV2",
     RISC_louvain_neighbors = 10L,
     workernum = 1L,
     stability_workernum = NULL,
@@ -175,7 +178,9 @@ run_integration <- function(
       int_clust_lab = meta$int_clust_lab,
       ip = ip,
       refscore = meta$refscore,
-      selected_risc_reference = meta$selected_risc_reference
+      selected_risc_reference = meta$selected_risc_reference,
+      risc_reference_selection = meta$risc_reference_selection,
+      risc_reference_mode = meta$risc_reference_mode
     )
   } else {
     .resume_invalidate_from(pipeline_outdir, "integration")
@@ -197,6 +202,16 @@ run_integration <- function(
         config = config,
         matlist_path = matlist_path,
         risc_reference = risc_reference,
+        frozen_risc_reference = if (!is.null(auto_result)) {
+          auto_result$selected_risc_reference
+        } else {
+          NULL
+        },
+        risc_reference_selection = if (!is.null(auto_result)) {
+          auto_result$risc_reference_selection
+        } else {
+          NULL
+        },
         workernum = workernum,
         RISC_louvain_neighbors = RISC_louvain_neighbors
       )
@@ -227,6 +242,8 @@ run_integration <- function(
         ip = res$ip,
         refscore = res$refscore,
         selected_risc_reference = res$selected_risc_reference,
+        risc_reference_selection = res$risc_reference_selection,
+        risc_reference_mode = res$risc_reference_mode,
         pcs_int = as.integer(pcs_int)[1],
         res_int = as.numeric(res_int)[1]
       ),
@@ -242,7 +259,8 @@ run_integration <- function(
       pcs_int = auto_result$pcs_int,
       res_int = auto_result$res_int,
       selected_params_i = auto_result$selected_params_i,
-      sweep_dir = auto_result$sweep_dir
+      sweep_dir = auto_result$sweep_dir,
+      selected_risc_reference = auto_result$selected_risc_reference
     )
   }
   out
@@ -310,12 +328,18 @@ prepare_integration_inputs <- function(
 #' @param outdir_int Integrated analysis output directory.
 #' @param config List from \code{resolve_integration_config()}.
 #' @param matlist_path Path to \code{.concatmatrix.rds} from \code{prepare_integration_inputs()}.
-#' @param risc_reference Optional Code or Sample name for reference; NULL = auto.
+#' @param risc_reference Method keyword (\code{"autoV2"}, \code{"auto"}) or a
+#'   sample Code/Sample name; \code{NULL} is the same as \code{"autoV2"}.
+#' @param frozen_risc_reference Optional Code already chosen (stability sweep);
+#'   when set, this sample is used and is not re-selected.
+#' @param risc_reference_selection Optional list from \code{.risc_resolve_reference()}
+#'   (reused for the report when the sweep already selected a reference).
 #' @param workernum Parallel workers.
 #' @param RISC_louvain_neighbors Nearest neighbors for Louvain clustering.
 #' @return List with \code{sobjint}, \code{int_clust_lab}, \code{ip} (InPlot patchwork),
-#'   \code{refscore} (named numeric vector by sample Code), and
-#'   \code{selected_risc_reference} (Code of the reference sample used).
+#'   \code{refscore} (legacy auto named vector or NULL),
+#'   \code{selected_risc_reference}, \code{risc_reference_selection},
+#'   and \code{risc_reference_mode}.
 #' @keywords internal
 run_risc_integration <- function(
     mdlist,
@@ -323,7 +347,9 @@ run_risc_integration <- function(
     outdir_int,
     config,
     matlist_path = NULL,
-    risc_reference = NULL,
+    risc_reference = "autoV2",
+    frozen_risc_reference = NULL,
+    risc_reference_selection = NULL,
     workernum = 1L,
     RISC_louvain_neighbors = 10L
 ) {
@@ -386,48 +412,49 @@ run_risc_integration <- function(
   ip <- patchwork::wrap_plots(ip)
   grDevices::dev.off()
 
-  ref <- NULL
-  if (!is.null(risc_reference)) {
-    if (any(risc_reference %in% sample_metadata$Code)) {
-      ref <- which(sample_metadata$Code == risc_reference)[1]
-    } else if (any(risc_reference %in% sample_metadata$Sample)) {
-      ref <- which(sample_metadata$Sample == risc_reference)[1]
-    }
-  }
-
-  numclusts <- vapply(risclist, function(dat0) length(unique(dat0@coldata$seurat_clusters)), integer(1))
-  numcells_per_sample <- vapply(risclist, function(dat0) nrow(dat0@coldata), numeric(1))
-  numcells_per_sample <- numcells_per_sample / max(numcells_per_sample)
-  numclusts <- numclusts * numcells_per_sample
-
-  pbvar <- vapply(risclist, function(dat0) {
-    mat <- dat0@assay$logcount
-    md <- dat0@coldata
-    pb <- scDAPP::pseudobulk(obj = mat, metadata = md, grouping_colname_in_md = "seurat_clusters")
-    numcells <- table(md$seurat_clusters)
-    pb <- sweep(pb, 2, numcells, FUN = "/")
-    clustervar <- apply(pb, 2, var)
-    mean(clustervar)
-  }, numeric(1))
-
-  refscore <- numclusts * pbvar
-  names(refscore) <- sample_metadata$Code
-  if (is.null(ref)) {
-    ref <- which.max(refscore)
-  }
-  selected_risc_reference <- sample_metadata$Code[ref]
-
-  if (ref != 1L) {
-    data0 <- list(risclist[[ref]])
-    names(data0) <- names(risclist)[ref]
-    for (i in seq_along(risclist)) {
-      if (i != ref) {
-        data0[[names(risclist)[i]]] <- risclist[[i]]
+  if (!is.null(frozen_risc_reference) && nzchar(as.character(frozen_risc_reference)[1])) {
+    ref <- .risc_lookup_reference_index(
+      sample_metadata,
+      frozen_risc_reference,
+      required = TRUE
+    )
+    selected_risc_reference <- as.character(sample_metadata$Code)[ref]
+    if (is.null(risc_reference_selection)) {
+      risc_reference_selection <- .risc_resolve_reference(
+        risclist,
+        sample_metadata,
+        risc_reference = risc_reference,
+        ncore = workernum,
+        var.gene = var0
+      )
+      risc_reference_selection$selected_code <- selected_risc_reference
+      if (!is.null(risc_reference_selection$table) &&
+          "Selected" %in% names(risc_reference_selection$table)) {
+        risc_reference_selection$table$Selected <- ifelse(
+          as.character(risc_reference_selection$table$Code) == selected_risc_reference,
+          "*",
+          ""
+        )
       }
     }
   } else {
-    data0 <- risclist
+    risc_reference_selection <- .risc_resolve_reference(
+      risclist,
+      sample_metadata,
+      risc_reference = risc_reference,
+      ncore = workernum,
+      var.gene = var0
+    )
+    selected_risc_reference <- risc_reference_selection$selected_code
+    ref <- .risc_lookup_reference_index(
+      sample_metadata,
+      selected_risc_reference,
+      required = TRUE
+    )
   }
+  .risc_reference_selection_write(risc_reference_selection, outdir_int_objects)
+  refscore <- risc_reference_selection$refscore
+  data0 <- .risc_put_reference_first(risclist, ref)
   rm(risclist)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
 
@@ -495,7 +522,9 @@ run_risc_integration <- function(
     int_clust_lab = int_clust_lab,
     ip = ip,
     refscore = refscore,
-    selected_risc_reference = selected_risc_reference
+    selected_risc_reference = selected_risc_reference,
+    risc_reference_selection = risc_reference_selection,
+    risc_reference_mode = risc_reference_selection$mode
   )
 }
 
@@ -739,6 +768,8 @@ run_seurat_integration <- function(
     int_clust_lab = int_clust_lab,
     ip = NULL,
     refscore = NULL,
-    selected_risc_reference = NULL
+    selected_risc_reference = NULL,
+    risc_reference_selection = NULL,
+    risc_reference_mode = NULL
   )
 }

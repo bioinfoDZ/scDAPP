@@ -17,7 +17,8 @@ de_across_conditions_module(
   cluster_prefix,
   crossconditionDE_padj_thres,
   crossconditionDE_lfc_thres,
-  crossconditionDE_min.pct
+  crossconditionDE_min.pct,
+  workernum = 1L
 )
 }
 \arguments{
@@ -28,14 +29,15 @@ de_across_conditions_module(
 \item{comps}{data.frame defining comparisons. Required: \code{c0} (reference) and
 \code{c1} (test; log2FC is c1 vs c0). Optional: \code{formula} (default
 \code{~ Condition}), \code{contrast}, and \code{label} (default
-\code{c1_vs_c0}). See examples for \code{contrast} usage. Deprecated \code{c2}
-is renamed to \code{c0}.}
+\code{c1_vs_c0}). For paired pseudobulk DE with \code{DE_test = "Dream"}, include
+an intercept random effect such as \code{~ Condition + (1|Patient)}. Deprecated
+\code{c2} is renamed to \code{c0}.}
 
 \item{grouping_variable}{string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters". It is not mandatory, but will use factor level ordering of this variable in the meta.data to control analysis order, and if not will sort by alphanumeric order (cluster 1, then 2, cluster A, then B, etc)}
 
 \item{Pseudobulk_mode}{T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the \code{prop.test()} function for compositional analysis.}
 
-\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
+\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" for pseudobulk (Dream requires \code{variancePartition} and a \code{(1|var)} term in \code{comps$formula}), or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
 
 \item{outdir_int}{optional path to save CSVs under
 \code{differentialexpression_crosscondition/}. Writes
@@ -57,6 +59,8 @@ column names for downstream code.}
 \item{crossconditionDE_lfc_thres}{numeric; absolute logFC minimum for calling DEGs. If missing, 0 when pseudobulk, 0.25 when Wilcox.}
 
 \item{crossconditionDE_min.pct}{numeric; minimum \code{pct.1} (up) or \code{pct.2} (down) to count as a DEG. If missing, 0.1 when pseudobulk, 0 when Wilcox. See \code{crosscondition_de_threshold_defaults()}.}
+
+\item{workernum}{integer; parallel workers for Dream (\code{BiocParallel}); default 1.}
 }
 \value{
 A single harmonized data.frame with one row per gene x cluster x comparison. Metadata
@@ -66,7 +70,7 @@ columns: \code{label}, \code{formula}, \code{c0}, \code{c1}, \code{contrast},
 count columns). \code{weight} is \eqn{-\log_{10}(p) \times \mathrm{sign}(log2FC)}.
 }
 \description{
-This is a modular component of the scDAPP scRNAseq pipeline. Perform DE analysis across conditions. Supports A vs B vs C pairwise (multiple conditions) comparisons. Options for Pseudobulk DE via EdgeR - LRT, or old-school scRNAseq DE via wilcoxon test.
+This is a modular component of the scDAPP scRNAseq pipeline. Perform DE analysis across conditions. Supports A vs B vs C pairwise (multiple conditions) comparisons. Options for Pseudobulk DE via EdgeR - LRT, DREAM (paired / mixed models), or old-school scRNAseq DE via wilcoxon test.
 }
 \examples{
 \dontrun{

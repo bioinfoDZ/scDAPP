@@ -6,8 +6,8 @@ This cookbook shows how to set up common cross-condition comparisons in scDAPP. 
 
 - `c0` = reference condition; `c1` = test condition. Positive log2FC (and higher proportions) favor **c1**. Examples below use `Control` / `Treatment`. Legacy `c1,c2` files still work (`c2` is renamed to `c0`).
 - We have introduced `formula` **/ covariates / random effects**, which apply to **pseudobulk DE** and **propeller** compositional analysis. These are most important for multivariable models (controlling for confounders), interaction models, and random-effect models. They do not modify non-pseudobulk comparative analyses.
-- **Compositional analysis:** `Pseudobulk_mode = TRUE` → propeller (same contrast grammar as the run’s `DE_test`); `FALSE` → two-proportion `prop.test()` per cluster.
-- **Preflight** validates formulas/contrasts early (Rmd + DE/compositional modules). Sparse clusters that cannot estimate a contrast are **soft-skipped** (warning + empty result for that cluster), not a full abort.
+- **Compositional analysis:** `Pseudobulk_mode = TRUE` → propeller (same contrast grammar as the run’s `DE_test`); `FALSE` → two-proportion `prop.test()` per cluster. Report `PropMean_c1` / `PropMean_c0` are mean cluster proportions in **c1** and **c0** when the contrast is Condition c1 vs c0 (simple or covariate-adjusted). They are omitted for a **single coefficient** such as an interaction term.
+- **Preflight** validates formulas/contrasts early (Rmd + DE/compositional modules). For propeller this includes the cell-means design (`~ 0 + Condition + …`) and pairing (`(1|var)`). Sparse clusters that cannot estimate a **DE** contrast are **soft-skipped** (warning + empty result for that cluster), not a full abort. A comps contrast that cannot map to the propeller design **stops** before the pipeline runs.
 - **Reference levels:** `Condition` (and other design factors) use level order = **first appearance in** `sample_metadata`. Under treatment coding, the first level is the design reference (intercept). Put Control (or the reference genotype) rows first when you want them as the reference. Pairwise comps still use `c0`/`c1` (blank `contrast` → Condition c1 vs c0).
 - **Joint modeling:** All samples and conditions are normalized and fit together through DESeq2 / EdgeR at the same time (by celltype). Each row of comps now just extracts the relevant contrast.
 
@@ -16,15 +16,15 @@ This cookbook shows how to set up common cross-condition comparisons in scDAPP. 
 ### `DE_test` now includes more options
 
 
-| `DE_test` | Notes |
-| --------- | ----- |
-| `"EdgeR-LRT"` | Default when `Pseudobulk_mode = TRUE`; GLM + per-contrast likelihood-ratio test |
-| `"EdgeR-QLF"` | GLM + per-contrast quasi-likelihood F-test (same comps/contrasts as LRT) |
-| `"EdgeR"` | exactTest for simple 2-group `~ Condition` only |
-| `"DESeq2"` | Pseudobulk Wald; needs Bioconductor `DESeq2` |
-| `"DESeq2-LRT"` | Nested LRT per comps contrast; LRT p-values + contrast LFC |
-| `"Dream"` | Paired / random-effect mixed models via `variancePartition`; requires a random-effect term in `formula` (see §6); EdgeR-style contrasts |
-| `"wilcox"` (default), `wilcox_limma`, `bimod`, `t`, `negbinom`, `poisson`, `LR`, `MAST`, `DESeq2` (Seurat `FindMarkers` tests; `roc` not supported) | Single cell tests, use only when no replicates are available. Default when `Pseudobulk_mode = FALSE` is Seurat `FindMarkers` Wilcoxon. |
+| `DE_test`                                                                                                                               | Notes                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"EdgeR-LRT"`                                                                                                                           | Default when `Pseudobulk_mode = TRUE`; GLM + per-contrast likelihood-ratio test                                                                   |
+| `"EdgeR-QLF"`                                                                                                                           | GLM + per-contrast quasi-likelihood F-test (same comps/contrasts as LRT)                                                                          |
+| `"EdgeR"`                                                                                                                               | exactTest for simple 2-group `~ Condition` only                                                                                                   |
+| `"DESeq2"`                                                                                                                              | Pseudobulk Wald; needs Bioconductor `DESeq2`                                                                                                      |
+| `"DESeq2-LRT"`                                                                                                                          | Nested LRT per comps contrast; LRT p-values + contrast LFC                                                                                        |
+| `"Dream"`                                                                                                                               | Paired / random-effect mixed models via `variancePartition`; requires a random-effect term in `formula` (see Section 6); EdgeR-style contrasts    |
+| `wilcox`, `wilcox_limma`, `bimod`, `t`, `negbinom`, `poisson`, `LR`, `MAST`, `DESeq2` (Seurat `FindMarkers` tests; `roc` not supported) | Single cell tests, use only when no replicates are available. Default when `Pseudobulk_mode = FALSE` is Seurat `FindMarkers` Wilcoxon ("wilcox"). |
 
 
 
@@ -257,7 +257,7 @@ Use `EdgeR-LRT`, `EdgeR-QLF`, or DESeq2* here — not `EdgeR` exactTest.
 
 **When to use:** Ask whether the Condition effect differs by a second factor (e.g. Genotype); prefer ≥2 samples per Condition×factor cell.
 
-**Compositional analysis:** Propeller with the interaction `formula` and the same contrast grammar (main-effect or interaction coefficient).
+**Compositional analysis:** Propeller with the interaction `formula` and the same contrast grammar (main-effect or interaction coefficient). A main-effect Condition c1 vs c0 contrast still reports `PropMean_c1` / `PropMean_c0`; an interaction-coefficient contrast reports the coefficient test (`PropRatio` / t / P) and leaves those mean columns NA.
 
 Fit `~ Condition * Genotype` (equivalent to `Condition + Genotype + Condition:Genotype`). Report either the **main Condition effect** or the **interaction term** (often the scientific focus).
 

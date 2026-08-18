@@ -3,7 +3,7 @@
 For all changes, please update changelog and use Year-Month-Day
 
 ## 2.0.0
-2026.08.01
+2026.08.18
 
 - Multi-backend integration via `integration_method` (RISC default, plus Seurat CCA/RPCA/Harmony and SCT variants); integrated RISC assay renamed to `Integrated_RISC`.
 - Cluster-stability auto-tuning: `pcs_int` / `res_int` can be `"auto"` (bootstrap ARI + Jaccard) before the final integration.
@@ -14,6 +14,9 @@ For all changes, please update changelog and use Year-Month-Day
 - New comparative designs cookbook ([Comparative_Designs.md](Comparative_Designs.md)) and Usage updates.
 - Apptainer-friendly pipeline render: copy Rmd to outdir before knitting.
 - Safe pipeline resume: fingerprint-gated caches under `{outdir}/.scdapp_resume/` for per-sample QC/processing, stability auto-tuning, and integration (including saved InPlot); comps/DE always re-run. Force a full recompute with a new outdir or by deleting `.scdapp_resume/`.
+- RISC reference default `"autoV2"` (InPlot-equivalent rank with KS veto); chosen sample is frozen for the stability sweep and final integration (`"auto"` / `"autoV1"` keeps the legacy heuristic).
+- Propeller multivariable/interaction tables stay one row per cluster; preflight also checks the propeller design and pairing.
+- Combined per-sample cluster-marker and MSigDB cell-type ORA CSVs (`all_samples_clustermarkers.csv`, `all_samples_ora_results.csv`).
 
 ## 1.3.1
 2025.05.14

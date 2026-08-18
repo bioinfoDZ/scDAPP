@@ -16,7 +16,7 @@ params:
   m_reference: NULL
   sample_metadata: NULL
   comps: NULL
-  risc_reference: NULL
+  risc_reference: "autoV2"
   min_num_UMI: 500
   min_num_Feature: 200
   max_perc_mito: 25
@@ -61,9 +61,30 @@ date: "`r Sys.Date()`"
 author: "`r params$author`"
 ---
 
-
-
-
+```{css toc-float-horizontal, echo=FALSE}
+/* Keep the floating TOC in the left column: stick on vertical scroll, not on
+   horizontal pan. Overrides jquery.tocify's position:fixed. Keep in sync with
+   tests/TEST_OUTPUTS/toc_float_layout_smoke/toc_float_layout_smoke.Rmd */
+@media (min-width: 768px) {
+  /* Stretch the TOC column to the content height so position:sticky can pin. */
+  .container-fluid.main-container > .row {
+    display: flex;
+    align-items: stretch;
+  }
+  div.tocify {
+    position: sticky !important;
+    top: 1rem;
+    left: auto !important;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-height: calc(100vh - 2rem);
+  }
+}
+.toc-content {
+  overflow-x: auto;
+  max-width: 100%;
+}
+```
 
 ```{r setup}
 
@@ -257,13 +278,8 @@ if(is.null(Pseudobulk_mode)){stop('Please set "Pseudobulk_mode" as either TRUE o
 pwaycats <- c("HALLMARK", "GO_BP", "GO_MF", "GO_CC", "CP_REACTOME", "CP_KEGG")
 
 
-#get risc reference
+#get risc reference: "autoV2" (default), "auto"/"autoV1" (legacy), or a sample Code/Sample
 risc_reference <- params$risc_reference
-
-# code for risc_reference works best if its set to NULL rather than "auto" string
-if(!is.null(risc_reference)){
-  if(risc_reference == 'auto'){ risc_reference <- NULL }
-}
 
 
 #autofilter parameters
@@ -464,6 +480,9 @@ scDAPP:::.preflight_comps_design(
   DE_test = DE_test,
   Pseudobulk_mode = Pseudobulk_mode
 )
+if (isTRUE(Pseudobulk_mode)) {
+  scDAPP:::.preflight_propeller_comps(sample_metadata, comps, DE_test)
+}
 comps <- scDAPP:::.apply_contrast_defaults(comps, DE_test)
 
 
@@ -495,7 +514,7 @@ pl <- list(datadir = datadir,
            doubletFinder = doubletFinder,
            cluster_unfiltered = cluster_unfiltered,
            
-           risc_reference = ifelse(is.null(risc_reference), 'auto', risc_reference) ,
+           risc_reference = ifelse(is.null(risc_reference), 'autoV2', as.character(risc_reference)[1]) ,
            
            pcs_indi = pcs_indi,
            res_indi = res_indi,
@@ -856,8 +875,11 @@ if(input_seurat_obj == T){## read in
 
 ```{r filtering_main, message='hold', results='hide', message=F, fig.keep='all'}
 
-rawobjsdir <- paste0(outdir_indi, '/unfiltered_Seurat_objects')
-dir.create(rawobjsdir, recursive = T)
+rawobjsdir <- NULL
+if (isTRUE(cluster_unfiltered)) {
+  rawobjsdir <- paste0(outdir_indi, '/unfiltered_Seurat_objects')
+  dir.create(rawobjsdir, recursive = T)
+}
 
 outdir_indi_seuratobjs <- paste0(outdir_indi, '/processed_Seurat_objects')
 dir.create(outdir_indi_seuratobjs, recursive = T)
@@ -940,7 +962,11 @@ af_md_list <- foreach(code = sample_metadata$Code,
     doubletFinder = doubletFinder,
     cluster_unfiltered = cluster_unfiltered,
     qctmp_path = paste0(qctmpdir, '/', code, '.rds'),
-    rawobj_path = paste0(rawobjsdir, '/Unfiltered-SeuratObject-', code, '.rds'),
+    rawobj_path = if (isTRUE(cluster_unfiltered)) {
+      paste0(rawobjsdir, '/Unfiltered-SeuratObject-', code, '.rds')
+    } else {
+      NULL
+    },
     qc_pdf_path = paste0(qcdir, '/QC_autofilter_summary-', code, '.pdf')
   )
 
@@ -1720,6 +1746,67 @@ if (run_msigdb_celltype_ora && !isTRUE(resume_samples)) {
   msigdb_celltype_ora_indi_plots <- list()
 }
 
+dir.create(sampmarkersave, recursive = TRUE, showWarnings = FALSE)
+.marker_ok <- vapply(
+  mlist_individualsamples_clusters,
+  function(x) is.data.frame(x) && nrow(x) > 0,
+  logical(1)
+)
+if (any(.marker_ok)) {
+  markers_combined <- dplyr::bind_rows(
+    mlist_individualsamples_clusters[.marker_ok],
+    .id = "Sample"
+  )
+  utils::write.csv(
+    markers_combined,
+    file.path(sampmarkersave, "all_samples_clustermarkers.csv"),
+    quote = FALSE,
+    row.names = FALSE
+  )
+}
+
+if (isTRUE(run_msigdb_celltype_ora)) {
+  ora_combined <- NULL
+  if (exists("msigdb_celltype_ora_indi_results") &&
+      is.list(msigdb_celltype_ora_indi_results) &&
+      length(msigdb_celltype_ora_indi_results)) {
+    ora_list <- lapply(msigdb_celltype_ora_indi_results, `[[`, "ora_results")
+    ora_ok <- vapply(ora_list, function(x) is.data.frame(x) && nrow(x) > 0, logical(1))
+    if (any(ora_ok)) {
+      ora_combined <- dplyr::bind_rows(ora_list[ora_ok])
+    }
+  } else {
+    ora_files <- file.path(
+      outdir_indi,
+      "celltype_marker_prediction",
+      as.character(sample_metadata$Code),
+      "ora_results.csv"
+    )
+    ora_files <- ora_files[file.exists(ora_files)]
+    if (length(ora_files)) {
+      ora_from_disk <- lapply(ora_files, utils::read.csv, stringsAsFactors = FALSE)
+      ora_ok_disk <- vapply(
+        ora_from_disk,
+        function(x) is.data.frame(x) && nrow(x) > 0,
+        logical(1)
+      )
+      if (any(ora_ok_disk)) {
+        ora_combined <- dplyr::bind_rows(ora_from_disk[ora_ok_disk])
+      }
+    }
+  }
+  if (!is.null(ora_combined) && nrow(ora_combined)) {
+    ora_combined_dir <- file.path(outdir_indi, "celltype_marker_prediction")
+    dir.create(ora_combined_dir, recursive = TRUE, showWarnings = FALSE)
+    utils::write.csv(
+      ora_combined,
+      file.path(ora_combined_dir, "all_samples_ora_results.csv"),
+      quote = FALSE,
+      row.names = FALSE
+    )
+  }
+}
+
 
 
 # future::plan(strategy = 'sequential')
@@ -1949,8 +2036,7 @@ if(use_labeltransfer == T && !isTRUE(resume_samples)){
 
 ```
 
-# Save per-sample resume cache (QC report + post-processing objects) after first successful run
-```{r resume_save_samples, results='hide', message=TRUE}
+```{r resume_save_samples, include=FALSE}
 if (!isTRUE(resume_samples) && exists(".resume_aflist_stash") && exists(".resume_mdlist_stash")) {
   scDAPP:::.resume_save_samples(
     outdir = outdir,
@@ -3041,10 +3127,6 @@ tmpobjdir <- prep$tmpobjdir
 rm(sobjlist)
 invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
 
-if (is.null(risc_reference) || risc_reference == "auto") {
-  risc_reference <- NULL
-}
-
 int_res <- scDAPP::run_integration(
   integration_method = integration_method,
   sample_metadata = sample_metadata,
@@ -3074,8 +3156,29 @@ clustname <- int_clust_lab
 ip <- int_res$ip
 refscore <- int_res$refscore
 selected_risc_reference <- int_res$selected_risc_reference
-maxautoscore <- if (!is.null(refscore) && length(refscore)) {
+risc_reference_selection <- int_res$risc_reference_selection
+risc_reference_mode <- int_res$risc_reference_mode
+if (is.null(risc_reference_mode) && !is.null(risc_reference_selection)) {
+  risc_reference_mode <- risc_reference_selection$mode
+}
+would_select <- if (!is.null(risc_reference_selection$would_select)) {
+  risc_reference_selection$would_select
+} else if (!is.null(refscore) && length(refscore)) {
   names(refscore)[which.max(refscore)]
+} else {
+  selected_risc_reference
+}
+maxautoscore <- would_select
+refscoredf <- if (!is.null(risc_reference_selection$table)) {
+  risc_reference_selection$table
+} else if (!is.null(refscore) && length(refscore)) {
+  data.frame(
+    Code = names(refscore),
+    Set = paste0("Set-", seq_along(refscore)),
+    RefScore = round(as.numeric(refscore), 5),
+    Max = ifelse(names(refscore) == maxautoscore, "*", ""),
+    stringsAsFactors = FALSE
+  )
 } else {
   NULL
 }
@@ -3135,6 +3238,91 @@ if (run_msigdb_celltype_ora) {
 
 ```
 
+```{r integration_riscref_ip, eval=(int_config$engine == "RISC"), results='asis', fig.height=10, fig.width=10}
+
+cat('
+## Selection of reference sample for integration
+
+RISC requires a reference sample. RPCI uses that sample\'s gene eigenvectors as the global frame for all other datasets, so the reference should be a diverse, non-outlier sample.
+
+')
+
+cat('
+### InPlot diagnostics
+
+The InPlot has three panels, matching the RISC paper\'s reference-selection tests:
+
+1. **Cluster Num. (top, primary).** Louvain cluster counts on each sample\'s PCs across a range of PC numbers. More clusters is a proxy for more cell-type diversity; the sample with the most clusters is preferred.
+2. **Stv by PCs (middle).** How principal components explain expression variance. Higher scores indicate a more diverse transcriptome and a better reference.
+3. **Kolmogorov-Smirnov (bottom).** For each PC, a KS test of the *gene* eigenvector loadings against a Normal. The red number is the mean KS statistic. **High is bad**: it flags a biased / non-Gaussian loading distribution, so that sample is a poor RPCI origin. A very high score can indicate an outlier library (unusual composition, technical failure, or in some cases a different tissue), and that sample should not be used as the reference.
+
+Inspect InPlot even when auto-selection is on. If the chosen sample is not the one you would pick from these panels, re-run with `risc_reference` set to that sample\'s Code.
+
+')
+
+if (!is.null(ip)) print(ip)
+
+.ref_mode <- if (!is.null(risc_reference_mode)) risc_reference_mode else "autoV2"
+.ref_used <- selected_risc_reference
+
+if (identical(.ref_mode, "autoV2")) {
+  cat(sprintf('
+### Automated RISC reference selection (autoV2)
+
+Default auto-selection ranks samples using the same three InPlot scores: **cluster score > Stv score > KS**, after a KS outlier veto (mean KS above median + 2 MAD when there are at least four samples; with fewer samples, only a uniquely extreme KS is vetoed). Among remaining samples, the highest cluster score wins, with Stv then lower KS as tie-breakers.
+
+This run used **autoV2** and selected **%s** as the RISC reference.
+
+', .ref_used))
+  if (length(risc_reference_selection$vetoed_codes)) {
+    cat(sprintf(
+      "KS veto excluded: **%s**.\n\n",
+      paste(risc_reference_selection$vetoed_codes, collapse = ", ")
+    ))
+  }
+  if (!is.null(refscoredf)) knitr::kable(refscoredf)
+} else if (identical(.ref_mode, "auto")) {
+  cat(sprintf('
+### Automated RISC reference selection (legacy `auto`)
+
+This run used the legacy heuristic (`risc_reference = "auto"`): size-weighted Seurat cluster count times cluster-moderated expression variance. It is a coarser stand-in for InPlot and does not apply the KS veto. Prefer `autoV2` unless you need to reproduce an older run. If this pick disagrees with InPlot, set `risc_reference` to the sample you would choose by inspection.
+
+The highest legacy score (starred) is **%s**; that sample was used as the RISC reference.
+
+', maxautoscore))
+  if (!is.null(refscoredf)) knitr::kable(refscoredf)
+} else {
+  cat(sprintf('
+### Automated RISC reference selection (autoV2 comparison)
+
+The table below is the **autoV2** ranking (cluster > Stv > KS, with KS veto). autoV2 would select **%s**.
+
+', would_select))
+  if (length(risc_reference_selection$vetoed_codes)) {
+    cat(sprintf(
+      "KS veto excluded: **%s**.\n\n",
+      paste(risc_reference_selection$vetoed_codes, collapse = ", ")
+    ))
+  }
+  if (!is.null(refscoredf)) knitr::kable(refscoredf)
+  cat(sprintf('
+### Manual reference selection: %s
+
+Sample **%s** was set as `risc_reference` and was used as the RISC reference, regardless of the autoV2 ranking above.
+
+', .ref_used, .ref_used))
+}
+
+```
+
+```{r integration_seurat_note, eval=(int_config$engine == "Seurat"), results='asis'}
+cat(sprintf('
+## Batch integration (%s)
+
+Reference-sample selection and RISC InPlot diagnostics do not apply to this integration backend. Clustering and UMAP use the `%s` and `%s` reductions from Seurat v5 `IntegrateLayers`. Raw UMI counts for pseudobulk DE are available on the joined `RNA` assay (`counts` layer) attached after integration.
+', int_config$report_label, int_config$cluster_reduction, int_config$umap_reduction))
+```
+
 ```{r integration_stability_setup, results='hide'}
 # Defaults keep fig.width/fig.height expressions valid when auto tuning is off.
 stab_mod <- NULL
@@ -3145,6 +3333,16 @@ stab_dims <- list(
   bootstrap_ari = list(width = 10, height = 8),
   nclust_ref = list(width = 10, height = 8),
   perclust_jaccard = list(width = 10, height = 4)
+)
+int_fig <- list(
+  umap = list(width = 8, height = 8),
+  umap_split = list(width = 10, height = 8),
+  heatmap = list(width = 10, height = 10),
+  ora = list(width = 8, height = 8),
+  vln = list(width = 10, height = 8),
+  alluvial = list(width = 8, height = 6),
+  alluvial_sample = list(width = 7, height = 5.5),
+  twt = list(width = 6, height = 4.5)
 )
 if (!is.null(int_auto_selection)) {
   stab_mod <- scDAPP::integration_stability_plots_module(
@@ -3158,16 +3356,42 @@ if (!is.null(int_auto_selection)) {
 ```
 
 ```{r integration_stability_intro, results='asis', eval=!is.null(stab_mod)}
+.stab_ref_note <- if (identical(int_config$engine, "RISC") &&
+    !is.null(selected_risc_reference) && nzchar(selected_risc_reference)) {
+  sprintf(
+    " Bootstrap replicates used the frozen RISC reference sample **%s**.",
+    selected_risc_reference
+  )
+} else {
+  ""
+}
+.stab_n_pc <- if (isTRUE(.pcs_int_auto)) {
+  length(unique(as.integer(stability_sweep_maxPCs)))
+} else {
+  1L
+}
+.stab_n_res <- if (isTRUE(.res_int_auto)) {
+  length(unique(as.numeric(stability_sweep_res)))
+} else {
+  1L
+}
 cat(sprintf(
   '
 ## Automated integration parameter sweep
 
-Automatic tuning selected **%d** principal components and Louvain resolution **%s** (parameter id `%s`) by maximizing a combined bootstrap stability score: `0.5 * mean ARI + 0.5 * mean per-cluster Jaccard`. Each grid point is labeled like `PCs_1-N.res_R`, meaning the first N integration PCs and Louvain resolution R. Full tables and PDF copies of these plots are in `%s`.
+When `pcs_int` and/or `res_int` is `"auto"`, the pipeline tests a grid of integration PC counts (`stability_sweep_maxPCs`; %d value(s) here) by Louvain resolutions (`stability_sweep_res`; %d value(s) here). For each combination it first clusters the full integrated dataset (the reference clustering), then draws %d bootstrap replicates, each keeping %s%% of cells, and reclusters those subsets with the same PC count and resolution. Stability is the mean Adjusted Rand Index (ARI) of bootstrap clusterings versus the reference, plus the mean of per-cluster Jaccard overlaps (best-matching bootstrap cluster per reference cluster).
+
+Automatic tuning selected **%d** principal components and Louvain resolution **%s** (parameter id `%s`) by maximizing a combined bootstrap stability score: `0.5 * mean ARI + 0.5 * mean per-cluster Jaccard`. Ranked plots use a short `PCN / res R` label; tables keep the full `PCs_1-N.res_R` id.%s Full tables and PDF copies of these plots are in `%s`.
 
 ',
+  .stab_n_pc,
+  .stab_n_res,
+  as.integer(stability_numreps)[1],
+  sprintf("%.0f", 100 * as.numeric(stability_propcells.perrep)[1]),
   int_auto_selection$pcs_int,
   int_auto_selection$res_int,
   stab_mod$selected_params_i,
+  .stab_ref_note,
   int_auto_selection$sweep_dir
 ))
 ```
@@ -3421,101 +3645,6 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 
 
-
-
-## Selection of reference sample for integration
-
-```{r integration_riscref_ip, eval=(int_config$engine == "RISC"), results='asis', fig.height=10, fig.width=10}
-
-cat('RISC requires the selection of a reference sample from among the input datasets. The optimal reference sample is one that has the most diversity of celltypes.
-
-
-')
-
-plotlab <- '
-One way to select the reference sample is manual inspection of the "InPlot". This plot consists of three panels. The top panel is the most important and shows the number of clusters detected in each sample across a range of different PC values. Essentially, this is a proxy of the number of cell types detected in the dataset, and the sample with most clusters should be selected as the reference. The second panel allows selection of the optimal PC value to use and the amount of variance each PC has for each sample, with good samples having a higher score (indicating more diversity). The third panel shows distributional divergence of the samples, where a high score is "bad" and indicates that the sample is potentially composed of quite different celltypes from the rest of the dataset, and can potentially indicate some issue in data generation, for example that some incorrect tissue was sampled during data generation.
-
-
-
-'
-
-cat(plotlab)
-
-if (!is.null(ip)) print(ip)
-
-
-
-plotlab <- '
-
-## Automated RISC reference selection
-
-We have implemented an automated reference selection algorithm, extending the intuition laid out above. This is based on two metrics: 1) the number of clusters, and 2) the cluster-moderated sample variance. 
-
-It is not enough to pick the sample with the most clusters, because sometimes samples have ties in the number of clusters, and cluster number alone can be proportional to number of cells. Thus, we weight the number or clusters by a metric of diversity in the sample which we call the cluster-moderated sample variance.
-
-The cluster-moderated sample variance is calculated first by clustering each sample (ie, using the Seurat Louvain clusters described above), then averaging the sample at the cluster level. Then, the variance of each cluster is calculated, and finally, the mean of the cluster-wise variance is taken. 
-
-Then, to calculate the reference selection score, we multiply the number of clusters per sample, times a relative weighting metric based on the number of cells in each sample relative to the sample with the most cells in the dataset (where the biggest gets a one, sample with half cells of biggest gets a 0.5); then we multiply this value by the cluster-moderated variance described above.
-
-
-We show here the resulting reference scores. The top score is selected as the reference. Please note that the autoselection is experimental, so if the score and selected reference deviates from InPlot, we recommend re-running the pipeline and manually selecting the optimal reference.
-
-In this dataset, sample **%s** would be selected as the reference.
-
-
-'
-
-cat(sprintf(plotlab, maxautoscore))
-
-refscoredf <- data.frame(
-  Code = names(refscore),
-  RefScore = as.numeric(refscore),
-  stringsAsFactors = FALSE
-)
-refscoredf$Max <- ''
-refscoredf$Max[refscoredf$Code == maxautoscore] <- '*'
-refscoredf$RefScore <- round(refscoredf$RefScore, 5)
-refscoredf$Set <- paste0("Set-", seq_len(nrow(refscoredf)))
-refscoredf <- refscoredf[, c("Code", "Set", "RefScore", "Max")]
-
-
-knitr::kable(refscoredf)
-
-
-
-
-
-if( !(is.null(risc_reference)) ){
-  
-  plotlab <- '
-## Manual reference selection: %s
-
-In this analysis, sample %s was manually selected as the reference sample. Sample %s will be used as the reference, regardless of the auto-selection described above.
-
-'
-  
-  cat(sprintf(plotlab, risc_reference, risc_reference, risc_reference))
-  
-}
-
-
-```
-
-
-
-
-
-
-
-```{r integration_seurat_note, eval=(int_config$engine == "Seurat"), results='asis'}
-cat(sprintf('
-## Batch integration (%s)
-
-Reference-sample selection and RISC InPlot diagnostics do not apply to this integration backend. Clustering and UMAP use the `%s` and `%s` reductions from Seurat v5 `IntegrateLayers`. Raw UMI counts for pseudobulk DE are available on the joined `RNA` assay (`counts` layer) attached after integration.
-', int_config$report_label, int_config$cluster_reduction, int_config$umap_reduction))
-```
-
-
 ```{r integration_plots, results='hide', message=FALSE, warning=F}
 
 
@@ -3531,19 +3660,15 @@ dir.create(outdir_int_plots)
 if (int_config$engine == "RISC") {
   pdf(paste0(outdir_int_plots, 'RISC_reference_selection.pdf'), height = 8, width = 6)
   if (!is.null(ip)) print(ip)
-  if (!is.null(risc_reference)) {
-    print(
-      pdftable(refscoredf,
-               title = paste0('Manual reference selected\nSample: ',
-                              risc_reference)
-      )
-    )
-  } else {
-    print(
-      pdftable(refscoredf,
-               title = paste0('RISC reference\nautoselection')
-      )
-    )
+  if (!is.null(refscoredf)) {
+    .pdf_ref_title <- if (identical(risc_reference_mode, "manual")) {
+      paste0("RISC reference (manual)\nUsed: ", selected_risc_reference)
+    } else if (identical(risc_reference_mode, "auto")) {
+      paste0("RISC reference (legacy auto)\nUsed: ", selected_risc_reference)
+    } else {
+      paste0("RISC reference (autoV2)\nUsed: ", selected_risc_reference)
+    }
+    print(pdftable(refscoredf, title = .pdf_ref_title))
   }
   dev.off()
 }
@@ -3551,6 +3676,26 @@ if (int_config$engine == "RISC") {
 
 ## for each sample get int clusters for alluvial plot
 mdint <- sobjint@meta.data
+
+.mdint_n_samp <- length(unique(as.character(mdint$Code)))
+.mdint_n_cond <- length(unique(as.character(mdint$Condition)))
+.int_split_nrow <- max(1L, as.integer(ceiling(.mdint_n_cond / 2)))
+int_fig <- list(
+  umap = list(width = 8, height = 8),
+  umap_split = list(
+    width = min(16, max(10, 5 * min(2, .mdint_n_cond) + 0.3 * .mdint_n_samp)),
+    height = min(16, max(8, 4.5 * .int_split_nrow + 0.1 * .mdint_n_samp))
+  ),
+  heatmap = list(width = 10, height = 10),
+  ora = list(width = 8, height = 8),
+  vln = list(width = 10, height = 8),
+  alluvial = list(
+    width = min(12, max(8, 0.35 * .mdint_n_samp + 7)),
+    height = min(12, max(6, 4 * .int_split_nrow))
+  ),
+  alluvial_sample = list(width = 7, height = 5.5),
+  twt = list(width = 6, height = 4.5)
+)
 
 
 ## plots of the integrated data
@@ -3780,7 +3925,10 @@ ap_samp_to_clust_list <- lapply(unique(sample_metadata$Condition), function(cond
   
 })
 names(ap_samp_to_clust_list) <- unique(sample_metadata$Condition)
-ap_samp_to_clust <- wrap_plots(ap_samp_to_clust_list)
+ap_samp_to_clust <- wrap_plots(
+  ap_samp_to_clust_list,
+  ncol = min(2L, length(ap_samp_to_clust_list))
+)
 
 twt_samp_to_clust_list <- lapply(unique(sample_metadata$Condition), function(cond){
   
@@ -3854,7 +4002,11 @@ outdir_int_plots <- paste0(outdir_int, '/integration_summaryplots/')
 
 dir.create(outdir_int_plots)
 
-pdf( paste0(outdir_int_plots, '/summaryplots_integrated.pdf'), height = 9, width=9 )
+pdf(
+  paste0(outdir_int_plots, '/summaryplots_integrated.pdf'),
+  height = int_fig$umap_split$height,
+  width = int_fig$umap_split$width
+)
 
 print(summaryplots_integrated)
 
@@ -4197,282 +4349,166 @@ if(use_labeltransfer == T){
 # Integrated cluster summary plots
 
 
-```{r summaryplots_int_print_summary, fig.keep='all', message=FALSE, results='asis', fig.height=10, fig.width=10}
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_umap_cond, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$umap$width, fig.height=int_fig$umap$height}
+cat('
 ## UMAP colored by condition
 
 Here we plot a UMAP of the integrated dataset colored according to the sample’s condition. Overall we expect to observe a good overlap, while some sections may be quite distinct. This can correspond to clusters of cell states or cell types that are present in one sample but absent from another.
 
+')
+print(summaryplots_integrated$dcond)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$dcond )
-
-
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_umap_split_sample, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$umap_split$width, fig.height=int_fig$umap_split$height}
+cat('
 ## UMAP split by condition and colored by sample
 
 Here, the integrated UMAP is split by condition, meaning that cells from Condition A are separated from cells from Condition B. Additionally, cells are colored according to their sample origin. This allows us to check the overlap of biological replicates from the same condition.
 
+')
+print(summaryplots_integrated$d2_int)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$d2_int )
-
-
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_umap_clust, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$umap$width, fig.height=int_fig$umap$height}
+cat('
 ## UMAP colored by integrated clusters
 
 Here we plot the same UMAP but this time colored by the integrated clusters. These clusters are important to characterize, as these are the groups that we will compare one-by-one between conditions.
 
+')
+print(summaryplots_integrated$d1_int)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$d1_int )
-
-
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_umap_split_clust, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$umap_split$width, fig.height=int_fig$umap_split$height}
+cat('
 ## UMAP split by condition and colored by integrated clusters
 
 Here we plot the UMAP split by condition and colored by integrated clusters. This is useful to see compositional differences in which clusters may be enriched or depleted between conditions.
 
+')
+print(summaryplots_integrated$dcond_split)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$dcond_split )
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_heatmaps, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$heatmap$width, fig.height=int_fig$heatmap$height}
+cat('
 ## Heatmap of integrated cluster markers
 
 Here we plot the top 5 markers per cluster for the integrated clusters.
 
+')
+print(summaryplots_integrated$hm_int)
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$hm_int )
-
-
-
-plotlab <- "
-
-
+cat('
 ## Averaged heatmap of integrated cluster markers
 
 Here we plot the top 5 markers per cluster for the integrated clusters after averaging over each cluster. It is similar to the marker heatmap above, but can help visualize the cluster-wise expression by plotting the cluster averages instead of each individual cell.
 
+')
+print(summaryplots_integrated$hm_int_avg)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$hm_int_avg )
-
-if (run_msigdb_celltype_ora) {
-  plotlab <- "
-
-
+```{r summaryplots_int_print_ora, fig.keep='all', message=FALSE, results='asis', eval=isTRUE(run_msigdb_celltype_ora), fig.width=int_fig$ora$width, fig.height=int_fig$ora$height}
+cat('
 ## MSigDB cell-type signature enrichment (integrated clusters)
 
 Over-representation analysis (ORA) of integrated cluster marker genes against MSigDB cell-type signature gene sets. For each cluster, up to the top 100 markers passing adjusted p < threshold are tested. The dotplot shows the top 5 enriched cell-type gene sets per cluster (inclusive: shared gene sets appear across clusters). Full tables are saved under `celltype_marker_prediction/`.
 
-
-"
-  cat(plotlab)
-  if (!is.null(msigdb_celltype_ora_int_dotplot) && inherits(msigdb_celltype_ora_int_dotplot, "ggplot")) {
-    print(msigdb_celltype_ora_int_dotplot)
-  } else {
-    cat("\n\nNo significant MSigDB cell-type enrichments were detected for integrated clusters.\n\n")
-  }
+')
+if (!is.null(msigdb_celltype_ora_int_dotplot) && inherits(msigdb_celltype_ora_int_dotplot, "ggplot")) {
+  print(msigdb_celltype_ora_int_dotplot)
+} else {
+  cat("\n\nNo significant MSigDB cell-type enrichments were detected for integrated clusters.\n\n")
 }
+```
 
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_vln, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$vln$width, fig.height=int_fig$vln$height}
+cat('
 ## Violin Plots of quality metrics
 
 Here we plot some quality metrics for each integrated cluster including number of UMIs per cell (nCount_RNA), number of unique genes detected per cell (nFeature_RNA), percent mitochondrial gene expression (percent.mito), and percent hemoglobin gene expression (percent.hemoglobin).
 
+')
+print(summaryplots_integrated$int_qc_vln)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$int_qc_vln )
-
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_alluvial_cond, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$alluvial$width, fig.height=int_fig$alluvial$height}
+cat('
 ## Alluvial plot mapping condition to integrated clusters
 
 This alluvial plot allows us to see the contribution of each condition to each cluster. This allows us to visualize compositional differences between conditions clearly.
 
+')
+print(summaryplots_integrated$ap_cond_to_clust)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$ap_cond_to_clust )
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_twt_cond, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$twt$width, fig.height=int_fig$twt$height}
+cat('
 ## Two-way table heatmap: condition vs integrated clusters
 
 This heatmap shows the same condition-to-cluster membership as the alluvial plot above, as cell counts in a matrix colored by within-row proportion.
 
+')
+print(summaryplots_integrated$twt_cond_to_clust)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$twt_cond_to_clust )
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_alluvial_samp, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$alluvial$width, fig.height=int_fig$alluvial$height}
+cat('
 ## Alluvial plot mapping samples to integrated clusters
 
 This alluvial plot allows us to see the contribution of each sample to each cluster. Combined with the condition-focused alluvial plot above, this allows us to verify compositional patterns across biological replicates.
 
+')
+print(summaryplots_integrated$ap_samp_to_clust)
+```
 
-"
-
-cat( plotlab )
-
-
-print( summaryplots_integrated$ap_samp_to_clust )
-
-
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_twt_samp, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$twt$width, fig.height=int_fig$twt$height}
+cat('
 ## Two-way table heatmaps: samples vs integrated clusters
 
 These heatmaps show the same sample-to-cluster membership as the alluvial plot above, as cell counts in a matrix colored by within-row proportion. One panel is shown per condition.
 
-
-"
-
-cat( plotlab )
-
+')
 twt_samp_to_clust_list <- summaryplots_integrated$twt_samp_to_clust_list
-
 for (i in seq_along(twt_samp_to_clust_list)) {
-  name <- names(twt_samp_to_clust_list)[i]
-  plotlab <- "
-
-### %s
-
-"
-  cat(sprintf(plotlab, name))
+  cat(sprintf('\n### %s\n\n', names(twt_samp_to_clust_list)[i]))
   print(twt_samp_to_clust_list[[i]])
 }
 rm(twt_samp_to_clust_list)
+```
 
-
-
-plotlab <- "
-
-
+```{r summaryplots_int_print_indi_alluvial, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$alluvial_sample$width, fig.height=int_fig$alluvial_sample$height}
+cat('
 ## Per-sample alluvial plots mapping individual sample clusters to integrated clusters
 
 For each sample, we plot an alluvial plot mapping the individual sample clusters with the integrated clusters.
 
-
-"
-
-cat( plotlab )
-
+')
 indi_int_clust_ap_list <- summaryplots_integrated$indi_int_clust_ap_list
-
-
-
-for(i in c(1:length(indi_int_clust_ap_list)) ){
-  
-  name=names(indi_int_clust_ap_list)[i]
-  
-  plotlab <- "
-
+for (i in seq_along(indi_int_clust_ap_list)) {
+  cat(sprintf('
 ### %s
 
 Individual Clusters (left) mapped to Integrated Clusters (right)
-  
-"
-  
-  cat(sprintf(plotlab, name))
-  
+
+', names(indi_int_clust_ap_list)[i]))
   print(indi_int_clust_ap_list[[i]])
-  
-  print(summaryplots_integrated$indi_int_clust_twt_list[[i]])
-  
 }
 rm(indi_int_clust_ap_list)
+```
 
+```{r summaryplots_int_print_indi_twt, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$twt$width, fig.height=int_fig$twt$height}
+cat('
+## Per-sample two-way table heatmaps: individual sample clusters vs integrated clusters
 
-# print( summaryplots_integrated$indi_int_clust_ap_list )
+The same individual-to-integrated cluster mapping as the alluvial plots above, as cell counts colored by within-row proportion.
 
-
+')
+indi_int_clust_twt_list <- summaryplots_integrated$indi_int_clust_twt_list
+for (i in seq_along(indi_int_clust_twt_list)) {
+  cat(sprintf('\n### %s\n\n', names(indi_int_clust_twt_list)[i]))
+  print(indi_int_clust_twt_list[[i]])
+}
+rm(indi_int_clust_twt_list)
 ```
 
 
@@ -4901,6 +4937,8 @@ Clusters with significant compositional differences are labelled with two asteri
 Here we plot a table of the cell proportions and compositional analysis from the %s analysis. We round to the 3rd digit for display, which can result in low P values being shown as zeros (though the full analysis is saved in the output folder).
 
 Clusters with significant compositional differences are labelled with two asterisks (ie * 1 *). Significance is defined as P < 0.05. FDR is not used to define significance but is provided for convenience.
+
+PropMean_c1 / PropMean_c0 are mean cluster proportions in the test (c1) and reference (c0) conditions. They are omitted (shown as NA) when the contrast is a single coefficient such as an interaction term.
 
 '
   

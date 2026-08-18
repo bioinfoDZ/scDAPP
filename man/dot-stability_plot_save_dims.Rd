@@ -2,11 +2,11 @@
 % Please edit documentation in R/integration_stability.R
 \name{.stability_plot_save_dims}
 \alias{.stability_plot_save_dims}
-\title{PDF width/height per plot type for a given sweep grid}
+\title{PDF/HTML width/height per plot type for a given sweep grid}
 \usage{
 .stability_plot_save_dims(perparam, perclust_df, selected_params_i)
 }
 \description{
-PDF width/height per plot type for a given sweep grid
+PDF/HTML width/height per plot type for a given sweep grid
 }
 \keyword{internal}

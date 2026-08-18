@@ -30,7 +30,8 @@ compositional_analysis_module(
 
 \item{fill_barplots}{T/F, whether to "fill" the annotation barplots on the side of the heatmap, normalizing to 1; default = T}
 
-\item{DE_test}{string, same as pipeline \code{DE_test}; selects contrast grammar for propeller (\code{edger_expr} for EdgeR*/Dream, \code{deseq2} for DESeq2*). Default \code{"EdgeR-LRT"}.}
+\item{DE_test}{string, same as pipeline DE_test; selects contrast grammar for propeller
+(\code{edger_expr} for EdgeR*/Dream, \code{deseq2} for DESeq2*). Default \code{"EdgeR-LRT"}.}
 }
 \value{
 A list with \code{composition_results} (flat data.frame: one row per cluster x comparison),
@@ -38,7 +39,7 @@ A list with \code{composition_results} (flat data.frame: one row per cluster x c
 \code{globalcomposition} (cell counts and proportion tables).
 }
 \description{
-This is a modular component of the scDAPP scRNAseq pipeline. Perform compositional analysis across conditions to compare the proportion of cell types. Supports multiple condtions (A vs B vs C). Supports "pseudobulk" replicate-aware analysis as implemented in the propeller test with arcsin transformation, as recommended by Simmons 2022 (https://doi.org/10.1101/2022.02.04.479123). Alternatively supports old-school, non-replicate aware chisq test as implemented by the \code{prop.test()} function.
+This is a modular component of the scDAPP scRNAseq pipeline. Perform compositional analysis across conditions to compare the proportion of cell types. Supports multiple condtions (A vs B vs C). Supports "pseudobulk" replicate-aware analysis as implemented in the propeller test with arcsin transformation, as recommended by Simmons 2022 (https://doi.org/10.1101/2022.02.04.479123). When \code{comps$formula} includes an intercept random effect such as \code{(1|Patient)}, paired testing uses limma \code{duplicateCorrelation} with blocked \code{lmFit}. Alternatively supports old-school, non-replicate aware chisq test as implemented by the \code{prop.test()} function.
 }
 \examples{
 \dontrun{
@@ -67,7 +68,8 @@ comps,
 sample_metadata,
 outdir_int,
 grouping_variable,
-compositional_test = 'propeller')
+compositional_test = 'propeller',
+DE_test = 'EdgeR-LRT')
 
 # Flat table for one comparison:
 subset(comp_result$composition_results, label == "KO1_vs_Control")

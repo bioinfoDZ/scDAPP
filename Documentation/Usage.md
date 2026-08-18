@@ -148,7 +148,7 @@ If you used scDAPP v1.3.x, review these **v2.0** changes before re-running or up
 
 ### `cluster_unfiltered`
 
-- Default is **`FALSE`**. Pre-filter SCT+Louvain clustering and `Unfiltered-SeuratObject-*.rds` outputs run only when `cluster_unfiltered = TRUE`.
+- Default is **`FALSE`**. Pre-filter SCT+Louvain clustering and `Unfiltered-SeuratObject-*.rds` outputs run only when `cluster_unfiltered = TRUE`. The `individualsample_analysis/unfiltered_Seurat_objects/` folder is created only in that case.
 
 ### Module return types (programmatic use)
 
@@ -304,9 +304,15 @@ To select a label transfer reference, it is recommended to use a tissue as simil
 
 When using RISC integration, the pipeline runs the ["Robust Integration of Single Cell RNA-seq" (RISC)](https://www.nature.com/articles/s41587-021-00859-x) workflow via the [RISC R package](https://github.com/bioinfoDZ/RISC).
 
-RISC requires selection of a reference sample. We provisionally developed an automated method for selection of the reference to ease the application of this pipeline. However, the recommended approach by RISC is to inspect the "InPlot" figure in the HTML report.
+RISC requires a reference sample: RPCI uses that sample's gene eigenvectors as the global frame. `risc_reference` is either a method keyword or a sample name:
 
-Optionally, set `risc_reference` to the sample `Code` or `Sample` you prefer rather than use auto-selection, for example if the auto-selected sample strongly deviates from the reference you would have selected by inspection of InPlot.
+- `"autoV2"` (default; also used when the argument is omitted or `NULL`) — rank the same three diagnostics as RISC `InPlot` (**cluster score > Stv > KS**), after a KS outlier veto. This is the recommended automatic choice.
+- `"auto"` (alias `"autoV1"`) — legacy heuristic: size-weighted Seurat cluster count times cluster-moderated expression variance. Kept for reproducing older runs; it does not apply the KS veto.
+- A sample `Code` or `Sample` name — that sample is used as the reference. An unmatched name is an error (no silent fallback).
+
+The chosen sample is selected **once on the full data** and then **frozen** for the PC/res stability bootstrap (when `pcs_int` or `res_int` is `"auto"`) and for the final `scMultiIntegrate` run.
+
+The HTML report still shows InPlot. If the starred sample is not the one you would pick from those three panels, set `risc_reference` to that sample's `Code` and re-run.
 
 ### 3. Sample integration (Seurat methods)
 
@@ -360,7 +366,7 @@ These parameters allow for control of sophisticated analysis methods.
 - `refdatapath` string, path to a Seurat object .rds file, pre-processed with `Seurat::SCTransform()`, with a column called "Celltype" in its meta.data. Ignored if `use_labeltransfer` = F.
 - `m_reference` string, path to .rds file containing output of `Seurat::FindAllMarkers` run on the reference object specified above. Ignored if `use_labeltransfer` = F
 
-- `risc_reference` - string, name of sample to use as RISC reference sample, if not provided will automate the choice (RISC integration only).
+- `risc_reference` — string; RISC reference (RISC integration only). Default `"autoV2"` (InPlot-faithful rank with KS veto). `"auto"` / `"autoV1"` is the legacy heuristic. A `Code` or `Sample` name forces that reference for the stability sweep and the final integration.
 
 - `integration_method` - character, default `RISC`. One of `integration_method_choices()`: `RISC`; Seurat v5 `CCAIntegration`, `RPCAIntegration`, `CCAIntegration_SCT`, `RPCAIntegration_SCT`, and `HarmonyIntegration`. See **Integration method dependencies**, **Integration assays and reductions**, **Cross-condition DE and integration method**, and **Integration runtime expectations** below.
 
@@ -388,7 +394,7 @@ Supported species for ortholog mapping are listed in `msigdbr::msigdbr_species()
 - `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. For pseudobulk can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" (paired mixed models via `variancePartition`; requires `(1|var)` in `comps$formula`). `EdgeR-QLF` uses the same comps/contrasts as `EdgeR-LRT` (quasi-likelihood F-test; see [Comparative_Designs.md](Comparative_Designs.md) §2). For single-cell mode, any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 or variancePartition may require installation. Dream uses `workernum` for `BiocParallel` workers.
 
 - `run_ORA` - T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
-- `run_msigdb_celltype_ora` - T/F, default is TRUE. Whether to run ORA of per-sample and integrated cluster markers against MSigDB cell-type signature gene sets. Uses up to the top 100 markers per cluster (by score) with `p_val_adj` below `msigdb_celltype_ora_marker_padj_thres`. Saves CSV tables and a summary dotplot PDF under `{outdir}/individualsample_analysis/celltype_marker_prediction/` and `{outdir}/multisample_integration/celltype_marker_prediction/`. Requires clusterProfiler.
+- `run_msigdb_celltype_ora` - T/F, default is TRUE. Whether to run ORA of per-sample and integrated cluster markers against MSigDB cell-type signature gene sets. Uses up to the top 100 markers per cluster (by score) with `p_val_adj` below `msigdb_celltype_ora_marker_padj_thres`. Saves CSV tables and a summary dotplot PDF under `{outdir}/individualsample_analysis/celltype_marker_prediction/` and `{outdir}/multisample_integration/celltype_marker_prediction/`. A combined per-sample table is written as `individualsample_analysis/celltype_marker_prediction/all_samples_ora_results.csv`. Requires clusterProfiler.
 - `msigdb_celltype_ora_marker_padj_thres` - numeric, default 0.05. Adjusted p-value cutoff for cluster marker genes included in MSigDB cell-type ORA.
 - `msigdb_celltype_ora_top_markers` - integer, default 100. Maximum markers per cluster (after padj filter) ranked by marker `score`.
 
@@ -479,7 +485,7 @@ Finally, we use [DoubletFinder](https://github.com/chris-mcginnis-ucsf/DoubletFi
 - `autofilter_medianabsolutedev_threshold` - numeric, default is 3, threshold for median abs deviation thresholding, ie cutoffs set to ⁠median +/- mad * threshold⁠
 - `autofilter_loess_negative_residual_threshold` - numeric, cutoff for loess residuals applied in complexity filtering, default is -5, if you set it high (ie any higher than -2) you will probably remove many good cells.
 - `doubletFinder` - T/F, default is T, whether to filter doublets with DoubletFinder
-- `cluster_unfiltered` - T/F, default is F. If TRUE, run SCT and Louvain clustering (resolution 0.1) on the full unfiltered matrix before autofilter, enabling cluster-level QC diagnostics (alluvial plots, two-way table heatmaps, pre-filter marker heatmaps), and save `Unfiltered-SeuratObject-*.rds` files under `individualsample_analysis/unfiltered_Seurat_objects/`. When FALSE (default), autofilter runs on QC metadata only, skips pre-filter clustering for faster runs, and does not write unfiltered Seurat RDS files (QC summary PDFs and filtered objects are still produced).
+- `cluster_unfiltered` - T/F, default is F. If TRUE, run SCT and Louvain clustering (resolution 0.1) on the full unfiltered matrix before autofilter, enabling cluster-level QC diagnostics (alluvial plots, two-way table heatmaps, pre-filter marker heatmaps), and save `Unfiltered-SeuratObject-*.rds` files under `individualsample_analysis/unfiltered_Seurat_objects/`. When FALSE (default), autofilter runs on QC metadata only, skips pre-filter clustering for faster runs, and does not create `unfiltered_Seurat_objects/` or write unfiltered Seurat RDS files (QC summary PDFs and filtered objects are still produced).
 
 
 Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now possible to pre-calculate some QC values and store them in the Seurat object metadata. These include `percent.mito`, `percent.hemoglobin`, and `Phase` (cell cycle phase). These can be calculated however you wish (such as with `Seurat::AddModuleScore()` or `Seurat::CellCycleScoring()`) and stored with these exact column names in the input Seurat object metadata. This can be useful if working with less common species, where gene names may differ a lot from typical human/mouse symbols for these QC metrics. Make sure to set `input_seurat_obj` to TRUE to use this. Note however that MSIGDBR has a limited set of compatible species with pathway genes. You can run `msigdbr::msigdbr_species()` in R to check the available species. If your species of interest is not on the list, you may consider still using the pipeline and selecting the species / taxon closest to your subject of study, but then using the pipeline outputs to run your own pathway analysis using the DEGs.
@@ -490,7 +496,7 @@ Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now po
 
 
 - `pcs_indi` integer, default = 30; number of PCs to use in individual sample processing / clustering
-- `res_indi` numeric, default = 0.5; Louvain resolution for individual sample clustering via Seurat
+- `res_indi` numeric, default = 0.5; Louvain resolution for individual sample clustering via Seurat. Per-sample cluster markers are written under `individualsample_analysis/individualsample_clustermarkers/markers-PCs_{pcs_indi}-res_{res_indi}/`, including a combined `all_samples_clustermarkers.csv` (one row per marker with a `Sample` column).
 - `pcs_int` integer or `"auto"`, default = 30; number of PCs for integrated clustering. With `"auto"`, PCs are chosen by bootstrap cluster stability (ARI + Jaccard) before the final integration run.
 - `res_int` numeric or `"auto"`, default = 0.5; Louvain resolution for integrated clustering. With `"auto"`, resolution is chosen the same way. Either or both may be `"auto"`.
 - `stability_outdir` optional; folder for stability CSVs and checkpoints (default: `<outdir>/integrated_analysis/cluster_stability` when auto is used).
@@ -512,7 +518,7 @@ Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now po
 
 The HTML report renders these under **Automated integration parameter sweep** (only when `pcs_int` or `res_int` is `"auto"`), with a short interpretation for each figure and per-plot figure sizes from `plot_dims`. Rebuild plots from saved CSVs with `integration_stability_plots_module(stability_dir = ...)`.
 
-**Plot PDF/HTML sizing (full grid):** Combined-score bar, bootstrap ARI, and cluster-count plots keep parameter labels on the Y axis and grow in height with the number of grid points (capped at 18 in), with adaptive Y-axis font size for dense grids. The PC×resolution heatmap scales width and height with the number of resolutions and PCs (capped at 16×14 in). The ARI vs Jaccard scatter stays 10×7 in. Per-cluster Jaccard width scales with cluster count for the winner only. For the default 64-combo grid (8 PCs × 8 resolutions), expect roughly 14×18 in bar/box figures.
+**Plot PDF/HTML sizing (full grid):** Combined-score bar, bootstrap ARI, and cluster-count plots keep parameter labels on the Y axis (`PCN / res R`) with height capped at 10 in and a minimum Y-axis font of 8 pt so HTML downscaling stays readable. The PC×resolution heatmap scales width and height with the number of resolutions and PCs (capped at 16×14 in). The ARI vs Jaccard scatter stays 10×7 in. Per-cluster Jaccard width scales with cluster count for the winner only. For the default 64-combo grid (8 PCs × 8 resolutions), expect roughly 10×10 in bar/box figures.
 
 **Checkpoint cleanup:** After a successful sweep, `cluster_stability_sweep(remove_rawouts = TRUE)` deletes `RawOuts/` (large per-param and bootstrap RDS checkpoints). CSV summaries, `plots/`, and `logs/` are kept. Failed runs retain `RawOuts/` for resume.
 

@@ -189,7 +189,8 @@
 #' Validates that design variables exist, Condition covers c0/c1, contrasts parse
 #' for the active DE_test style, Dream/(1|var) rules hold, and (when possible)
 #' the fixed design is full rank on the full metadata. Per-cluster failures are
-#' still soft-skipped later in DE/compositional modules.
+#' still soft-skipped later in DE. Propeller uses `.preflight_propeller_comps()`
+#' on its cell-means design (not this treatment-coded DE design).
 #'
 #' @param sample_metadata data.frame with Condition/Code and design columns
 #' @param comps comps data.frame (will be normalized)
@@ -314,6 +315,141 @@
           )
         }
       )
+    }
+  }
+  invisible(TRUE)
+}
+
+# Fail-fast check that each comps row maps onto propeller's cell-means design.
+# Does not apply to 2-prop z-test (chisq); that path uses c0/c1 only.
+.preflight_propeller_comps <- function(sample_metadata, comps, DE_test) {
+  comps <- .apply_contrast_defaults(.normalize_comps(comps), DE_test)
+  style <- .contrast_style(DE_test)
+  md <- as.data.frame(sample_metadata, stringsAsFactors = FALSE)
+
+  if (!"Condition" %in% colnames(md)) {
+    stop("sample_metadata must include a Condition column.", call. = FALSE)
+  }
+  if (!"Code" %in% colnames(md)) {
+    stop("sample_metadata must include a Code column for propeller.", call. = FALSE)
+  }
+  need_lv <- unique(c(as.character(comps$c0), as.character(comps$c1)))
+  miss_lv <- setdiff(need_lv, as.character(md$Condition))
+  if (length(miss_lv)) {
+    stop(
+      "comps c0/c1 levels missing from sample_metadata$Condition: ",
+      paste(miss_lv, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  for (i in seq_len(nrow(comps))) {
+    lab <- comps$label[i]
+    f <- .parse_comp_formula(comps$formula[i])
+    vars <- all.vars(f)
+    miss <- setdiff(vars, colnames(md))
+    if (length(miss)) {
+      stop(
+        "sample_metadata missing design variables for propeller comps row ", i,
+        " (", lab, "): ", paste(miss, collapse = ", "),
+        call. = FALSE
+      )
+    }
+    re_vars <- .formula_random_effect_vars(f)
+    if (length(re_vars) > 1L) {
+      stop(
+        "Propeller paired mode supports one (1|var) block; got: ",
+        paste(re_vars, collapse = ", "),
+        ". Use a single random-effect term in comps$formula for comparison '",
+        lab, "'.",
+        call. = FALSE
+      )
+    }
+    pd <- tryCatch(
+      .propeller_design(md, f),
+      error = function(e) {
+        stop(
+          "Could not build propeller design for comps row ", i, " (", lab, "): ",
+          conditionMessage(e),
+          call. = FALSE
+        )
+      }
+    )
+    if (length(re_vars) == 1L) {
+      block_var <- re_vars[1]
+      if (!block_var %in% colnames(pd$coldata)) {
+        stop(
+          "Block variable '", block_var,
+          "' is missing from sample_metadata for propeller comparison '", lab, "'.",
+          call. = FALSE
+        )
+      }
+      block <- pd$coldata[[block_var]][match(rownames(pd$design), pd$coldata$Code)]
+      if (anyNA(block)) {
+        stop(
+          "Missing values in block variable '", block_var,
+          "' for propeller comparison '", lab, "'.",
+          call. = FALSE
+        )
+      }
+      code_block <- unique(pd$coldata[, c("Code", block_var), drop = FALSE])
+      if (any(duplicated(code_block$Code))) {
+        stop(
+          "Block variable '", block_var,
+          "' is not unique per Code for comparison '", lab, "'.",
+          call. = FALSE
+        )
+      }
+    }
+
+    use_simple <- length(re_vars) == 0L && .propeller_use_simple_wrapper(f, md)
+    if (identical(style, "ignore")) {
+      if (!use_simple) {
+        stop(
+          "Propeller with covariates, interactions, pairing, or >2 Condition levels ",
+          "requires DE_test with EdgeR or DESeq2 contrast grammar. Got DE_test='",
+          DE_test, "' for comparison '", lab, "'.",
+          call. = FALSE
+        )
+      }
+      next
+    }
+
+    map_contr <- function(contrast_entry) {
+      tryCatch(
+        .propeller_contrast_matrix(
+          pd$design, contrast_entry, comps$c1[i], comps$c0[i], style = style
+        ),
+        error = function(e) e
+      )
+    }
+    usr <- map_contr(comps$contrast[i])
+    if (inherits(usr, "error")) {
+      stop(
+        "Propeller contrast for comps row ", i, " (", lab, "): ",
+        conditionMessage(usr),
+        call. = FALSE
+      )
+    }
+    if (use_simple) {
+      default_c <- .default_contrast(comps$c0[i], comps$c1[i], style)
+      def <- map_contr(default_c)
+      same_default <- !inherits(def, "error") &&
+        isTRUE(all.equal(
+          as.numeric(usr), as.numeric(def),
+          check.attributes = FALSE
+        ))
+      if (!same_default) {
+        stop(
+          "Propeller simple two-group path (formula ~ Condition, two Condition levels) ",
+          "ignores comps$contrast and always tests Condition c1 vs c0. ",
+          "Comparison '", lab, "' has contrast '",
+          as.character(comps$contrast[i])[1],
+          "' which is not that default. Expand the formula to include the extra ",
+          "terms, or omit contrast to use '", default_c, "'.",
+          call. = FALSE
+        )
+      }
     }
   }
   invisible(TRUE)
@@ -2089,11 +2225,55 @@ de_across_conditions_module <- function(sobjint,
   list(design = design, coldata = md)
 }
 
-# Paired propeller via limma duplicateCorrelation + blocked lmFit (speckle vignette).
+# Build speckle-style propeller result rows: PropMean.<coef> columns, one row
+# per cluster. Passing the coefficient matrix (not as.numeric()) lets
+# data.frame() expand columns; flattening would recycle p-values onto phantom
+# cluster IDs.
+.propeller_ttest_result_table <- function(fit.prop, fit.cont, RR) {
+  coefs <- fit.prop$coefficients
+  if (is.null(dim(coefs))) {
+    coefs <- matrix(
+      coefs,
+      ncol = 1L,
+      dimnames = list(names(fit.prop$coefficients), NULL)
+    )
+  }
+  fdr <- p.adjust(fit.cont$p.value[, 1], method = "BH")
+  out <- data.frame(
+    PropMean = coefs,
+    PropRatio = as.numeric(RR),
+    Tstatistic = fit.cont$t[, 1],
+    P.Value = fit.cont$p.value[, 1],
+    FDR = fdr,
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+  if (is.null(rownames(out)) || !length(rownames(out))) {
+    rn <- rownames(coefs)
+    if (!is.null(rn)) rownames(out) <- rn
+  }
+  out
+}
+
+.propeller_prop_ratio <- function(fit.prop, contrasts) {
+  n_nz <- sum(contrasts != 0)
+  coefs <- fit.prop$coefficients
+  if (n_nz == 2L && length(as.numeric(contrasts)) == 2L) {
+    z <- apply(coefs, 1, function(x) x^contrasts)
+    return(apply(z, 2, prod))
+  }
+  new.cont <- as.numeric(contrasts[contrasts != 0])
+  if (is.null(dim(coefs)) || ncol(coefs) == 1L) {
+    return(as.numeric(coefs)^new.cont[1])
+  }
+  z <- apply(coefs, 1, function(x) x^new.cont)
+  apply(z, 2, prod)
+}
+
+# Local copy of speckle::propeller.ttest with drop=FALSE so single-coefficient
+# contrasts (e.g. interaction terms) do not collapse to a vector.
 .propeller_ttest <- function(prop.list, design, contrasts,
                              robust = TRUE, trend = FALSE, sort = TRUE) {
-  # Local copy of speckle::propeller.ttest with drop=FALSE so single-coefficient
-  # contrasts (e.g. interaction terms) do not collapse to a vector.
   prop.trans <- prop.list$TransformedProps
   prop <- prop.list$Proportions
   if (nrow(prop.trans) <= 2) {
@@ -2106,29 +2286,12 @@ de_across_conditions_module <- function(sobjint,
   n_nz <- sum(contrasts != 0)
   if (n_nz == 2L && length(as.numeric(contrasts)) == 2L) {
     fit.prop <- limma::lmFit(prop, design)
-    z <- apply(fit.prop$coefficients, 1, function(x) x^contrasts)
-    RR <- apply(z, 2, prod)
   } else {
     new.des <- design[, contrasts != 0, drop = FALSE]
     fit.prop <- limma::lmFit(prop, new.des)
-    new.cont <- as.numeric(contrasts[contrasts != 0])
-    coefs <- fit.prop$coefficients
-    if (is.null(dim(coefs)) || ncol(coefs) == 1L) {
-      # Single-coefficient contrast (e.g. interaction term vs 0)
-      RR <- as.numeric(coefs)^new.cont[1]
-    } else {
-      z <- apply(coefs, 1, function(x) x^new.cont)
-      RR <- apply(z, 2, prod)
-    }
   }
-  fdr <- p.adjust(fit.cont$p.value[, 1], method = "BH")
-  out <- data.frame(
-    PropMean = as.numeric(fit.prop$coefficients),
-    PropRatio = RR,
-    Tstatistic = fit.cont$t[, 1],
-    P.Value = fit.cont$p.value[, 1],
-    FDR = fdr
-  )
+  RR <- .propeller_prop_ratio(fit.prop, contrasts)
+  out <- .propeller_ttest_result_table(fit.prop, fit.cont, RR)
   if (sort) {
     o <- order(out$P.Value)
     return(out[o, , drop = FALSE])
@@ -2136,6 +2299,7 @@ de_across_conditions_module <- function(sobjint,
   out
 }
 
+# Paired propeller via limma duplicateCorrelation + blocked lmFit (speckle vignette).
 .propeller_ttest_blocked <- function(prop.list, design, contrasts, block,
                                      robust = TRUE, trend = FALSE, sort = TRUE) {
   prop.trans <- prop.list$TransformedProps
@@ -2163,28 +2327,12 @@ de_across_conditions_module <- function(sobjint,
   n_nz <- sum(contrasts != 0)
   if (n_nz == 2L && length(as.numeric(contrasts)) == 2L) {
     fit.prop <- limma::lmFit(prop, design)
-    z <- apply(fit.prop$coefficients, 1, function(x) x^contrasts)
-    RR <- apply(z, 2, prod)
   } else {
     new.des <- design[, contrasts != 0, drop = FALSE]
     fit.prop <- limma::lmFit(prop, new.des)
-    new.cont <- as.numeric(contrasts[contrasts != 0])
-    coefs <- fit.prop$coefficients
-    if (is.null(dim(coefs)) || ncol(coefs) == 1L) {
-      RR <- as.numeric(coefs)^new.cont[1]
-    } else {
-      z <- apply(coefs, 1, function(x) x^new.cont)
-      RR <- apply(z, 2, prod)
-    }
   }
-  fdr <- p.adjust(fit.cont$p.value[, 1], method = "BH")
-  out <- data.frame(
-    PropMean = as.numeric(fit.prop$coefficients),
-    PropRatio = RR,
-    Tstatistic = fit.cont$t[, 1],
-    P.Value = fit.cont$p.value[, 1],
-    FDR = fdr
-  )
+  RR <- .propeller_prop_ratio(fit.prop, contrasts)
+  out <- .propeller_ttest_result_table(fit.prop, fit.cont, RR)
   if (sort) {
     o <- order(out$P.Value)
     return(out[o, , drop = FALSE])
@@ -2245,6 +2393,24 @@ de_across_conditions_module <- function(sobjint,
     length(unique(sample_metadata$Condition)) == 2L
 }
 
+# Descriptive c1 vs c0 mean proportions from the displayed sample-by-cluster table.
+.composition_sample_prop_means <- function(comp_proptab, sample_metadata, c1, c0) {
+  codes <- colnames(comp_proptab)
+  cond <- as.character(sample_metadata$Condition[match(codes, sample_metadata$Code)])
+  c1_idx <- which(cond == as.character(c1))
+  c0_idx <- which(cond == as.character(c0))
+  if (!length(c1_idx) || !length(c0_idx)) {
+    stop(
+      "Could not match c1/c0 sample columns for composition heatmap annotation.",
+      call. = FALSE
+    )
+  }
+  cbind(
+    rowMeans(comp_proptab[, c1_idx, drop = FALSE], na.rm = TRUE),
+    rowMeans(comp_proptab[, c0_idx, drop = FALSE], na.rm = TRUE)
+  )
+}
+
 .de_results_cluster_table <- function(de_results, label, cluster) {
   sub <- de_results[de_results$label == label & de_results$cluster == cluster, , drop = FALSE]
   if (!nrow(sub)) return(NULL)
@@ -2294,6 +2460,18 @@ de_results_by_cluster <- function(de_results, label) {
   out[lengths(out) > 0]
 }
 
+# Resolve propeller PropMean columns for c1/c0 (cell-means or speckle group names).
+.propeller_propmean_pair_cols <- function(cn, c1, c0) {
+  c1_cands <- c(paste0("PropMean.Condition", c1), paste0("PropMean.", c1))
+  c0_cands <- c(paste0("PropMean.Condition", c0), paste0("PropMean.", c0))
+  c1hit <- c1_cands[c1_cands %in% cn]
+  c0hit <- c0_cands[c0_cands %in% cn]
+  list(
+    c1 = if (length(c1hit)) c1hit[[1]] else NA_character_,
+    c0 = if (length(c0hit)) c0hit[[1]] else NA_character_
+  )
+}
+
 # Strip display asterisks from compositional cluster labels.
 .clean_composition_cluster_label <- function(x) {
   trimws(gsub("\\*\\s*", "", as.character(x)))
@@ -2304,13 +2482,12 @@ de_results_by_cluster <- function(de_results, label) {
   df <- as.data.frame(compres, stringsAsFactors = FALSE)
   if ("BaselineProp.clusters" %in% colnames(df)) {
     display <- as.character(df$BaselineProp.clusters)
-    c1col <- paste0("PropMean.Condition", c1)
-    c0col <- paste0("PropMean.Condition", c0)
+    pair <- .propeller_propmean_pair_cols(colnames(df), c1, c0)
     data.frame(
       cluster = .clean_composition_cluster_label(display),
       significant = df$P.Value < 0.05,
-      PropMean_c1 = if (c1col %in% colnames(df)) df[[c1col]] else NA_real_,
-      PropMean_c0 = if (c0col %in% colnames(df)) df[[c0col]] else NA_real_,
+      PropMean_c1 = if (!is.na(pair$c1)) df[[pair$c1]] else NA_real_,
+      PropMean_c0 = if (!is.na(pair$c0)) df[[pair$c0]] else NA_real_,
       PropRatio = df$PropRatio,
       Tstatistic = df$Tstatistic,
       P.Value = df$P.Value,
@@ -2669,7 +2846,7 @@ ora_results_by_cluster <- function(ora_results, label, cluster = NULL, pathway_c
       axis.text = ggplot2::element_text(size = cp.font.size),
       axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)
     ) +
-    ggplot2::scale_color_gradient(low = "steelblue", high = "red", name = "-log10(padj)") +
+    ggplot2::scale_color_gradient(low = "grey80", high = "#B2182B", name = "-log10(padj)") +
     ggplot2::scale_size(range = c(2, 6), name = "Gene count") +
     ggplot2::xlab("Cluster") +
     ggplot2::ylab("") +
@@ -4107,11 +4284,15 @@ compositional_analysis_module <- function(sobjint,
   if (missing(DE_test) || is.null(DE_test)) DE_test <- "EdgeR-LRT"
 
   comps <- .apply_contrast_defaults(.normalize_comps(comps), DE_test)
-  .preflight_comps_design(
-    sample_metadata, comps, DE_test,
-    Pseudobulk_mode = TRUE,
-    check_de_formula_rules = FALSE
-  )
+  if (identical(compositional_test, "propeller")) {
+    .preflight_propeller_comps(sample_metadata, comps, DE_test)
+  } else {
+    .preflight_comps_design(
+      sample_metadata, comps, DE_test,
+      Pseudobulk_mode = FALSE,
+      check_de_formula_rules = FALSE
+    )
+  }
   contrast_style <- .contrast_style(DE_test)
 
   outdir_comp <- paste0(outdir_int, '/compositional_proportion_analysis/')
@@ -4343,13 +4524,13 @@ compositional_analysis_module <- function(sobjint,
       #                                                      axis_param = list(direction = "reverse"))
       #                          )
 
-      #row annotation: barplots of proportions
-      propmat_annot <- pres[,3:4]
+      #row annotation: barplots of observed mean proportions (c1, c0)
+      propmat_annot <- .composition_sample_prop_means(comp_proptab, subpmd, c1, c0)
       if(fill_barplots==T){
-        propmat_annot[sign(propmat_annot)==-1] <- propmat_annot[sign(propmat_annot)==-1] * -1 # deal with negatives; why does this happen? must be all zero... cannot reproduce...
-        propmat_annot$sum <- rowSums(propmat_annot)
-        propmat_annot[,1] <- propmat_annot[,1] / propmat_annot[,3]
-        propmat_annot[,2] <- propmat_annot[,2] / propmat_annot[,3]
+        propmat_annot[sign(propmat_annot)==-1] <- propmat_annot[sign(propmat_annot)==-1] * -1
+        propmat_annot_sum <- rowSums(propmat_annot)
+        propmat_annot[,1] <- propmat_annot[,1] / propmat_annot_sum
+        propmat_annot[,2] <- propmat_annot[,2] / propmat_annot_sum
       }
       propmat_annot <- as.matrix(propmat_annot[,1:2])
       row_ha = rowAnnotation( "Proportions" = anno_barplot( propmat_annot,

@@ -37,13 +37,14 @@ height are computed from the sweep grid (see \code{?cluster_stability_sweep} doc
 \item{width, height}{Ignored when \code{save = TRUE} (reserved for compatibility).}
 }
 \value{
-List with \code{plots} (named ggplot objects), \code{plot_paths}
+List with \code{plots} (named ggplot objects), \code{plot_dims}
+(named width/height inches for HTML or PDF), \code{plot_paths}
 (when saved), and \code{selected_params_i}.
 }
 \description{
 Builds diagnostic plots from \code{cluster_stability_sweep()} tables:
-ranked combined-score bar chart, PC x resolution heatmap, ARI vs Jaccard
-scatter (top combinations labeled), bootstrap ARI boxplots, reference cluster
-counts, and a per-cluster Jaccard heatmap for the selected parameter
-combination only.
+ranked combined-score bar chart (params on Y), PC x resolution heatmap,
+ARI vs Jaccard scatter (selected point drawn last), bootstrap ARI boxplots
+and reference cluster-count bars (params on Y), and a per-cluster Jaccard
+heatmap for the selected parameter combination only (tile values annotated).
 }

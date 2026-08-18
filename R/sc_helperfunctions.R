@@ -140,7 +140,9 @@ alluvialplot <- function(labelsdf, repel, nudge_x, ggfittext, ...){
 #' @param color_by string, how to color cells: `"row_prop"` (within-row proportion, default), `"count"` (raw counts), or `"row_scaled"` (row-wise z-score)
 #' @param title optional string, panel title passed to ComplexHeatmap `column_title`
 #'
-#' @return a ComplexHeatmap object
+#' @return a ComplexHeatmap object. Heatmap body width/height scale with the
+#'   number of columns and rows (~5.5 mm per cell) so the matrix stays compact
+#'   on large graphics devices.
 #' @export
 #'
 #' @examples
@@ -220,10 +222,16 @@ twt_colored_heatmap <- function(labelsdf,
   }
   
   panel_title <- if (!is.null(title)) title else xaxis.title
+
+  cell_mm <- 5.5
+  hm_body_w <- grid::unit(max(ncol(twt_color), 1L) * cell_mm, "mm")
+  hm_body_h <- grid::unit(max(nrow(twt_color), 1L) * cell_mm, "mm")
   
   twt_hm <- ComplexHeatmap::Heatmap(
     twt_color,
     col = col_fun,
+    width = hm_body_w,
+    height = hm_body_h,
     rect_gp = grid::gpar(col = "white", lwd = 0.5),
     border_gp = grid::gpar(col = "black", lwd = 2),
     column_title_side = "bottom",

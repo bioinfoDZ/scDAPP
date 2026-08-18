@@ -164,7 +164,7 @@
     stability_sweep_maxPCs = as.numeric(stability_sweep_maxPCs),
     stability_sweep_res = as.numeric(stability_sweep_res),
     stability_propcells.perrep = as.numeric(stability_propcells.perrep)[1],
-    risc_reference = if (is.null(risc_reference)) NA_character_ else as.character(risc_reference),
+    risc_reference = .risc_reference_fingerprint_value(risc_reference),
     RISC_louvain_neighbors = as.integer(RISC_louvain_neighbors)[1],
     input_seurat_obj = isTRUE(input_seurat_obj),
     stability_outdir = if (is.null(stability_outdir)) NA_character_ else as.character(stability_outdir)
@@ -187,7 +187,7 @@
     integration_method = as.character(integration_method),
     pcs_int = as.integer(pcs_int)[1],
     res_int = as.numeric(res_int)[1],
-    risc_reference = if (is.null(risc_reference)) NA_character_ else as.character(risc_reference),
+    risc_reference = .risc_reference_fingerprint_value(risc_reference),
     RISC_louvain_neighbors = as.integer(RISC_louvain_neighbors)[1],
     input_seurat_obj = isTRUE(input_seurat_obj)
   ))
@@ -368,6 +368,7 @@
       which.max(0.5 * means$ARI_mean + 0.5 * means$Jaccard_mean_of_clustermeans)
     ]
   }
+  sel <- .risc_reference_selection_read(stability_outdir)
   list(
     pcs_int = best$pcs_int,
     res_int = best$res_int,
@@ -375,7 +376,9 @@
     sweep_dir = stability_outdir,
     stability = list(
       perparam_meanscores = means
-    )
+    ),
+    selected_risc_reference = if (!is.null(sel)) sel$selected_code else NULL,
+    risc_reference_selection = sel
   )
 }
 

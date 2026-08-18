@@ -217,7 +217,7 @@ devtools::install_github("bioinfoDZ/scDAPP")
 
 # Development branch
 
-The [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch currently carries **scDAPP v2.0.0** (integration backends, cluster-stability auto-tuning, MSigDB cache, and cross-condition API updates). See the [v2.0 Changelog](Changelog.md) and [Usage — Upgrading from v1.3](Usage.md#upgrading-from-v13).
+The [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch currently carries **scDAPP v2.0.0** (integration backends, cluster-stability auto-tuning, RISC autoV2 reference selection, MSigDB cache, and cross-condition API updates). See the [v2.0 Changelog](Changelog.md) and [Usage — Upgrading from v1.3](Usage.md#upgrading-from-v13).
 
 Install from GitHub:
 

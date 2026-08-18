@@ -59,7 +59,10 @@ scRNAseq_pipeline_runner(
 \arguments{
 \item{datadir}{string, path to folder containing Cellranger output folders for each sample}
 
-\item{outdir}{string, path to output folder, will be created if doesn't already exist}
+\item{outdir}{string, path to output folder, will be created if doesn't already exist.
+Re-runs into the same folder may resume QC, stability auto-tuning, and integration
+from \verb{\{outdir\}/.scdapp_resume/} when fingerprints match (see Documentation/Usage.md).
+Comparative DE always re-runs. Delete \verb{.scdapp_resume/} or use a new outdir to force full recompute.}
 
 \item{use_labeltransfer}{T/F, whether to use labeltransfer for cell type prediction, default = F}
 
@@ -71,9 +74,9 @@ scRNAseq_pipeline_runner(
 
 \item{comps}{string, path to a .csv file with columns c0 (reference), c1 (test), and optional formula, contrast, label. Legacy c2 is accepted as alias for c0. Multiple comparisons are supported.}
 
-\item{Pseudobulk_mode}{T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the \code{prop.test()} function for compositional analysis.}
+\item{Pseudobulk_mode}{T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR (or Dream) for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the \code{prop.test()} function for compositional analysis.}
 
-\item{risc_reference}{string, name of sample to use as RISC reference sample, if not provided will automate the choice}
+\item{risc_reference}{string; RISC reference sample. Default \code{"autoV2"} ranks InPlot-equivalent cluster > Stv > KS scores with a KS outlier veto. Use \code{"auto"} (alias \code{"autoV1"}) for the legacy size-weighted cluster-variance heuristic. Set to a sample \code{Code} or \code{Sample} name to force that reference (used for both the PC/res stability sweep and the final integration). \code{NULL} is the same as \code{"autoV2"}. RISC integration only.}
 
 \item{min_num_UMI}{numeric, default is 500, if no filter is desired set to -Inf}
 
@@ -120,7 +123,7 @@ on the full unfiltered matrix before autofilter (for cluster-level QC diagnostic
 
 \item{integration_method}{character; sample integration backend. One of \code{RISC} (default) or Seurat v5 \code{IntegrateLayers} methods (\code{CCAIntegration}, \code{RPCAIntegration}, \code{CCAIntegration_SCT}, \code{RPCAIntegration_SCT}, \code{HarmonyIntegration}). See \code{integration_method_choices()}.}
 
-\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" for pseudobulk, or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
+\item{DE_test}{a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" for pseudobulk (Dream requires Bioconductor \code{variancePartition} and a \code{(1|var)} term in \code{comps$formula}, e.g. \code{~ Condition + (1|Patient)}), or any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see \code{?Seurat::FindMarkers} for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.}
 
 \item{crossconditionDE_padj_thres}{numeric, numeric; adjusted p value threshold for significant DE genes in cross condition DE; if \code{Pseudobulk_mode} is set to T default is 0.1; if \code{Pseudobulk_mode} is F default is 0.05}
 
@@ -134,7 +137,7 @@ on the full unfiltered matrix before autofilter (for cluster-level QC diagnostic
 
 \item{msigdbr_cache_dir}{optional string, directory for cached MSigDB pathway tables prepared by \code{preppathways_pathwayanalysis_crosscondition_module()}. When NULL, uses \code{XDG_CACHE_HOME/scDAPP} if set, else \code{tools::R_user_dir("scDAPP", "cache")}. Falls back to a subfolder of the pipeline output directory with a warning if those locations are not writable.}
 
-\item{workernum}{integer, number of CPU threads for final RISC integration, default = 1}
+\item{workernum}{integer, number of CPU threads for final RISC integration and Dream pseudobulk DE (\code{BiocParallel}), default = 1}
 
 \item{stability_workernum}{integer or NULL; parallel workers for auto stability sweep (NULL uses workernum)}
 
