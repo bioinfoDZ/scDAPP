@@ -8,3 +8,4 @@ inst/scripts/
 .lintr
 R/TestNewFunctions/
 .cursor/
+debugging/

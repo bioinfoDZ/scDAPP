@@ -8,11 +8,11 @@ For all changes, please update changelog and use Year-Month-Day
 - Multi-backend integration via `integration_method` (RISC default, plus Seurat CCA/RPCA/Harmony and SCT variants); integrated RISC assay renamed to `Integrated_RISC`.
 - Cluster-stability auto-tuning: `pcs_int` / `res_int` can be `"auto"` (bootstrap ARI + Jaccard) before the final integration.
 - Cross-condition API: `comps` uses `c0`/`c1` (legacy `c2` → `c0`) with optional `formula`, `contrast`, and `label`; DE / compositional / pathway / ORA modules return flat tables.
-- Pseudobulk DE: `EdgeR`, `EdgeR-LRT`, `EdgeR-QLF`, `DESeq2`, `DESeq2-LRT`, and `Dream` (`(1|Patient)`); EdgeR-style vs DESeq2-style contrasts; blank contrast defaults to Condition c1 vs c0; early preflight and soft-skip for sparse clusters.
+- Pseudobulk DE: `EdgeR`, `EdgeR-LRT`, `EdgeR-QLF`, `DESeq2`, `DESeq2-LRT`, and `Dream` (`(1|Patient)`); EdgeR-style vs DESeq2-style contrasts; blank contrast defaults to Condition c1 vs c0; early preflight (comps/design and integration packages) and soft-skip for sparse clusters.
 - Propeller compositional analysis follows the same formulas/contrasts (covariates, interactions, blocked pairing).
 - MSigDB pathway cache; cell-type marker ORA; DEG bar/dot plots; per-sample QC modules and `attach_scDAPP_pipeline_libraries()`.
 - New comparative designs cookbook ([Comparative_Designs.md](Comparative_Designs.md)) and Usage updates.
-- Apptainer-friendly pipeline render: copy Rmd to outdir before knitting.
+- Apptainer-friendly pipeline render: copy Rmd to outdir before knitting; remove the copy on successful exit.
 - Safe pipeline resume: fingerprint-gated caches under `{outdir}/.scdapp_resume/` for per-sample QC/processing, stability auto-tuning, and integration (including saved InPlot); comps/DE always re-run. Force a full recompute with a new outdir or by deleting `.scdapp_resume/`.
 - RISC reference default `"autoV2"` (InPlot-equivalent rank with KS veto); chosen sample is frozen for the stability sweep and final integration (`"auto"` / `"autoV1"` keeps the legacy heuristic).
 - Propeller multivariable/interaction tables stay one row per cluster; preflight also checks the propeller design and pairing.

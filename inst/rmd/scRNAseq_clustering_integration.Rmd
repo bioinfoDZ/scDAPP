@@ -341,6 +341,7 @@ int_config <- scDAPP::resolve_integration_config(
   pcs_int,
   res_int
 )
+scDAPP::check_integration_dependencies(int_config, pcs_int = pcs_int, res_int = res_int)
 
 
 # DE test
@@ -405,9 +406,8 @@ workernum <- params$workernum
 sample_metadata <- params$sample_metadata
 if(is.null(sample_metadata)){stop('Please set sample_metadata, path to csv file with Sample column and Condition column')}
 
-#parse pseudobulk
-# read.csv...
-sample_metadata <- read.csv(sample_metadata)
+#parse sample metadata (Excel CSVs without a trailing newline are tolerated)
+sample_metadata <- scDAPP:::.read_user_csv(sample_metadata)
 
 #parse factor
 sample_metadata$Condition <- factor(sample_metadata$Condition,
@@ -426,7 +426,7 @@ if(!('Code' %in% colnames(sample_metadata))){
 comps <- params$comps
 
 if(!is.null(comps)){
-  comps <- read.csv(comps)
+  comps <- scDAPP:::.read_user_csv(comps)
 } else {
   if( length(levels(sample_metadata$Condition)) > 2 ){
     warning('"comps" data.frame not provided, will try to guess from sample_metadata')
@@ -1857,12 +1857,18 @@ One way to do this is via "label transfer", an integration-based machine learnin
 ```{r labeltransfer}
 
 
+# Plotting still needs the marker RDS path and label-transfer outdir on resume
+# (FindTransferAnchors is skipped; cached Seurat objects already have predictions).
+if(use_labeltransfer == T){
+  labeltransfer_outdir_indi <- paste0(outdir_indi, '/labeltransfer/')
+  dir.create(labeltransfer_outdir_indi, recursive = T)
+  # actually we only need this later. read in at the right time. for now save path
+  m_reference_path <- m_reference
+}
+
 
 if(use_labeltransfer == T && !isTRUE(resume_samples)){
   
-  
-  labeltransfer_outdir_indi <- paste0(outdir_indi, '/labeltransfer/')
-  dir.create(labeltransfer_outdir_indi, recursive = T)
   
   reference <- readRDS(refdatapath)
   
@@ -2001,21 +2007,6 @@ if(use_labeltransfer == T && !isTRUE(resume_samples)){
     sobj
     
   })
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  # m_reference <- readRDS(m_reference)
-  
-  # actually we only need this later. read in at the righ time. for now save path
-  m_reference_path <- m_reference
-  
-  
   
   
   
@@ -3111,8 +3102,6 @@ rm(ctplotlist, ctplots_individualsamples, elbowplots, m_reference,
    summaryplots_individualsamples)
 
 invisible(gc(full = T, reset = F, verbose = F))
-
-scDAPP::check_integration_dependencies(int_config, pcs_int = pcs_int, res_int = res_int)
 
 prep <- scDAPP::prepare_integration_inputs(
   sobjlist = sobjlist,

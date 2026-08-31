@@ -77,6 +77,8 @@ The order of the samples in this file will determine the plotting order in the r
 
 You can use the bash/zsh command `nano` to quickly create and save this file as well as the `comps.csv` file if working in a unix shell context.
 
+Excel “Save As CSV” is fine. If the file has no trailing newline (common with Excel), the pipeline still parses the last row and prints a warning; re-save as UTF-8 CSV to silence it. A UTF-8 BOM and trailing blank rows from Excel are also handled.
+
 
 <br />
 
@@ -351,7 +353,8 @@ Re-running the pipeline into an **existing** `outdir` can skip expensive stages 
 
 Caches live under `{outdir}/.scdapp_resume/` and are gated by fingerprints of `sample_metadata` (Sample/Code/Condition) plus QC, per-sample, and integration parameters. **`comps` and DE/pathway/ORA settings are not part of the fingerprint** — comparative modules always re-run so HTML stays current. Changing a fingerprinted parameter invalidates that stage and all downstream stages. Stale stability `RawOuts/` are removed when the stability fingerprint no longer matches.
 
-To force a full recompute: use a new `outdir`, or delete `{outdir}/.scdapp_resume/` (and optionally `multisample_integration/cluster_stability/RawOuts/` if present).
+Copying a previous run into a new `outdir` (including `.scdapp_resume/`) also resumes matching stages. Sample-stage fingerprints do **not** include `integration_method`, so you can skip QC/label-transfer compute and redo integration (e.g. RISC → Harmony). Label-transfer **plots** still run: they reuse cached predictions and `m_reference`. To force a full recompute, use a **new empty** `outdir` or delete `{outdir}/.scdapp_resume/` (and optionally `multisample_integration/cluster_stability/RawOuts/` if present).
+
 
 - `sample_metadata` string, path to a .csv file containing at least two columns: "Sample", matching exactly the sample names in `datadir`, and "Condition", giving the experiment status of that sample, such as WT or KO, Case vs Control, etc. Optionally, can provide a third column "Code" giving a nickname for each sample; this is set to "Sample_Condition" for each sample if not.
 - `comps` string, path to a .csv file with columns **c0** (reference) and **c1** (test), and optional `formula`, `contrast`, `label`. Legacy `c2` is accepted as alias for `c0`. Multiple comparisons are supported.
@@ -401,7 +404,7 @@ Supported species for ortholog mapping are listed in `msigdbr::msigdbr_species()
 
 ## Integration method dependencies
 
-Optional third-party packages are **not** listed in `DESCRIPTION` Suggests; install them when you use the corresponding `integration_method`. `check_integration_dependencies()` validates these at runtime.
+Optional packages (`harmony`, `mclust`) are listed in `DESCRIPTION` Suggests; install them when you use the corresponding `integration_method` or `pcs_int`/`res_int = "auto"`. `check_integration_dependencies()` runs at **pipeline start** (before QC) and again inside `run_integration()`, so a missing package fails immediately.
 
 | `integration_method` | Required installs |
 |----------------------|-------------------|

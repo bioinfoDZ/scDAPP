@@ -355,7 +355,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
   # Paired formulas (1|var) must match DE_test
   if (isTRUE(Pseudobulk_mode) && !is.null(comps)) {
     comps_df <- if (is.character(comps) && length(comps) == 1L && file.exists(comps)) {
-      utils::read.csv(comps, stringsAsFactors = FALSE)
+      .read_user_csv(comps)
     } else {
       comps
     }
@@ -375,6 +375,18 @@ scRNAseq_pipeline_runner <- function(  datadir,
       stop('run_msigdb_celltype_ora is set to TRUE. Please install clusterProfiler first')
     }
   }
+
+  # Integration method packages (harmony, mclust for auto, RISC) before knitting
+  int_config_pre <- scDAPP::resolve_integration_config(
+    integration_method,
+    pcs_int,
+    res_int
+  )
+  scDAPP::check_integration_dependencies(
+    int_config_pre,
+    pcs_int = pcs_int,
+    res_int = res_int
+  )
   
   ####
   
@@ -466,6 +478,11 @@ scRNAseq_pipeline_runner <- function(  datadir,
                     knit_root_dir = outdir
                     
   )
+
+  # Apptainer/singularity needs the copy during render; drop it after success
+  if (file.exists(tmp_rmd)) {
+    unlink(tmp_rmd)
+  }
   
   
   
