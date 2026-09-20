@@ -5581,6 +5581,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
     
     #scale matrix
     mat <- as.matrix(mat)
+    rownames(mat) <- make.unique(as.character(m$gene_symbol))
     mat <- t(scale(t(mat)))
     
     #restrict range
@@ -5611,11 +5612,10 @@ DEplots_comps <- lapply(compslen, function(compidx){
     
     if(Pseudobulk_mode == T){
       ### just plot the values
-      pb_mat <- m[,colnames(m) %in% mdclust$Code]
-      
-      
-      
-      pb_mat <- as.matrix(pb_mat)
+      pb_mat <- scDAPP::de_pseudobulk_heatmap_matrix(
+        m,
+        sample_codes = unique(as.character(mdclust$Code))
+      )
       pb_mat <- log1p(pb_mat)
       pb_mat <- t(scale(t(pb_mat)))
       
@@ -5721,7 +5721,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
         return(avgmat)
       })
       avgmat <- as.matrix(dplyr::bind_cols(avg_l))
-      rownames(avgmat) <- rownames(mat)
+      rownames(avgmat) <- make.unique(as.character(m$gene_symbol))
       colnames(avgmat) <- code_comps_order
       
       avgmat <- as.matrix(avgmat)

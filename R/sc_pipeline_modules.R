@@ -917,6 +917,7 @@
     ))
   }
   out <- dplyr::bind_rows(pieces)
+  rownames(out) <- NULL
   meta_cols <- c("label", "formula", "c0", "c1", "contrast", "cluster")
   other_cols <- setdiff(colnames(out), meta_cols)
   out[, c(meta_cols, other_cols), drop = FALSE]
@@ -1328,6 +1329,46 @@ plot_crosscondition_deg_dotplot <- function(sobj,
     )
 
   p
+}
+
+.de_heatmap_set_gene_rownames <- function(mat, gene_symbol) {
+  mat <- as.matrix(mat)
+  genes <- as.character(gene_symbol)
+  if (length(genes) != nrow(mat)) {
+    stop("gene_symbol length must equal nrow(mat).", call. = FALSE)
+  }
+  rownames(mat) <- make.unique(genes)
+  mat
+}
+
+#' Count matrix for per-cluster pseudobulk DE heatmaps
+#'
+#' Extracts sample Code columns from a one-cluster DE table and sets rownames
+#' from \code{gene_symbol}. This avoids ComplexHeatmap using leftover
+#' flatten-table row indices (e.g. \code{FOS...42052}) as gene labels.
+#'
+#' @param de_table data.frame of DE results for one cluster. Must include
+#'   \code{gene_symbol} and sample count columns named by sample \code{Code}
+#'   (after any \code{normcounts_} prefix has been stripped).
+#' @param sample_codes character vector of sample Codes to include; column
+#'   order of the returned matrix. Codes missing from \code{de_table} are dropped.
+#' @return numeric matrix with rownames = gene symbols (made unique if needed).
+#' @export
+de_pseudobulk_heatmap_matrix <- function(de_table, sample_codes) {
+  if (is.null(de_table) || !is.data.frame(de_table) || !nrow(de_table)) {
+    stop("de_table must be a data.frame with at least one row.", call. = FALSE)
+  }
+  if (!("gene_symbol" %in% colnames(de_table))) {
+    stop("de_table must include a gene_symbol column.", call. = FALSE)
+  }
+  sample_codes <- as.character(sample_codes)
+  sample_codes <- sample_codes[sample_codes %in% colnames(de_table)]
+  if (!length(sample_codes)) {
+    stop("None of sample_codes match columns in de_table.", call. = FALSE)
+  }
+  mat <- as.matrix(de_table[, sample_codes, drop = FALSE])
+  storage.mode(mat) <- "numeric"
+  .de_heatmap_set_gene_rownames(mat, de_table$gene_symbol)
 }
 
 # Safe filename stem encoding run parameters.

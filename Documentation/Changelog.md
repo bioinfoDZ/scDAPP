@@ -2,6 +2,11 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
+## 2.0.1
+2026.09.20
+
+- Fix per-cluster pseudobulk DE heatmaps so row labels are gene symbols rather than flattened DE-table row indices.
+
 ## 2.0.0
 2026.08.18
 
