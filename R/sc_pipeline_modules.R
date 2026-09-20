@@ -918,6 +918,12 @@
   }
   out <- dplyr::bind_rows(pieces)
   rownames(out) <- NULL
+  count_cols <- grep("^(rawcounts_|normcounts_)", colnames(out), value = TRUE)
+  if (length(count_cols)) {
+    for (cn in count_cols) {
+      out[[cn]][is.na(out[[cn]])] <- 0
+    }
+  }
   meta_cols <- c("label", "formula", "c0", "c1", "contrast", "cluster")
   other_cols <- setdiff(colnames(out), meta_cols)
   out[, c(meta_cols, other_cols), drop = FALSE]
@@ -1731,52 +1737,69 @@ de_across_conditions_module <- function(sobjint,
               warning("Design not full rank for cluster ", clust, " (", formula_chr, "); skipping.", call. = FALSE)
               return(NULL)
             }
-            
-            if (is_edger) {
-              y <- DGEList(counts = gem, samples = fit_coldata,
-                           group = fit_coldata$Condition)
-              y <- calcNormFactors(y)
-              y <- estimateDisp(y, design)
-              if (identical(DE_test, "EdgeR-QLF")) {
-                fit_glm <- glmQLFit(y, design)
-                list(
-                  type = "edger_qlf", y = y, design = design, fit = fit_glm,
-                  gem = gem, coldata = fit_coldata
-                )
+            resid_df <- nrow(design) - qr(design)$rank
+            if (resid_df < 1L) {
+              warning(
+                "No residual df for cluster ", clust, " (", formula_chr, "); skipping.",
+                call. = FALSE
+              )
+              return(NULL)
+            }
+
+            tryCatch({
+              if (is_edger) {
+                y <- DGEList(counts = gem, samples = fit_coldata,
+                             group = fit_coldata$Condition)
+                y <- calcNormFactors(y)
+                y <- estimateDisp(y, design)
+                if (identical(DE_test, "EdgeR-QLF")) {
+                  fit_glm <- glmQLFit(y, design)
+                  list(
+                    type = "edger_qlf", y = y, design = design, fit = fit_glm,
+                    gem = gem, coldata = fit_coldata
+                  )
+                } else {
+                  fit_glm <- glmFit(y, design)
+                  list(
+                    type = "edger", y = y, design = design, fit = fit_glm,
+                    gem = gem, coldata = fit_coldata
+                  )
+                }
               } else {
-                fit_glm <- glmFit(y, design)
-                list(
-                  type = "edger", y = y, design = design, fit = fit_glm,
-                  gem = gem, coldata = fit_coldata
-                )
-              }
-            } else {
-              col_dds <- fit_coldata
-              vars <- all.vars(fixed_formula)
-              for (v in vars) {
-                if (is.factor(col_dds[[v]])) {
-                  levels(col_dds[[v]]) <- .sanitize_deseq2_levels(levels(col_dds[[v]]))
+                col_dds <- fit_coldata
+                vars <- all.vars(fixed_formula)
+                for (v in vars) {
+                  if (is.factor(col_dds[[v]])) {
+                    levels(col_dds[[v]]) <- .sanitize_deseq2_levels(levels(col_dds[[v]]))
+                  }
+                }
+                dds <- DESeqDataSetFromMatrix(gem, col_dds, design = fixed_formula)
+                if (DE_test == 'DESeq2-LRT') {
+                  # Size factors + dispersions only; nested LRT runs per comps row at extract.
+                  dds <- DESeq2::estimateSizeFactors(dds)
+                  dds <- DESeq2::estimateDispersions(dds, quiet = TRUE)
+                  list(
+                    type = "deseq2", dds = dds, gem = gem, coldata = col_dds,
+                    use_lrt = TRUE, full_formula = fixed_formula,
+                    lrt_cache = new.env(parent = emptyenv())
+                  )
+                } else {
+                  dds <- DESeq(dds)
+                  list(
+                    type = "deseq2", dds = dds, gem = gem, coldata = col_dds,
+                    use_lrt = FALSE, full_formula = fixed_formula,
+                    lrt_cache = NULL
+                  )
                 }
               }
-              dds <- DESeqDataSetFromMatrix(gem, col_dds, design = fixed_formula)
-              if (DE_test == 'DESeq2-LRT') {
-                # Size factors + dispersions only; nested LRT runs per comps row at extract.
-                dds <- DESeq2::estimateSizeFactors(dds)
-                dds <- DESeq2::estimateDispersions(dds, quiet = TRUE)
-                list(
-                  type = "deseq2", dds = dds, gem = gem, coldata = col_dds,
-                  use_lrt = TRUE, full_formula = fixed_formula,
-                  lrt_cache = new.env(parent = emptyenv())
-                )
-              } else {
-                dds <- DESeq(dds)
-                list(
-                  type = "deseq2", dds = dds, gem = gem, coldata = col_dds,
-                  use_lrt = FALSE, full_formula = fixed_formula,
-                  lrt_cache = NULL
-                )
-              }
-            }
+            }, error = function(e) {
+              warning(
+                "DE fit failed for cluster ", clust, " (", formula_chr, "): ",
+                conditionMessage(e), "; skipping.",
+                call. = FALSE
+              )
+              NULL
+            })
           }
         }),
         groupinglev_nicelabs
