@@ -529,9 +529,9 @@ The HTML report renders these under **Automated integration parameter sweep** (o
 
 **Parallelism (two worker settings):**
 
-- `workernum` — used for **final** integration after auto selection (RISC `InPlot`, per-sample prep, `scMultiIntegrate`, etc.).
+- `workernum` — workers for RISC per-sample prep (socket cluster) and Dream pseudobulk DE. Final `InPlot` and `scMultiIntegrate` run at one core.
 - `stability_workernum` — optional; parallel workers for the **stability sweep** only (`foreach` over global PC/res clustering, bootstrap replicates, and metric aggregation). If omitted (`NULL`), defaults to `workernum`.
-- When `stability_workernum > 1`, RISC uses `ncore = 1` inside sweep workers to avoid `stability_workernum × workernum` CPU oversubscription; the final RISC run still uses `workernum`.
+- When `stability_workernum > 1`, RISC per-sample prep inside sweep workers uses one core to avoid `stability_workernum × workernum` CPU oversubscription. `InPlot` and `scMultiIntegrate` always use one core.
 
 - `RISC_louvain_neighbors` integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()`
 
@@ -564,7 +564,7 @@ The pipeline calls `set_parallel_blas_threads()` at startup (and in parallel wor
 
 Running with multiple CPU threads ("workers") can speed up the analysis, *especially if DoubletFinder is used*, but can cause the pipeline to fail due to overuse of memory.
 
-- `workernum` integer, number of CPU threads for final integration and per-sample parallel steps, default = 1
+- `workernum` integer, workers for per-sample parallel steps and Dream DE, default = 1. RISC `InPlot` and `scMultiIntegrate` run at one core.
 - `stability_workernum` integer or NULL; workers for cluster-stability auto-tuning only (`pcs_int`/`res_int = "auto"`). Defaults to `workernum` when NULL. On HPC, request `max(workernum, stability_workernum)` CPUs when using auto tuning.
 
 If on HPC, make sure to also request the appropriate number of CPUs, for example by adding the following two lines to the SBATCH header for 10 cpus:
@@ -578,7 +578,7 @@ Equivalent Sun Grid Engine / qsub command:
 #$ -pe smp 10
 ```
 
-Parallelization is generally implemented across samples, so setting `workernum` higher than the number of samples will give diminishing returns.
+Parallelization is across samples for QC, per-sample SCT/PCA, and per-sample clustering and markers, so setting `workernum` higher than the number of samples will give diminishing returns.
 
 
 
@@ -612,7 +612,7 @@ The outputs are shown below:
 
 
 
-The .HTML file contains a report summarizing all steps and results of the analysis. The folders contain information including plots, marker .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
+The .HTML file contains a report summarizing all steps and results of the analysis. Its **Run time** section lists wall-clock time for each code chunk in the order it ran, then the total hours for the whole report. The folders contain information including plots, marker .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
 
 Assays and layers in the integrated Seurat object at `multisample_integration/data_objects/Seurat-object_integrated.rds` depend on `integration_method`:
 

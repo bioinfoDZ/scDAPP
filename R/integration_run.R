@@ -16,7 +16,8 @@
 #'   \code{"auto"} / \code{"autoV1"} (legacy heuristic), a sample Code/Sample name,
 #'   or \code{NULL} (same as \code{"autoV2"}).
 #' @param RISC_louvain_neighbors Louvain neighbors (RISC only).
-#' @param workernum Parallel workers for final RISC integration (\code{InPlot}, \code{scMultiIntegrate}).
+#' @param workernum Parallel workers for RISC per-sample prep. \code{InPlot} and
+#'   \code{scMultiIntegrate} run at one core.
 #' @param stability_workernum Parallel workers for auto stability sweep; \code{NULL} uses \code{workernum}.
 #' @param input_seurat_obj If \code{TRUE}, RISC counts come from \code{sobjlist} at prep (not datadir).
 #' @param stability_outdir Output directory for stability sweep (default \code{outdir_int/cluster_stability}).
@@ -334,7 +335,8 @@ prepare_integration_inputs <- function(
 #'   when set, this sample is used and is not re-selected.
 #' @param risc_reference_selection Optional list from \code{.risc_resolve_reference()}
 #'   (reused for the report when the sweep already selected a reference).
-#' @param workernum Parallel workers.
+#' @param workernum Parallel workers for per-sample prep. \code{InPlot} and
+#'   \code{scMultiIntegrate} run at one core.
 #' @param RISC_louvain_neighbors Nearest neighbors for Louvain clustering.
 #' @return List with \code{sobjint}, \code{int_clust_lab}, \code{ip} (InPlot patchwork),
 #'   \code{refscore} (legacy auto named vector or NULL),
@@ -408,7 +410,8 @@ run_risc_integration <- function(
   var0 <- Reduce(intersect, lapply(risclist, function(x) x@rowdata$Symbol))
 
   grDevices::pdf(NULL)
-  ip <- RISC::InPlot(risclist, var.gene = var0, Std.cut = 0.95, ncore = workernum)
+  # Temporary: RISC forks irlba over an initialized OpenBLAS thread pool.
+  ip <- RISC::InPlot(risclist, var.gene = var0, Std.cut = 0.95, ncore = 1L)
   ip <- patchwork::wrap_plots(ip)
   grDevices::dev.off()
 
@@ -467,7 +470,8 @@ run_risc_integration <- function(
     align = "OLS",
     npc = 50,
     adjust = TRUE,
-    ncore = workernum
+    # Temporary: RISC forks irlba over an initialized OpenBLAS thread pool.
+    ncore = 1L
   )
   rm(var0)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))

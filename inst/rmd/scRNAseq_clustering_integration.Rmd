@@ -136,6 +136,9 @@ options(future.globals.maxSize = 15000 * 1024^2) # 15 GB
 # set seed
 set.seed(2022)
 
+# Time later chunks. This setup chunk itself is not included.
+scDAPP:::install_chunk_timing_hook()
+
 ```
 
 
@@ -1545,24 +1548,27 @@ if (isTRUE(resume_samples)) {
   sobjlist <- .resume_loaded$sobjlist
   rm(.resume_loaded)
 } else {
-#read in data and run PCA
+# One socket worker per sample. Objects stay on disk until every sample finishes.
 
-sobjlist <- lapply(sample_metadata$Code, function(code){
-  
-  sobjfile <- paste0(qctmpdir, '/', code, '.rds')
-  
-  sobj <- readRDS(sobjfile)
-  
-  DefaultAssay(sobj) <- 'RNA'
-  
-  sobj <- SCTransform(sobj, assay = "RNA", verbose = verbose, method = 'glmGamPoi', vst.flavor='v2')
-  
-  sobj <- RunPCA(sobj, assay = "SCT", verbose = verbose)
-  
-  sobj
-  
+cl <- parallel::makeCluster(workernum)
+doParallel::registerDoParallel(cl)
+scDAPP:::.stability_cluster_register_workers(cl)
+
+foreach(code = sample_metadata$Code,
+        .packages = scDAPP:::.stability_foreach_packages(c('Seurat', 'glmGamPoi')),
+        .verbose = TRUE) %dopar% {
+  scDAPP:::.per_sample_sct_pca(
+    sobj_path = paste0(qctmpdir, '/', code, '.rds'),
+    verbose = verbose
+  )
+  NULL
+}
+
+parallel::stopCluster(cl)
+
+sobjlist <- lapply(sample_metadata$Code, function(code) {
+  readRDS(paste0(qctmpdir, '/', code, '.rds'))
 })
-
 names(sobjlist) <- sample_metadata$Code
 
 unlink(qctmpdir, recursive = T)
@@ -1622,89 +1628,47 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 if (!isTRUE(resume_samples)) {
 
-# ## using ndims_vec, continue individual sample pre-processing.
-# 
-# Calculate graph, clustering, and umap.
-
-sobjlist <- lapply(sobjlist, function(sobj){
-  
-  # ndim_sample <- ndims_vec[sobj@project.name] #sample-wise PC selection
-  ndim_sample <- pcs_indi
-  
-  sobj <- FindNeighbors(sobj, reduction = "pca", dims = c(1:ndim_sample), verbose = verbose)
-  sobj <- FindClusters(sobj, verbose = verbose, resolution = res_indi)
-  
-  # #add 3d UMAP first
-  # sobj <- Seurat::RunUMAP(sobj, reduction = "pca", dims = c(1:ndim_sample),
-  #                         n.components = 3, 
-  #                         reduction.name = 'UMAP3D', reduction.key = 'UMAP3D_')
-  #add normal UMAP
-  sobj <- RunUMAP(sobj, reduction = "pca", dims = c(1:ndim_sample), verbose = verbose)
-  
-  sobj
-  
-  
-})
-
-# ```
-
-
-
-
-# ```{r markers_individualsamps_clusters}
-
-
-# ## calulcate markers for individual sample clusters
-# 
-# This is parallelized with Future as per Seurat recommendations.
-# Future multisession mode.
-
-#turn off future, it seems to break things
-
-# future::plan('multisession', workers=workernum)
-
-
-
-
-# save markers
 indimarkerdir <- paste0(outdir_indi, '/individualsample_clustermarkers/')
 
 sampmarkersave <- paste0(indimarkerdir, '/markers-PCs_', pcs_indi, '-res_', res_indi, '/' )
 dir.create(sampmarkersave, recursive = T)
 
+# QC temp files are already gone. Park objects on disk so workers do not
+# return Seurat objects over the socket.
+proctmpdir <- paste0(outdir_indi, '/.tmp_individual_preproc/')
+dir.create(proctmpdir, recursive = TRUE)
+for (code in sample_metadata$Code) {
+  saveRDS(sobjlist[[code]], paste0(proctmpdir, '/', code, '.rds'))
+}
+rm(sobjlist)
+invisible(gc(full = T, reset = F, verbose = F))
 
+cl <- parallel::makeCluster(workernum)
+doParallel::registerDoParallel(cl)
+scDAPP:::.stability_cluster_register_workers(cl)
 
+mlist_individualsamples_clusters <- foreach(code = sample_metadata$Code,
+                                            .packages = scDAPP:::.stability_foreach_packages('Seurat'),
+                                            .verbose = TRUE) %dopar% {
+  scDAPP:::.per_sample_cluster_markers(
+    sobj_path = paste0(proctmpdir, '/', code, '.rds'),
+    pcs_indi = pcs_indi,
+    res_indi = res_indi,
+    marker_csv = paste0(sampmarkersave, code, '_clustermarkers.csv'),
+    verbose = verbose
+  )
+}
 
-mlist_individualsamples_clusters <- lapply(sample_metadata$Code, function(code){
-  
-  
-  sampmarkersave_eachsamp <- paste0(sampmarkersave, code, '_clustermarkers.csv')
-  
-  #turn off file exists read in, too dangerous
-  # if(!file.exists(sampmarkersave_eachsamp)){
-  #   
-  sobj <- sobjlist[[code]]
-  
-  m <- FindAllMarkers(sobj, only.pos = T, verbose = verbose)
-  # as of Nov 9 2023 (Seurat v5): add score to markers
-  m$score <- (m$pct.1 - m$pct.2) * m$avg_log2FC
-  
-  
-  write.csv(m, sampmarkersave_eachsamp, quote = F, row.names = F)
-  #   
-  # } else{
-  # m <- read.csv(sampmarkersave_eachsamp)
-  
-  
-  # }
-  
-  return(m)
-  
-  
-  
-})
+parallel::stopCluster(cl)
 
 names(mlist_individualsamples_clusters) <- sample_metadata$Code
+
+sobjlist <- lapply(sample_metadata$Code, function(code) {
+  readRDS(paste0(proctmpdir, '/', code, '.rds'))
+})
+names(sobjlist) <- sample_metadata$Code
+
+unlink(proctmpdir, recursive = TRUE)
 
 } else {
   # Resume: reload per-sample markers from prior CSV outputs when present
@@ -6535,7 +6499,11 @@ If a cluster is missing, it indicates no pathways were significantly differentia
 
 ## Run time
 
-```{r timeprint, results=T, message=T}
+Each row is one code chunk, in the order it ran. Total hours below also include setup and the time between chunks.
+
+```{r timeprint, results='asis', message=TRUE}
+
+knitr::kable(scDAPP:::chunk_timing_table())
 
 hourspassed <- (proc.time() - timestart)[3]/60/60
 names(hourspassed) <- 'Hours'

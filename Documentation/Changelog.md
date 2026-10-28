@@ -2,6 +2,13 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
+## 2.0.2
+2026.10.27
+
+- RISC `InPlot` and `scMultiIntegrate` run at one core so they do not fork `irlba` over an initialized OpenBLAS thread pool. `workernum` still applies to socket-based per-sample prep, the stability sweep, and Dream DE.
+- The HTML report Run time section lists wall-clock time for each code chunk in the order it ran, then the total hours for the whole report.
+- Per-sample SCT/PCA and clustering/markers use `workernum` socket workers, the same pattern as QC. Each worker handles one sample.
+
 ## 2.0.1
 2026.09.20
 

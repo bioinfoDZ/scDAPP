@@ -1083,4 +1083,81 @@ per_sample_qc_module <- function(
   list(af = af, rawmd = rawmd)
 }
 
+.per_sample_worker_setup <- function() {
+  set_parallel_blas_threads()
+  options(future.globals.maxSize = 15000 * 1024^2)
+  if (requireNamespace("future", quietly = TRUE)) {
+    future::plan("sequential")
+  }
+  invisible(NULL)
+}
+
+#' SCT and PCA for one post-QC sample.
+#'
+#' Reads a filtered Seurat RDS, runs SCTransform and PCA, and writes the
+#' object back to the same path.
+#'
+#' @param sobj_path Path to the sample RDS.
+#' @param verbose Passed to \code{SCTransform} and \code{RunPCA}.
+#' @return Invisible \code{NULL}.
+#' @keywords internal
+.per_sample_sct_pca <- function(sobj_path, verbose = FALSE) {
+  .per_sample_worker_setup()
+  sobj <- readRDS(sobj_path)
+  Seurat::DefaultAssay(sobj) <- "RNA"
+  sobj <- Seurat::SCTransform(
+    sobj,
+    assay = "RNA",
+    verbose = verbose,
+    method = "glmGamPoi",
+    vst.flavor = "v2"
+  )
+  sobj <- Seurat::RunPCA(sobj, assay = "SCT", verbose = verbose)
+  saveRDS(sobj, sobj_path)
+  rm(sobj)
+  invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
+  invisible(NULL)
+}
+
+#' Neighbors, clusters, UMAP, and markers for one sample.
+#'
+#' @param sobj_path Path to the SCT/PCA RDS. Overwritten with the clustered object.
+#' @param pcs_indi Number of PCs.
+#' @param res_indi Louvain resolution.
+#' @param marker_csv Path for the \code{FindAllMarkers} CSV.
+#' @param verbose Passed to the Seurat calls.
+#' @return Marker data.frame with a \code{score} column.
+#' @keywords internal
+.per_sample_cluster_markers <- function(
+    sobj_path,
+    pcs_indi,
+    res_indi,
+    marker_csv,
+    verbose = FALSE
+) {
+  .per_sample_worker_setup()
+  sobj <- readRDS(sobj_path)
+  ndim_sample <- pcs_indi
+  sobj <- Seurat::FindNeighbors(
+    sobj,
+    reduction = "pca",
+    dims = c(1:ndim_sample),
+    verbose = verbose
+  )
+  sobj <- Seurat::FindClusters(sobj, verbose = verbose, resolution = res_indi)
+  sobj <- Seurat::RunUMAP(
+    sobj,
+    reduction = "pca",
+    dims = c(1:ndim_sample),
+    verbose = verbose
+  )
+  m <- Seurat::FindAllMarkers(sobj, only.pos = TRUE, verbose = verbose)
+  m$score <- (m$pct.1 - m$pct.2) * m$avg_log2FC
+  utils::write.csv(m, marker_csv, quote = FALSE, row.names = FALSE)
+  saveRDS(sobj, sobj_path)
+  rm(sobj)
+  invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
+  m
+}
+
 
