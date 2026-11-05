@@ -114,7 +114,8 @@ msigdbr_cache_path <- function(species,
                                  cache_dir = NULL,
                                  fallback_dir = NULL,
                                  msigdbr_version = NULL,
-                                 db_version = NULL) {
+                                 db_version = NULL,
+                                 saving_algorithm = "RDS") {
   if (is.null(msigdbr_version)) {
     msigdbr_version <- as.character(utils::packageVersion("msigdbr"))
   }
@@ -122,13 +123,16 @@ msigdbr_cache_path <- function(species,
   slug <- .msigdbr_species_slug(species)
   ver <- gsub("[^0-9A-Za-z._-]+", "_", msigdbr_version)
   if (is.null(db_version) || !nzchar(db_version)) {
-    pattern <- paste0("^msigdbr_", slug, "_", ver, "_.*_prepared\\.rds$")
+    pattern <- paste0("^msigdbr_", slug, "_", ver, "_.*_prepared\\.(rds|qs2)$")
     hits <- list.files(dir, pattern = pattern, full.names = TRUE)
     if (length(hits) == 0) return(NA_character_)
     hits[order(file.info(hits)$mtime, decreasing = TRUE)[1]]
   } else {
     dbv <- gsub("[^0-9A-Za-z._-]+", "_", db_version)
-    file.path(dir, paste0("msigdbr_", slug, "_", ver, "_", dbv, "_prepared.rds"))
+    scdapp_object_path(
+      file.path(dir, paste0("msigdbr_", slug, "_", ver, "_", dbv, "_prepared")),
+      saving_algorithm
+    )
   }
 }
 
@@ -215,15 +219,33 @@ msigdbr_cache_path <- function(species,
 }
 
 #' @keywords internal
-.load_msigdbr_cache <- function(species, pwaycats, cache_dir, fallback_dir) {
+.load_msigdbr_cache <- function(
+    species,
+    pwaycats,
+    cache_dir,
+    fallback_dir,
+    saving_algorithm = "RDS",
+    nthreads = 1L
+) {
   cache_file <- msigdbr_cache_path(
     species = species,
     cache_dir = cache_dir,
-    fallback_dir = fallback_dir
+    fallback_dir = fallback_dir,
+    saving_algorithm = saving_algorithm
   )
+  if (is.na(cache_file) || !nzchar(cache_file)) return(NULL)
+  if (!file.exists(cache_file)) {
+    cache_file <- tryCatch(
+      find_scdapp_object(
+        sub("\\.(rds|qs2)$", "", cache_file, ignore.case = TRUE),
+        saving_algorithm
+      ),
+      error = function(e) NA_character_
+    )
+  }
   if (is.na(cache_file) || !file.exists(cache_file)) return(NULL)
 
-  pathways <- tryCatch(readRDS(cache_file), error = function(e) NULL)
+  pathways <- tryCatch(read_scdapp_object(cache_file, nthreads = nthreads), error = function(e) NULL)
   if (is.null(pathways)) return(NULL)
 
   cached_pwaycats <- attr(pathways, "pwaycats")
@@ -253,7 +275,15 @@ msigdbr_cache_path <- function(species,
 }
 
 #' @keywords internal
-.save_msigdbr_cache <- function(pathways, species, pwaycats, cache_dir, fallback_dir) {
+.save_msigdbr_cache <- function(
+    pathways,
+    species,
+    pwaycats,
+    cache_dir,
+    fallback_dir,
+    saving_algorithm = "RDS",
+    nthreads = 1L
+) {
   db_version <- unique(pathways$db_version)
   if (length(db_version) != 1L || is.na(db_version) || !nzchar(db_version)) {
     db_version <- "unknown"
@@ -262,7 +292,8 @@ msigdbr_cache_path <- function(species,
     species = species,
     cache_dir = cache_dir,
     fallback_dir = fallback_dir,
-    db_version = db_version
+    db_version = db_version,
+    saving_algorithm = saving_algorithm
   )
   dir.create(dirname(cache_file), recursive = TRUE, showWarnings = FALSE)
   attr(pathways, "species") <- species
@@ -271,7 +302,12 @@ msigdbr_cache_path <- function(species,
   attr(pathways, "scdapp_version") <- as.character(utils::packageVersion("scDAPP"))
   attr(pathways, "prepared_at") <- format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
   attr(pathways, "pwaycats") <- pwaycats
-  saveRDS(pathways, cache_file)
+  write_scdapp_object(
+    pathways,
+    cache_file,
+    saving_algorithm = saving_algorithm,
+    nthreads = nthreads
+  )
   message("Saved msigdbr pathways cache: ", cache_file)
   invisible(cache_file)
 }

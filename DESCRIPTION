@@ -24,11 +24,9 @@ Remotes:
     immunogenomics/presto
 Suggests:
     presto,
-    aPEAR,
     clusterProfiler,
     mclust,
     harmony,
-    RhpcBLASctl,
     variancePartition
 Imports: 
     tidyverse,
@@ -54,7 +52,9 @@ Imports:
     ggplot2,
     gridExtra,
     outliers,
+    qs2,
     RColorBrewer,
+    RhpcBLASctl,
     patchwork,
     stringr,
     dplyr,

@@ -221,7 +221,9 @@ apear_find_clusters <- function(apear_input_list,
                                 max_sign_pathway= 500,
                                 min_leading_edge_threshold = 2,
                                 output_dir = NULL,
-                                save_cluster_parameters_and_results=TRUE, 
+                                save_cluster_parameters_and_results=TRUE,
+                                saving_algorithm = "RDS",
+                                nthreads = 1L,
                                 ...
                                 
 ){
@@ -400,7 +402,12 @@ apear_find_clusters <- function(apear_input_list,
   #save findPathCluster results and parameters and results to avoid recalculation
   if(save_cluster_parameters_and_results){
     if(!is.null(output_dir)){
-      saveRDS(findPathClusterres,paste0(output_dir,"findPathClusterres.rds"))
+      write_scdapp_object(
+        findPathClusterres,
+        paste0(output_dir, "findPathClusterres"),
+        saving_algorithm = saving_algorithm,
+        nthreads = nthreads
+      )
     }
   }
   ############################################################################
@@ -648,7 +655,9 @@ apear_plot_cluster <- function(apear_input_list,
                                output_width = 10,
                                output_height = 10,
                                save_network_plot=TRUE, 
-                               save_apearres_obj=TRUE, 
+                               save_apearres_obj=TRUE,
+                               saving_algorithm = "RDS",
+                               nthreads = 1L,
                                ...){
   
   
@@ -850,7 +859,12 @@ apear_plot_cluster <- function(apear_input_list,
   
   if(save_apearres_obj){
     if(!is.null(output_dir)){
-      saveRDS(apearres,paste0(output_dir,"aPEARres.rds"))
+      write_scdapp_object(
+        apearres,
+        paste0(output_dir, "aPEARres"),
+        saving_algorithm = saving_algorithm,
+        nthreads = nthreads
+      )
     }else{
       message("Please provide an output directory for the output_dir paramater")
     }  

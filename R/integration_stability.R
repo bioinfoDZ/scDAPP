@@ -64,8 +64,12 @@
       int_state <- backend$integrate_at_pcs(pcs_k)
     }, silent = !verbose)
     if (is.null(int_state)) next
+    alg <- if (is.null(backend$saving_algorithm)) "RDS" else backend$saving_algorithm
     for (params_i in params_k) {
-      out_path <- file.path(savedir, paste0(filename_prefix, params_i, ".rds"))
+      out_path <- scdapp_object_path(
+        file.path(savedir, paste0(filename_prefix, params_i)),
+        alg
+      )
       if (file.exists(out_path)) next
       parsed <- .parse_stability_param_id(params_i)
       outdf <- NULL
@@ -77,7 +81,7 @@
         )
       }, silent = !verbose)
       if (!is.null(outdf)) {
-        saveRDS(outdf, out_path)
+        write_scdapp_object(outdf, out_path, saving_algorithm = alg, nthreads = 1L)
       }
     }
     rm(int_state)
@@ -449,12 +453,13 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     path_sobj_merged_temp,
     sweep_config,
     globrefdir,
-    verbose = FALSE
+    verbose = FALSE,
+    saving_algorithm = "RDS"
 ) {
   scDAPP::set_parallel_blas_threads()
   outdf <- NULL
   try({
-    sobj <- readRDS(path_sobj_merged_temp)
+    sobj <- read_scdapp_object(path_sobj_merged_temp, nthreads = 1L)
     parsed <- scDAPP:::.parse_stability_param_id(params_i)
     outdf <- scDAPP:::.seurat_stability_integrate_cluster_at(
       sobj,
@@ -462,7 +467,12 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
       parsed$pcs_int,
       parsed$res_int
     )
-    saveRDS(outdf, file.path(globrefdir, paste0(params_i, ".rds")))
+    write_scdapp_object(
+      outdf,
+      file.path(globrefdir, params_i),
+      saving_algorithm = saving_algorithm,
+      nthreads = 1L
+    )
   }, silent = !verbose)
   outdf
 }
@@ -477,12 +487,13 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     risc_ncore,
     risc_louvain_neighbors,
     globrefdir,
-    verbose = FALSE
+    verbose = FALSE,
+    saving_algorithm = "RDS"
 ) {
   scDAPP::set_parallel_blas_threads()
   outdf <- NULL
   try({
-    risclist <- readRDS(path_risclist_temp)
+    risclist <- read_scdapp_object(path_risclist_temp, nthreads = 1L)
     parsed <- scDAPP:::.parse_stability_param_id(params_i)
     outdf <- scDAPP:::.risc_stability_integrate_cluster_at(
       risclist,
@@ -493,7 +504,12 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
       risc_ncore = risc_ncore,
       RISC_louvain_neighbors = risc_louvain_neighbors
     )
-    saveRDS(outdf, file.path(globrefdir, paste0(params_i, ".rds")))
+    write_scdapp_object(
+      outdf,
+      file.path(globrefdir, params_i),
+      saving_algorithm = saving_algorithm,
+      nthreads = 1L
+    )
   }, silent = !verbose)
   outdf
 }
@@ -509,13 +525,14 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     propcells.perrep,
     bootstrapresdir,
     downsize_seurat,
-    verbose = FALSE
+    verbose = FALSE,
+    saving_algorithm = "RDS"
 ) {
   scDAPP::set_parallel_blas_threads()
   set.seed(repi)
   bs_id <- paste0("Bootstrap-", repi)
   try({
-    sobj <- readRDS(path_sobj_merged_temp)
+    sobj <- read_scdapp_object(path_sobj_merged_temp, nthreads = 1L)
     if (downsize_seurat) {
       sobj <- scDAPP:::.stability_downsize_seurat_counts(sobj)
     }
@@ -526,6 +543,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     )
     sobj <- sobj[, subcells]
     backend <- list(
+      saving_algorithm = saving_algorithm,
       integrate_at_pcs = function(pcs) {
         scDAPP:::.seurat_integrate_layers_at_pcs(sobj, sweep_config, pcs)
       },
@@ -560,19 +578,20 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     samplecolumn,
     propcells.perrep,
     bootstrapresdir,
-    verbose = FALSE
+    verbose = FALSE,
+    saving_algorithm = "RDS"
 ) {
   scDAPP::set_parallel_blas_threads()
   set.seed(repi)
   bs_id <- paste0("Bootstrap-", repi)
   try({
-    globmd <- readRDS(path_globmd_temp)
+    globmd <- read_scdapp_object(path_globmd_temp, nthreads = 1L)
     subcells <- scDAPP:::.stability_subsample_cells(
       globmd,
       samplecolumn,
       propcells.perrep
     )
-    matlist <- readRDS(path_matlist_temp)
+    matlist <- read_scdapp_object(path_matlist_temp, nthreads = 1L)
     risclist <- scDAPP:::.risc_stability_build_risclist(
       mdlist,
       sample_metadata,
@@ -593,6 +612,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
       )
     } else {
       backend <- list(
+        saving_algorithm = saving_algorithm,
         integrate_at_pcs = function(pcs) {
           scDAPP:::.risc_stability_integrate(
             risclist,
@@ -1084,8 +1104,11 @@ cluster_stability_sweep <- function(
     label_top_k = 10L,
     remove_rawouts = TRUE,
     verbose = TRUE,
-    downsize_seurat = TRUE
+    downsize_seurat = TRUE,
+    saving_algorithm = "RDS"
 ) {
+  saving_algorithm <- normalize_saving_algorithm(saving_algorithm)
+  backend$saving_algorithm <- saving_algorithm
   .check_stability_dependencies()
   set_parallel_blas_threads()
   set.seed(54321)
@@ -1137,7 +1160,7 @@ cluster_stability_sweep <- function(
   }
 
   # --- Global reference clustering ---
-  saved_globrefs <- gsub("\\.rds$", "", list.files(globrefdir))
+  saved_globrefs <- gsub("\\.(rds|qs2)$", "", list.files(globrefdir), ignore.case = TRUE)
   globparamfield_run <- paramfield[!(paramfield %in% saved_globrefs)]
 
   if (length(globparamfield_run) > 0L) {
@@ -1163,8 +1186,8 @@ cluster_stability_sweep <- function(
         verbose = verbose
       )
     } else if (is_risc) {
-      path_risclist_temp <- file.path(rawoutsdir, "TEMP_RISCLIST.RDS")
-      saveRDS(backend$get_risclist(), path_risclist_temp)
+      path_risclist_temp <- scdapp_object_path(file.path(rawoutsdir, "TEMP_RISCLIST"), saving_algorithm)
+      write_scdapp_object(backend$get_risclist(), path_risclist_temp, saving_algorithm = saving_algorithm, nthreads = 1L)
       risc_louvain_neighbors <- backend$RISC_louvain_neighbors
       risc_ncore <- backend$risc_ncore
       risc_reference <- backend$risc_reference
@@ -1198,13 +1221,14 @@ cluster_stability_sweep <- function(
           risc_ncore,
           risc_louvain_neighbors,
           globrefdir,
-          verbose
+          verbose,
+          saving_algorithm
         )
       }
       parallel::stopCluster(cl)
     } else {
-      path_sobj_merged_temp <- file.path(rawoutsdir, "TEMP_SOBJ_MERGED.RDS")
-      saveRDS(backend$get_sobj(), path_sobj_merged_temp)
+      path_sobj_merged_temp <- scdapp_object_path(file.path(rawoutsdir, "TEMP_SOBJ_MERGED"), saving_algorithm)
+      write_scdapp_object(backend$get_sobj(), path_sobj_merged_temp, saving_algorithm = saving_algorithm, nthreads = 1L)
       sweep_config <- backend$sweep_config
       cl <- parallel::makeCluster(ref_workers, outfile = "")
       doParallel::registerDoParallel(cl)
@@ -1225,7 +1249,8 @@ cluster_stability_sweep <- function(
           path_sobj_merged_temp,
           sweep_config,
           globrefdir,
-          verbose
+          verbose,
+          saving_algorithm
         )
       }
       parallel::stopCluster(cl)
@@ -1234,8 +1259,8 @@ cluster_stability_sweep <- function(
   }
 
   globref_l <- lapply(paramfield, function(params_i) {
-    f <- file.path(globrefdir, paste0(params_i, ".rds"))
-    if (file.exists(f)) readRDS(f) else NULL
+    f <- scdapp_object_path(file.path(globrefdir, params_i), saving_algorithm)
+    if (file.exists(f)) read_scdapp_object(f, nthreads = 1L) else NULL
   })
   names(globref_l) <- paramfield
   globref_l <- globref_l[lengths(globref_l) > 0L]
@@ -1256,7 +1281,7 @@ cluster_stability_sweep <- function(
       )
     })
   )
-  saved_bs <- gsub("\\.rds$", "", list.files(bootstrapresdir))
+  saved_bs <- gsub("\\.(rds|qs2)$", "", list.files(bootstrapresdir), ignore.case = TRUE)
   bootstrapreps_run <- bootstrapreps_run_full_df$Filename
   bootstrapreps_run <- bootstrapreps_run[!(bootstrapreps_run %in% saved_bs)]
   bootstrapreps_run_unique <- unique(
@@ -1276,15 +1301,15 @@ cluster_stability_sweep <- function(
       if (is.null(backend$get_globmd())) {
         backend$prep_reference()
       }
-      path_globmd_temp <- file.path(rawoutsdir, "TEMP_GLOBMD.RDS")
-      saveRDS(backend$get_globmd(), path_globmd_temp)
-      path_mdlist_temp <- file.path(rawoutsdir, "TEMP_STABILITY_MDLIST.RDS")
-      saveRDS(backend$mdlist, path_mdlist_temp)
+      path_globmd_temp <- scdapp_object_path(file.path(rawoutsdir, "TEMP_GLOBMD"), saving_algorithm)
+      write_scdapp_object(backend$get_globmd(), path_globmd_temp, saving_algorithm = saving_algorithm, nthreads = 1L)
+      path_mdlist_temp <- scdapp_object_path(file.path(rawoutsdir, "TEMP_STABILITY_MDLIST"), saving_algorithm)
+      write_scdapp_object(backend$mdlist, path_mdlist_temp, saving_algorithm = saving_algorithm, nthreads = 1L)
       if (is.null(backend$get_matlist())) {
         backend$prep_reference()
       }
-      path_matlist_temp <- file.path(rawoutsdir, "TEMP_MATLIST.RDS")
-      saveRDS(backend$get_matlist(), path_matlist_temp)
+      path_matlist_temp <- scdapp_object_path(file.path(rawoutsdir, "TEMP_MATLIST"), saving_algorithm)
+      write_scdapp_object(backend$get_matlist(), path_matlist_temp, saving_algorithm = saving_algorithm, nthreads = 1L)
       bs_workers <- .stability_effective_workers(
         length(bootstrap_rep_ids),
         stability_workernum
@@ -1299,7 +1324,7 @@ cluster_stability_sweep <- function(
             repi,
             paramfield,
             path_globmd_temp,
-            readRDS(path_mdlist_temp),
+            read_scdapp_object(path_mdlist_temp, nthreads = 1L),
             sample_metadata,
             path_matlist_temp,
             risc_reference,
@@ -1308,14 +1333,15 @@ cluster_stability_sweep <- function(
             samplecolumn,
             propcells.perrep,
             bootstrapresdir,
-            verbose
+            verbose,
+            saving_algorithm
           )
         }
       } else {
         cl <- parallel::makeCluster(bs_workers, outfile = "")
         doParallel::registerDoParallel(cl)
         .stability_cluster_register_workers(cl)
-        mdlist <- readRDS(path_mdlist_temp)
+        mdlist <- read_scdapp_object(path_mdlist_temp, nthreads = 1L)
         parallel::clusterExport(
           cl,
           c(
@@ -1352,20 +1378,28 @@ cluster_stability_sweep <- function(
             samplecolumn,
             propcells.perrep,
             bootstrapresdir,
-            verbose
+            verbose,
+            saving_algorithm
           )
         }
         parallel::stopCluster(cl)
       }
     } else {
-      path_sobj_merged_temp <- file.path(rawoutsdir, "TEMP_SOBJ_MERGED.RDS")
+      path_sobj_merged_temp <- scdapp_object_path(file.path(rawoutsdir, "TEMP_SOBJ_MERGED"), saving_algorithm)
       if (downsize_seurat) {
-        saveRDS(
+        write_scdapp_object(
           .stability_downsize_seurat_counts(backend$get_sobj()),
-          path_sobj_merged_temp
+          path_sobj_merged_temp,
+          saving_algorithm = saving_algorithm,
+          nthreads = 1L
         )
       } else {
-        saveRDS(backend$get_sobj(), path_sobj_merged_temp)
+        write_scdapp_object(
+          backend$get_sobj(),
+          path_sobj_merged_temp,
+          saving_algorithm = saving_algorithm,
+          nthreads = 1L
+        )
       }
       sweep_config <- backend$sweep_config
       bs_workers <- .stability_effective_workers(
@@ -1383,7 +1417,8 @@ cluster_stability_sweep <- function(
             propcells.perrep,
             bootstrapresdir,
             downsize_seurat = FALSE,
-            verbose
+            verbose,
+            saving_algorithm
           )
         }
       } else {
@@ -1417,7 +1452,8 @@ cluster_stability_sweep <- function(
             propcells.perrep,
             bootstrapresdir,
             downsize_seurat = FALSE,
-            verbose
+            verbose,
+            saving_algorithm
           )
         }
         parallel::stopCluster(cl)
@@ -1427,8 +1463,8 @@ cluster_stability_sweep <- function(
   }
 
   repres_flat <- lapply(bootstrapreps_run_full_df$Filename, function(fn) {
-    f <- file.path(bootstrapresdir, paste0(fn, ".rds"))
-    if (file.exists(f)) readRDS(f) else NULL
+    f <- scdapp_object_path(file.path(bootstrapresdir, fn), saving_algorithm)
+    if (file.exists(f)) read_scdapp_object(f, nthreads = 1L) else NULL
   })
   names(repres_flat) <- bootstrapreps_run_full_df$Filename
   repres_flat <- repres_flat[lengths(repres_flat) > 0L]
@@ -1542,7 +1578,8 @@ auto_integration_cluster_params <- function(
     risc_reference = "autoV2",
     RISC_louvain_neighbors = 10L,
     input_seurat_obj = FALSE,
-    verbose = TRUE
+    verbose = TRUE,
+    saving_algorithm = "RDS"
 ) {
   if (!.integration_param_needs_auto(pcs_int, res_int)) {
     stop(
@@ -1589,7 +1626,8 @@ auto_integration_cluster_params <- function(
     propcells.perrep = propcells.perrep,
     stability_workernum = sweep_workers,
     outdir = outdir,
-    verbose = verbose
+    verbose = verbose,
+    saving_algorithm = saving_algorithm
   )
 
   best <- .pick_best_stability_params(stability$perparam_meanscores)

@@ -20,7 +20,7 @@ You can install this package and its dependencies from Github with:
 
 ``` r
 # install.packages("devtools")
-devtools::install_github("bioinfoDZ/scDAPP")
+devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)
 ```
 
 If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.

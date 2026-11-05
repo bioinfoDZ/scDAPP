@@ -2,20 +2,11 @@
 
 For all changes, please update changelog and use Year-Month-Day
 
-## 2.0.2
-2026.10.27
-
-- The HTML report Run time section lists wall-clock time for each code chunk in the order it ran, then the total hours for the whole report.
-- Per-sample SCT/PCA and clustering/markers use `workernum` socket workers, the same pattern as QC. Each worker handles one sample.
-
-## 2.0.1
-2026.09.20
-
-- Fix per-cluster pseudobulk DE heatmaps so row labels are gene symbols rather than flattened DE-table row indices.
-
 ## 2.0.0
-2026.08.18
+2026.11.05
 
+- `saving_algorithm` selects `RDS` (default) or `qs2` for pipeline object files. `qs2` saves large objects faster. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.
+- The HTML report Run time section lists wall-clock time for each code chunk in the order it ran, then the total hours for the whole report.
 - Multi-backend integration via `integration_method` (RISC default, plus Seurat CCA/RPCA/Harmony and SCT variants); integrated RISC assay renamed to `Integrated_RISC`.
 - Cluster-stability auto-tuning: `pcs_int` / `res_int` can be `"auto"` (bootstrap ARI + Jaccard) before the final integration.
 - Cross-condition API: `comps` uses `c0`/`c1` (legacy `c2` → `c0`) with optional `formula`, `contrast`, and `label`; DE / compositional / pathway / ORA modules return flat tables.

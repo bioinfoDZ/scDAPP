@@ -101,7 +101,7 @@ You can then install this package and its dependencies from Github with:
 
 ```
 # install.packages("devtools")
-devtools::install_github("bioinfoDZ/scDAPP")
+devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)
 ```
 
 It will ask your permission, just say yes.
@@ -135,7 +135,7 @@ scDAPP::attach_scDAPP_pipeline_libraries(load_risc = TRUE)
 scDAPP::attach_scDAPP_pipeline_libraries(load_risc = FALSE)
 ```
 
-By default, `attach_scDAPP_pipeline_libraries()` also calls `set_parallel_blas_threads()` (`configure_parallel = TRUE`) to limit BLAS threading during multi-core work. When the optional package `RhpcBLASctl` is installed, thread limits are applied more reliably via `RhpcBLASctl::blas_set_num_threads(1)`.
+By default, `attach_scDAPP_pipeline_libraries()` also calls `set_parallel_blas_threads()` (`configure_parallel = TRUE`) to limit BLAS threading during multi-core work via `RhpcBLASctl::blas_set_num_threads(1)`.
 
 If you will run the default pipeline with `run_msigdb_celltype_ora = TRUE` (the default), verify **clusterProfiler** is available:
 
@@ -181,7 +181,6 @@ These packages are **not** included in `conda_env/2025scdapp.yml`. Install them 
 | `harmony` | `integration_method = "HarmonyIntegration"` | `install.packages("harmony")` |
 | `mclust` | `pcs_int` or `res_int = "auto"` (cluster-stability ARI) | `install.packages("mclust")` |
 | `clusterProfiler` | `run_msigdb_celltype_ora = TRUE` (default) or `run_ORA = TRUE` | `if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager"); BiocManager::install("clusterProfiler")` |
-| `RhpcBLASctl` | Recommended for multi-core runs; not required | `install.packages("RhpcBLASctl")` |
 
 See [Usage.md](Usage.md) for parameter details and [Upgrading from v1.3](Usage.md#upgrading-from-v13) if migrating from scDAPP v1.3.x.
 
@@ -208,7 +207,7 @@ These steps will install key compiler tools that are not easy to install any oth
 Then, in R, you can then install scDAPP with:
 
 ```
-devtools::install_github("bioinfoDZ/scDAPP")
+devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)
 ```
 
 <br />
@@ -222,7 +221,7 @@ The [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch currently carri
 Install from GitHub:
 
 ```
-devtools::install_github("bioinfoDZ/scDAPP@dev")
+devtools::install_github("bioinfoDZ/scDAPP@dev", dependencies = TRUE)
 ```
 
 The dev branch may not be 100% stable and can be subject to frequent updates. If you need a known-stable v1.3.x build, install a tagged release instead (see [Releases](https://github.com/bioinfoDZ/scDAPP/releases)).

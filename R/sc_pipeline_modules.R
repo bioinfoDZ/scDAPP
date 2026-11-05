@@ -3152,7 +3152,9 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
                                                                outdir_int,
                                                                msigdbr_cache_dir = NULL,
                                                                pwaycats = NULL,
-                                                               refresh_msigdbr_cache = FALSE)
+                                                               refresh_msigdbr_cache = FALSE,
+                                                               saving_algorithm = "RDS",
+                                                               nthreads = 1L)
 {
   if (is.null(pwaycats)) {
     pwaycats <- .default_msigdbr_pwaycats()
@@ -3166,7 +3168,9 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
       species = species,
       pwaycats = pwaycats,
       cache_dir = msigdbr_cache_dir,
-      fallback_dir = outdir_int
+      fallback_dir = outdir_int,
+      saving_algorithm = saving_algorithm,
+      nthreads = nthreads
     )
     if (!is.null(pathways)) {
       invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
@@ -3185,7 +3189,9 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
     species = species,
     pwaycats = pwaycats,
     cache_dir = msigdbr_cache_dir,
-    fallback_dir = outdir_int
+    fallback_dir = outdir_int,
+    saving_algorithm = saving_algorithm,
+    nthreads = nthreads
   )
 
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
@@ -3249,7 +3255,9 @@ pathwayanalysis_crosscondition_module <- function(de_results,
                                                   pwaycats,
                                                   workernum,
                                                   outdir_int,
-                                                  cp.font.size
+                                                  cp.font.size,
+                                                  saving_algorithm = "RDS",
+                                                  nthreads = 1L
 ){
   
   
@@ -3823,9 +3831,17 @@ pathwayanalysis_crosscondition_module <- function(de_results,
   
   
   
-  DE_pathways_plot_objects_list_file <- paste0(pwayoutdir, '/DE_pathways_plot_objects_list.rds')
+  DE_pathways_plot_objects_list_file <- scdapp_object_path(
+    paste0(pwayoutdir, '/DE_pathways_plot_objects_list'),
+    saving_algorithm
+  )
   
-  saveRDS(DE_pathways_plot_objects_list, DE_pathways_plot_objects_list_file)
+  write_scdapp_object(
+    DE_pathways_plot_objects_list,
+    DE_pathways_plot_objects_list_file,
+    saving_algorithm = saving_algorithm,
+    nthreads = nthreads
+  )
   
   
   
@@ -3905,7 +3921,9 @@ ORA_crosscondition_module <- function(de_results,
                                       pathway_padj_thres,
                                       pwaycats,
                                       workernum,
-                                      outdir_int
+                                      outdir_int,
+                                      saving_algorithm = "RDS",
+                                      nthreads = 1L
 ){
   
   
@@ -4240,15 +4258,20 @@ ORA_crosscondition_module <- function(de_results,
   ora_results <- .flatten_ora_results(comps, pathway_analysis_mainlist_comps)
 
   pwayoutdir <- paste0(outdir_int, '/overrepresentation_pathway_analysis/')
-  DE_pathways_plot_objects_list_file <- paste0(pwayoutdir, '/DE_ORA_list_object.rds')
+  DE_pathways_plot_objects_list_file <- scdapp_object_path(
+    paste0(pwayoutdir, '/DE_ORA_list_object'),
+    saving_algorithm
+  )
 
-  saveRDS(
+  write_scdapp_object(
     list(
       comps = comps,
       de_results = de_results,
       ora_results = ora_results
     ),
-    DE_pathways_plot_objects_list_file
+    DE_pathways_plot_objects_list_file,
+    saving_algorithm = saving_algorithm,
+    nthreads = nthreads
   )
 
   return(ora_results)

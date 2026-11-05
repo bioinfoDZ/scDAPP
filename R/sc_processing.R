@@ -786,7 +786,8 @@ per_sample_qc_module <- function(
     rawobj_path = NULL,
     qc_pdf_path,
     prefilter_pcs = 30L,
-    prefilter_resolution = 0.1
+    prefilter_resolution = 0.1,
+    saving_algorithm = "RDS"
 ) {
   message(code)
 
@@ -1046,7 +1047,7 @@ per_sample_qc_module <- function(
   )
 
   if (isTRUE(cluster_unfiltered) && !is.null(rawobj_path)) {
-    saveRDS(sobjraw, rawobj_path)
+    write_scdapp_object(sobjraw, rawobj_path, saving_algorithm = saving_algorithm, nthreads = 1L)
   }
 
   grDevices::pdf(qc_pdf_path, height = 10, width = 10)
@@ -1074,7 +1075,7 @@ per_sample_qc_module <- function(
   if (!is.null(af$twt_filt_reason)) print(af$twt_filt_reason)
   grDevices::dev.off()
 
-  saveRDS(sobjsave, qctmp_path)
+  write_scdapp_object(sobjsave, qctmp_path, saving_algorithm = saving_algorithm, nthreads = 1L)
 
   rawmd <- sobjraw@meta.data
   rm(sobjsave, sobjraw)
@@ -1101,9 +1102,9 @@ per_sample_qc_module <- function(
 #' @param verbose Passed to \code{SCTransform} and \code{RunPCA}.
 #' @return Invisible \code{NULL}.
 #' @keywords internal
-.per_sample_sct_pca <- function(sobj_path, verbose = FALSE) {
+.per_sample_sct_pca <- function(sobj_path, verbose = FALSE, saving_algorithm = "RDS") {
   .per_sample_worker_setup()
-  sobj <- readRDS(sobj_path)
+  sobj <- read_scdapp_object(sobj_path, nthreads = 1L)
   Seurat::DefaultAssay(sobj) <- "RNA"
   sobj <- Seurat::SCTransform(
     sobj,
@@ -1113,7 +1114,7 @@ per_sample_qc_module <- function(
     vst.flavor = "v2"
   )
   sobj <- Seurat::RunPCA(sobj, assay = "SCT", verbose = verbose)
-  saveRDS(sobj, sobj_path)
+  write_scdapp_object(sobj, sobj_path, saving_algorithm = saving_algorithm, nthreads = 1L)
   rm(sobj)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
   invisible(NULL)
@@ -1133,10 +1134,11 @@ per_sample_qc_module <- function(
     pcs_indi,
     res_indi,
     marker_csv,
-    verbose = FALSE
+    verbose = FALSE,
+    saving_algorithm = "RDS"
 ) {
   .per_sample_worker_setup()
-  sobj <- readRDS(sobj_path)
+  sobj <- read_scdapp_object(sobj_path, nthreads = 1L)
   ndim_sample <- pcs_indi
   sobj <- Seurat::FindNeighbors(
     sobj,
@@ -1154,7 +1156,7 @@ per_sample_qc_module <- function(
   m <- Seurat::FindAllMarkers(sobj, only.pos = TRUE, verbose = verbose)
   m$score <- (m$pct.1 - m$pct.2) * m$avg_log2FC
   utils::write.csv(m, marker_csv, quote = FALSE, row.names = FALSE)
-  saveRDS(sobj, sobj_path)
+  write_scdapp_object(sobj, sobj_path, saving_algorithm = saving_algorithm, nthreads = 1L)
   rm(sobj)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
   m

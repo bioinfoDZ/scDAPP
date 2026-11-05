@@ -52,7 +52,8 @@ run_integration <- function(
     stability_sweep_maxPCs = c(5, 10, 15, 20, 25, 30, 40, 50),
     stability_sweep_res = seq(0.1, 1.5, by = 0.2),
     stability_propcells.perrep = 0.8,
-    pipeline_outdir = NULL
+    pipeline_outdir = NULL,
+    saving_algorithm = "RDS"
 ) {
   integration_method <- match.arg(integration_method, integration_method_choices())
   auto_requested <- .integration_param_needs_auto(pcs_int, res_int)
@@ -85,7 +86,8 @@ run_integration <- function(
       "stability",
       pipeline_outdir,
       fp_stab,
-      stability_outdir = stability_outdir
+      stability_outdir = stability_outdir,
+      saving_algorithm = saving_algorithm
     )
     if (isTRUE(can_skip_stab)) {
       message(
@@ -94,15 +96,18 @@ run_integration <- function(
       )
       auto_result <- .resume_load_stability_auto_selection(stability_outdir)
     } else {
-      fps <- .resume_read_fingerprints(pipeline_outdir)
+      fps <- .resume_read_fingerprints(pipeline_outdir, saving_algorithm)
       if (!is.null(fps$stability) && !identical(fps$stability, fp_stab)) {
         .resume_invalidate_stability_rawouts(stability_outdir)
       }
-      .resume_invalidate_from(pipeline_outdir, "stability")
+      .resume_invalidate_from(pipeline_outdir, "stability", saving_algorithm)
       if (is.null(tmpobjdir) && !is.null(outdir_indi)) {
         tmpobjdir <- file.path(outdir_indi, ".tmp_Seurat_objects")
       }
-      matlist_path <- file.path(outdir_int, "data_objects", ".concatmatrix.rds")
+      matlist_path <- scdapp_object_path(
+        file.path(outdir_int, "data_objects", ".concatmatrix"),
+        saving_algorithm
+      )
       auto_result <- auto_integration_cluster_params(
         integration_method = integration_method,
         sample_metadata = sample_metadata,
@@ -122,9 +127,10 @@ run_integration <- function(
         risc_reference = risc_reference,
         RISC_louvain_neighbors = RISC_louvain_neighbors,
         input_seurat_obj = input_seurat_obj,
-        verbose = TRUE
+        verbose = TRUE,
+        saving_algorithm = saving_algorithm
       )
-      .resume_mark_ok(pipeline_outdir, "stability", fp_stab)
+      .resume_mark_ok(pipeline_outdir, "stability", fp_stab, saving_algorithm)
     }
     resolved <- resolve_integration_cluster_params(pcs_int, res_int, auto_result)
     pcs_int <- resolved$pcs_int
@@ -155,7 +161,8 @@ run_integration <- function(
     pipeline_outdir,
     fp_int,
     outdir_int = outdir_int,
-    engine = config$engine
+    engine = config$engine,
+    saving_algorithm = saving_algorithm
   )
 
   if (isTRUE(can_skip_int)) {
@@ -163,12 +170,18 @@ run_integration <- function(
       "Pipeline resume: loading integrated objects from ",
       outdir_int_objects
     )
-    meta <- readRDS(file.path(outdir_int_objects, "integration_meta.rds"))
-    sobjint <- readRDS(file.path(outdir_int_objects, "Seurat-object_integrated.rds"))
+    meta <- read_scdapp_object(
+      scdapp_object_path(file.path(outdir_int_objects, "integration_meta"), saving_algorithm),
+      nthreads = workernum
+    )
+    sobjint <- read_scdapp_object(
+      scdapp_object_path(file.path(outdir_int_objects, "Seurat-object_integrated"), saving_algorithm),
+      nthreads = workernum
+    )
     ip <- NULL
-    ip_path <- file.path(outdir_int_objects, "integration_InPlot.rds")
+    ip_path <- scdapp_object_path(file.path(outdir_int_objects, "integration_InPlot"), saving_algorithm)
     if (file.exists(ip_path)) {
-      ip <- readRDS(ip_path)
+      ip <- read_scdapp_object(ip_path, nthreads = workernum)
     }
     if (is.null(ip)) {
       ip <- meta$ip
@@ -183,12 +196,15 @@ run_integration <- function(
       risc_reference_mode = meta$risc_reference_mode
     )
   } else {
-    .resume_invalidate_from(pipeline_outdir, "integration")
+    .resume_invalidate_from(pipeline_outdir, "integration", saving_algorithm)
     if (config$engine == "RISC") {
       if (is.null(mdlist)) {
         stop("mdlist is required for RISC integration.", call. = FALSE)
       }
-      matlist_path <- file.path(outdir_int, "data_objects", ".concatmatrix.rds")
+      matlist_path <- scdapp_object_path(
+        file.path(outdir_int, "data_objects", ".concatmatrix"),
+        saving_algorithm
+      )
       if (!file.exists(matlist_path) && !isTRUE(input_seurat_obj) && is.null(datadir)) {
         stop(
           "RISC requires prepare_integration_inputs() or datadir when input_seurat_obj is FALSE.",
@@ -213,7 +229,8 @@ run_integration <- function(
           NULL
         },
         workernum = workernum,
-        RISC_louvain_neighbors = RISC_louvain_neighbors
+        RISC_louvain_neighbors = RISC_louvain_neighbors,
+        saving_algorithm = saving_algorithm
       )
     } else {
       if (is.null(tmpobjdir)) {
@@ -228,15 +245,26 @@ run_integration <- function(
         sample_metadata = sample_metadata,
         outdir_int = outdir_int,
         config = config,
-        workernum = workernum
+        workernum = workernum,
+        saving_algorithm = saving_algorithm
       )
     }
 
-    saveRDS(res$sobjint, file.path(outdir_int_objects, "Seurat-object_integrated.rds"))
+    write_scdapp_object(
+      res$sobjint,
+      file.path(outdir_int_objects, "Seurat-object_integrated"),
+      saving_algorithm = saving_algorithm,
+      nthreads = workernum
+    )
     if (!is.null(res$ip)) {
-      saveRDS(res$ip, file.path(outdir_int_objects, "integration_InPlot.rds"))
+      write_scdapp_object(
+        res$ip,
+        file.path(outdir_int_objects, "integration_InPlot"),
+        saving_algorithm = saving_algorithm,
+        nthreads = workernum
+      )
     }
-    saveRDS(
+    write_scdapp_object(
       list(
         int_clust_lab = res$int_clust_lab,
         ip = res$ip,
@@ -247,9 +275,11 @@ run_integration <- function(
         pcs_int = as.integer(pcs_int)[1],
         res_int = as.numeric(res_int)[1]
       ),
-      file.path(outdir_int_objects, "integration_meta.rds")
+      file.path(outdir_int_objects, "integration_meta"),
+      saving_algorithm = saving_algorithm,
+      nthreads = workernum
     )
-    .resume_mark_ok(pipeline_outdir, "integration", fp_int)
+    .resume_mark_ok(pipeline_outdir, "integration", fp_int, saving_algorithm)
   }
 
   out <- c(res, list(config = config))
@@ -284,7 +314,9 @@ prepare_integration_inputs <- function(
     outdir_indi,
     datadir = NULL,
     outdir_int,
-    input_seurat_obj = FALSE
+    input_seurat_obj = FALSE,
+    saving_algorithm = "RDS",
+    nthreads = 1L
 ) {
   sobjlist <- .annotate_sobjlist_for_integration(sobjlist, sample_metadata)
   tmpobjdir <- file.path(outdir_indi, ".tmp_Seurat_objects")
@@ -292,7 +324,10 @@ prepare_integration_inputs <- function(
 
   outdir_int_objects <- file.path(outdir_int, "data_objects")
   dir.create(outdir_int_objects, recursive = TRUE, showWarnings = FALSE)
-  matlist_path <- file.path(outdir_int_objects, ".concatmatrix.rds")
+  matlist_path <- scdapp_object_path(
+    file.path(outdir_int_objects, ".concatmatrix"),
+    saving_algorithm
+  )
 
   if (isTRUE(input_seurat_obj)) {
     matlist <- .build_matlist_from_sobjlist(sobjlist, sample_metadata)
@@ -304,7 +339,12 @@ prepare_integration_inputs <- function(
 
   mdlist <- lapply(sample_metadata$Code, function(code) {
     sobj <- sobjlist[[code]]
-    saveRDS(sobj, file.path(tmpobjdir, paste0(code, ".rds")))
+    write_scdapp_object(
+      sobj,
+      file.path(tmpobjdir, code),
+      saving_algorithm = saving_algorithm,
+      nthreads = nthreads
+    )
     sobj@meta.data
   })
   names(mdlist) <- sample_metadata$Code
@@ -312,7 +352,12 @@ prepare_integration_inputs <- function(
   if (!isTRUE(input_seurat_obj)) {
     matlist <- .build_matlist_from_h5_mdlist(mdlist, sample_metadata, datadir)
   }
-  saveRDS(matlist, matlist_path)
+  matlist_path <- write_scdapp_object(
+    matlist,
+    matlist_path,
+    saving_algorithm = saving_algorithm,
+    nthreads = nthreads
+  )
   rm(matlist, sobjlist)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
 
@@ -351,21 +396,20 @@ run_risc_integration <- function(
     frozen_risc_reference = NULL,
     risc_reference_selection = NULL,
     workernum = 1L,
-    RISC_louvain_neighbors = 10L
+    RISC_louvain_neighbors = 10L,
+    saving_algorithm = "RDS"
 ) {
   outdir_int_objects <- file.path(outdir_int, "data_objects")
   dir.create(outdir_int_objects, recursive = TRUE, showWarnings = FALSE)
 
   if (is.null(matlist_path) || !nzchar(matlist_path)) {
-    matlist_path <- file.path(outdir_int_objects, ".concatmatrix.rds")
-  }
-  if (!file.exists(matlist_path)) {
-    stop(
-      "Missing ", matlist_path, "; call prepare_integration_inputs() first.",
-      call. = FALSE
+    matlist_path <- scdapp_object_path(
+      file.path(outdir_int_objects, ".concatmatrix"),
+      saving_algorithm
     )
   }
-  matlist <- readRDS(matlist_path)
+  matlist_path <- find_scdapp_object(matlist_path, saving_algorithm)
+  matlist <- read_scdapp_object(matlist_path, nthreads = workernum)
 
   bigmat <- do.call(cbind, matlist)
   num_nonzeros <- tabulate(bigmat@i + 1L, nbins = nrow(bigmat))
@@ -477,7 +521,12 @@ run_risc_integration <- function(
     ip <- patchwork::wrap_plots(risc_reference_selection$plot)
     grDevices::dev.off()
   }
-  .risc_reference_selection_write(risc_reference_selection, outdir_int_objects)
+  .risc_reference_selection_write(
+    risc_reference_selection,
+    outdir_int_objects,
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
+  )
   refscore <- risc_reference_selection$refscore
   data0 <- .risc_put_reference_first(risclist, ref)
   rm(risclist)
@@ -509,7 +558,12 @@ run_risc_integration <- function(
 
   data0@coldata$Cluster <- .remap_clusters_by_size(data0@coldata$Cluster)
 
-  saveRDS(data0, file.path(outdir_int_objects, "RISC-object_integrated.rds"))
+  write_scdapp_object(
+    data0,
+    file.path(outdir_int_objects, "RISC-object_integrated"),
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
+  )
 
   mat <- do.call(cbind, data0@assay$logcount)
   md <- data0@coldata
@@ -536,7 +590,12 @@ run_risc_integration <- function(
   rm(umap, pca, mat, md, data0)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
 
-  sobjint <- .append_concat_rna_assay(sobjint, outdir_int_objects, sample_metadata)
+  sobjint <- .append_concat_rna_assay(
+    sobjint,
+    outdir_int_objects,
+    sample_metadata,
+    saving_algorithm = saving_algorithm
+  )
   sobjint <- .finalize_sobjint_clusters(sobjint, config, int_clust_lab)
 
   sobjint$Code <- factor(sobjint$Code, levels = sample_metadata$Code)
@@ -603,9 +662,9 @@ run_risc_integration <- function(
 
 #' Merge per-sample RDS from tmpobjdir into one object for Seurat integration.
 #' @keywords internal
-.seurat_merge_from_tmpobjdir <- function(tmpobjdir, sample_metadata) {
+.seurat_merge_from_tmpobjdir <- function(tmpobjdir, sample_metadata, saving_algorithm = "RDS") {
   codes <- sample_metadata$Code
-  sobjlist <- .read_sobjlist_from_dir(tmpobjdir, codes)
+  sobjlist <- .read_sobjlist_from_dir(tmpobjdir, codes, saving_algorithm)
   obj <- if (length(sobjlist) == 1L) {
     sobjlist[[1]]
   } else {
@@ -755,12 +814,13 @@ run_seurat_integration <- function(
     sample_metadata,
     outdir_int,
     config,
-    workernum = 1L
+    workernum = 1L,
+    saving_algorithm = "RDS"
 ) {
   outdir_int_objects <- file.path(outdir_int, "data_objects")
   dir.create(outdir_int_objects, recursive = TRUE, showWarnings = FALSE)
 
-  obj <- .seurat_merge_from_tmpobjdir(tmpobjdir, sample_metadata)
+  obj <- .seurat_merge_from_tmpobjdir(tmpobjdir, sample_metadata, saving_algorithm)
   npcs <- as.integer(config$pcs_int)[1]
   obj <- .seurat_integrate_layers_at_pcs(obj, config, npcs)
   clust <- .seurat_cluster_umap_on_reduction(
@@ -780,8 +840,14 @@ run_seurat_integration <- function(
   rm(obj)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
 
-  if (file.exists(file.path(outdir_int_objects, ".concatmatrix.rds"))) {
-    sobjint <- .append_concat_rna_assay(sobjint, outdir_int_objects, sample_metadata)
+  concat_stem <- file.path(outdir_int_objects, ".concatmatrix")
+  if (file.exists(paste0(concat_stem, ".rds")) || file.exists(paste0(concat_stem, ".qs2"))) {
+    sobjint <- .append_concat_rna_assay(
+      sobjint,
+      outdir_int_objects,
+      sample_metadata,
+      saving_algorithm = saving_algorithm
+    )
   }
 
   sobjint <- .finalize_sobjint_clusters(sobjint, config, int_clust_lab)

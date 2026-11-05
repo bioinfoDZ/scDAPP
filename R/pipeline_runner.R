@@ -92,7 +92,8 @@ r_package_test <- function() {
 #' @param run_msigdb_celltype_ora T/F, default is TRUE. Whether to run ORA of cluster markers against MSigDB cell-type signature gene sets on individual and integrated marker tables. clusterProfiler must be installed.
 #' @param msigdb_celltype_ora_marker_padj_thres numeric, adjusted p-value cutoff for cluster marker genes included in MSigDB cell-type ORA (default 0.05).
 #' @param msigdb_celltype_ora_top_markers integer, max markers per cluster after padj filter, ranked by score (default 100).
-#' @param input_seurat_obj T/F. If true, will read in Seurat objects from `datadir` with names matching the sample column of `sample_metadata`. Ie, if datadir contains objects called "Sample1.rds", "Sample2.rds", and psuedobulk_metadata has "Sample1" in the Sample column, only Sample1.rds will be read in. Useful for data with some preprocessing or hashed data input.
+#' @param input_seurat_obj T/F. If true, will read in Seurat objects from `datadir` with names matching the sample column of `sample_metadata`. Files may be `.rds` or `.qs2` (`Sample1.rds` or `Sample1.qs2`). Useful for data with some preprocessing or hashed data input.
+#' @param saving_algorithm \code{"RDS"} (default) or \code{"qs2"}. Format used when the pipeline writes R objects. \code{qs2} is faster for large Seurat objects. Inputs are read from whichever extension is on the file.
 #' @param title string, title of HTML report. Default is "10X analysis - clustering and integration".
 #' @param author string, name of authors which will be shown on HTML report. We recommend passing a comma separated string. Default is "Alexander Ferrena, Deyou Zheng".
 #' @param pseudobulk_metadata FOR BACKWARDS COMPATIBILITY ONLY. Will be set to `sample_metadata`. string, path to a .csv file containing at least two columns: "Sample", matching exactly the sample names in `datadir`, and "Condition", giving the experiment status of that sample, such as WT or KO, Case vs Control, etc. Optionally, can provide a third column "Code" giving a nickname for each sample; this is set to "Sample_Condition" for each sample if not.
@@ -217,6 +218,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        msigdb_celltype_ora_top_markers,
                                        
                                        input_seurat_obj,
+                                       saving_algorithm,
                                        
                                        title,
                                        author,
@@ -297,6 +299,8 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(msigdb_celltype_ora_top_markers)){ msigdb_celltype_ora_top_markers = 100L }
   
   if(missing(input_seurat_obj)){ input_seurat_obj = FALSE}
+  if(missing(saving_algorithm)){ saving_algorithm = "RDS"}
+  saving_algorithm <- normalize_saving_algorithm(saving_algorithm)
   
   if(missing(title)){title = 'scDAPP Report'}
   if(missing(author)){author = 'Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues'}
@@ -465,6 +469,7 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       msigdb_celltype_ora_top_markers = msigdb_celltype_ora_top_markers,
                       
                       input_seurat_obj = input_seurat_obj,
+                      saving_algorithm = saving_algorithm,
                       
                       title = title,
                       author = author

@@ -1,6 +1,6 @@
 # scDAPP single-cell RNA-seq analysis pipeline usage
 
-This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), multi-sample integration via `integration_method` (default `RISC`; Seurat v5 CCA, RPCA, Harmony, and SCT variants also supported — see [Integration assays and reductions](#integration-assays-and-reductions)), and cross-condition compositional (cell proportion) analysis and differential expression (DE) analysis. Multi-condition comparisons (condition A vs B vs C, ie WT vs KO vs Drug) are supported. **v2.0.0** is the current release on the [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch; install with `devtools::install_github("bioinfoDZ/scDAPP@dev")` (see [Installation](Installation.md)).
+This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), multi-sample integration via `integration_method` (default `RISC`; Seurat v5 CCA, RPCA, Harmony, and SCT variants also supported — see [Integration assays and reductions](#integration-assays-and-reductions)), and cross-condition compositional (cell proportion) analysis and differential expression (DE) analysis. Multi-condition comparisons (condition A vs B vs C, ie WT vs KO vs Drug) are supported. **v2.0.0** is the current release on the [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch; install with `devtools::install_github("bioinfoDZ/scDAPP@dev", dependencies = TRUE)` (see [Installation](Installation.md)).
 
 If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis and DE.
 
@@ -555,9 +555,8 @@ Some features require packages that are not installed by the default conda yaml.
 | `harmony` | `integration_method = "HarmonyIntegration"` |
 | `mclust` | `pcs_int` or `res_int = "auto"` (cluster-stability ARI) |
 | `clusterProfiler` | `run_msigdb_celltype_ora = TRUE` (default) or `run_ORA = TRUE` |
-| `RhpcBLASctl` | Optional; improves BLAS thread limiting when `set_parallel_blas_threads()` runs during multi-core work |
 
-The pipeline calls `set_parallel_blas_threads()` at startup (and in parallel workers). It always sets `OMP_NUM_THREADS` and related env vars to 1; when `RhpcBLASctl` is installed, it also calls `RhpcBLASctl::blas_set_num_threads(1)` to reduce CPU oversubscription during `foreach` / sample-parallel steps.
+The pipeline calls `set_parallel_blas_threads()` at startup (and in parallel workers). It sets `OMP_NUM_THREADS` and related env vars to 1, and calls `RhpcBLASctl::blas_set_num_threads(1)` so each worker does not start its own BLAS thread pool.
 
 
 ### CPUs: parallelization to increase speed
@@ -565,6 +564,7 @@ The pipeline calls `set_parallel_blas_threads()` at startup (and in parallel wor
 Running with multiple CPU threads ("workers") can speed up the analysis, *especially if DoubletFinder is used*, but can cause the pipeline to fail due to overuse of memory.
 
 - `workernum` integer, workers for final RISC integration (`InPlot`, `scMultiIntegrate`), per-sample parallel steps, and Dream DE, default = 1.
+- `saving_algorithm` `"RDS"` (default) or `"qs2"`. `"qs2"` writes pipeline objects with the qs2 format, which is faster for large Seurat objects. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.
 - `stability_workernum` integer or NULL; workers for cluster-stability auto-tuning only (`pcs_int`/`res_int = "auto"`). Defaults to `workernum` when NULL. On HPC, request `max(workernum, stability_workernum)` CPUs when using auto tuning.
 
 If on HPC, make sure to also request the appropriate number of CPUs, for example by adding the following two lines to the SBATCH header for 10 cpus:

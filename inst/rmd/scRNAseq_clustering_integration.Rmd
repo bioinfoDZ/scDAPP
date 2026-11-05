@@ -54,6 +54,7 @@ params:
   msigdb_celltype_ora_marker_padj_thres: 0.05
   msigdb_celltype_ora_top_markers: 100
   input_seurat_obj: FALSE
+  saving_algorithm: RDS
   title: scDAPP Report
   author: Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues
 title: "`r params$title`"
@@ -381,6 +382,10 @@ msigdb_celltype_ora_top_markers <- params$msigdb_celltype_ora_top_markers
 ## parallelization
 
 workernum <- params$workernum
+saving_algorithm <- params$saving_algorithm
+if (is.null(saving_algorithm) || !nzchar(as.character(saving_algorithm))) {
+  saving_algorithm <- "RDS"
+}
 
 
 # ## save the parameter choices
@@ -539,7 +544,8 @@ pl <- list(datadir = datadir,
            msigdb_celltype_ora_top_markers = msigdb_celltype_ora_top_markers,
            
            workernum = workernum,
-           input_seurat_obj = input_seurat_obj
+           input_seurat_obj = input_seurat_obj,
+           saving_algorithm = saving_algorithm
 )
 
 pldf <- data.frame(parameter = names(pl),
@@ -574,7 +580,8 @@ resume_samples <- scDAPP:::.resume_can_load(
   "samples",
   outdir,
   .resume_fp_samples,
-  sample_codes = as.character(sample_metadata$Code)
+  sample_codes = as.character(sample_metadata$Code),
+  saving_algorithm = saving_algorithm
 )
 if (isTRUE(resume_samples)) {
   message(
@@ -582,7 +589,7 @@ if (isTRUE(resume_samples)) {
     scDAPP:::.resume_root(outdir)
   )
 } else {
-  scDAPP:::.resume_invalidate_from(outdir, "samples")
+  scDAPP:::.resume_invalidate_from(outdir, "samples", saving_algorithm)
 }
 
 
@@ -803,8 +810,8 @@ if(input_seurat_obj == T){## read in
     
     
     #for HTO, we will assume saved objects
-    sobjfile <- paste0(datadir, '/', samp, '.rds')
-    sobj <- readRDS(sobjfile)
+    sobjfile <- scDAPP::find_scdapp_object(file.path(datadir, samp), saving_algorithm)
+    sobj <- scDAPP::read_scdapp_object(sobjfile, nthreads = 1L)
     
     
     
@@ -894,7 +901,12 @@ qctmpdir <- paste0(qcdir, '/qctmpdir/')
 
 if (isTRUE(resume_samples)) {
   message("Pipeline resume: skipping QC/DoubletFinder; loading qc_report_state")
-  .resume_loaded <- scDAPP:::.resume_load_samples(outdir, as.character(sample_metadata$Code))
+  .resume_loaded <- scDAPP:::.resume_load_samples(
+    outdir,
+    as.character(sample_metadata$Code),
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
+  )
   aflist <- .resume_loaded$aflist
   mdlist <- .resume_loaded$mdlist
   rm(.resume_loaded)
@@ -907,8 +919,13 @@ sobjlist <- lapply(sobjlist, scDAPP::add_per_sample_qc_metadata)
 dir.create(qctmpdir, recursive = T)
 sobjlist <- lapply(sobjlist, function(sobj){
   code <- sobj@project.name
-  tmpsobjfp <- paste0(qctmpdir, '/', code, '.rds')
-  saveRDS(sobj, tmpsobjfp)
+  tmpsobjfp <- scDAPP::scdapp_object_path(file.path(qctmpdir, code), saving_algorithm)
+  scDAPP::write_scdapp_object(
+    sobj,
+    tmpsobjfp,
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
+  )
   return(sobj)
 })
 
@@ -948,7 +965,10 @@ af_md_list <- foreach(code = sample_metadata$Code,
                       .verbose = TRUE) %dopar% {
   options(future.globals.maxSize = 15000 * 1024^2)
 
-  sobj <- readRDS(paste0(qctmpdir, '/', code, '.rds'))
+  sobj <- scDAPP::read_scdapp_object(
+    scDAPP::scdapp_object_path(file.path(qctmpdir, code), saving_algorithm),
+    nthreads = 1L
+  )
 
   res <- scDAPP::per_sample_qc_module(
     sobj = sobj,
@@ -964,12 +984,16 @@ af_md_list <- foreach(code = sample_metadata$Code,
     autofilter_loess_negative_residual_threshold = autofilter_loess_negative_residual_threshold,
     doubletFinder = doubletFinder,
     cluster_unfiltered = cluster_unfiltered,
-    qctmp_path = paste0(qctmpdir, '/', code, '.rds'),
+    qctmp_path = scDAPP::scdapp_object_path(file.path(qctmpdir, code), saving_algorithm),
     rawobj_path = if (isTRUE(cluster_unfiltered)) {
-      paste0(rawobjsdir, '/Unfiltered-SeuratObject-', code, '.rds')
+      scDAPP::scdapp_object_path(
+        file.path(rawobjsdir, paste0("Unfiltered-SeuratObject-", code)),
+        saving_algorithm
+      )
     } else {
       NULL
     },
+    saving_algorithm = saving_algorithm,
     qc_pdf_path = paste0(qcdir, '/QC_autofilter_summary-', code, '.pdf')
   )
 
@@ -1544,7 +1568,12 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 if (isTRUE(resume_samples)) {
   message("Pipeline resume: loading processed per-sample objects (skip SCT)")
-  .resume_loaded <- scDAPP:::.resume_load_samples(outdir, as.character(sample_metadata$Code))
+  .resume_loaded <- scDAPP:::.resume_load_samples(
+    outdir,
+    as.character(sample_metadata$Code),
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
+  )
   sobjlist <- .resume_loaded$sobjlist
   rm(.resume_loaded)
 } else {
@@ -1558,8 +1587,9 @@ foreach(code = sample_metadata$Code,
         .packages = scDAPP:::.stability_foreach_packages(c('Seurat', 'glmGamPoi')),
         .verbose = TRUE) %dopar% {
   scDAPP:::.per_sample_sct_pca(
-    sobj_path = paste0(qctmpdir, '/', code, '.rds'),
-    verbose = verbose
+    sobj_path = scDAPP::scdapp_object_path(file.path(qctmpdir, code), saving_algorithm),
+    verbose = verbose,
+    saving_algorithm = saving_algorithm
   )
   NULL
 }
@@ -1567,7 +1597,10 @@ foreach(code = sample_metadata$Code,
 parallel::stopCluster(cl)
 
 sobjlist <- lapply(sample_metadata$Code, function(code) {
-  readRDS(paste0(qctmpdir, '/', code, '.rds'))
+  scDAPP::read_scdapp_object(
+    scDAPP::scdapp_object_path(file.path(qctmpdir, code), saving_algorithm),
+    nthreads = workernum
+  )
 })
 names(sobjlist) <- sample_metadata$Code
 
@@ -1638,7 +1671,12 @@ dir.create(sampmarkersave, recursive = T)
 proctmpdir <- paste0(outdir_indi, '/.tmp_individual_preproc/')
 dir.create(proctmpdir, recursive = TRUE)
 for (code in sample_metadata$Code) {
-  saveRDS(sobjlist[[code]], paste0(proctmpdir, '/', code, '.rds'))
+  scDAPP::write_scdapp_object(
+    sobjlist[[code]],
+    file.path(proctmpdir, code),
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
+  )
 }
 rm(sobjlist)
 invisible(gc(full = T, reset = F, verbose = F))
@@ -1651,7 +1689,8 @@ mlist_individualsamples_clusters <- foreach(code = sample_metadata$Code,
                                             .packages = scDAPP:::.stability_foreach_packages('Seurat'),
                                             .verbose = TRUE) %dopar% {
   scDAPP:::.per_sample_cluster_markers(
-    sobj_path = paste0(proctmpdir, '/', code, '.rds'),
+    sobj_path = scDAPP::scdapp_object_path(file.path(proctmpdir, code), saving_algorithm),
+    saving_algorithm = saving_algorithm,
     pcs_indi = pcs_indi,
     res_indi = res_indi,
     marker_csv = paste0(sampmarkersave, code, '_clustermarkers.csv'),
@@ -1664,7 +1703,10 @@ parallel::stopCluster(cl)
 names(mlist_individualsamples_clusters) <- sample_metadata$Code
 
 sobjlist <- lapply(sample_metadata$Code, function(code) {
-  readRDS(paste0(proctmpdir, '/', code, '.rds'))
+  scDAPP::read_scdapp_object(
+    scDAPP::scdapp_object_path(file.path(proctmpdir, code), saving_algorithm),
+    nthreads = workernum
+  )
 })
 names(sobjlist) <- sample_metadata$Code
 
@@ -1692,7 +1734,9 @@ if (run_msigdb_celltype_ora && !isTRUE(resume_samples)) {
   pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(
     species = species,
     outdir_int = outdir_int,
-    msigdbr_cache_dir = msigdbr_cache_dir
+    msigdbr_cache_dir = msigdbr_cache_dir,
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
   )
   msigdb_celltype_ora_indi_results <- scDAPP::ORA_cluster_markers_msigdb_celltype_batch_module(
     marker_results_list = mlist_individualsamples_clusters,
@@ -1834,7 +1878,7 @@ if(use_labeltransfer == T){
 if(use_labeltransfer == T && !isTRUE(resume_samples)){
   
   
-  reference <- readRDS(refdatapath)
+  reference <- scDAPP::read_scdapp_object(refdatapath, nthreads = workernum)
   
   
   ### unfortunately, Seurat does not like underscores in feature names, so we need to replace
@@ -1998,7 +2042,9 @@ if (!isTRUE(resume_samples) && exists(".resume_aflist_stash") && exists(".resume
     sobjlist = sobjlist,
     aflist = .resume_aflist_stash,
     mdlist = .resume_mdlist_stash,
-    fingerprint = .resume_fp_samples
+    fingerprint = .resume_fp_samples,
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
   )
   rm(.resume_aflist_stash, .resume_mdlist_stash)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
@@ -2311,7 +2357,7 @@ if(use_labeltransfer == T){
     
     
     # heatmap of reference markers
-    m_reference <- readRDS(m_reference_path)
+    m_reference <- scDAPP::read_scdapp_object(m_reference_path, nthreads = 1L)
     
     #MAKE SURE ONLY POS MARKERS
     m_reference <- m_reference[m_reference$avg_log2FC > 0,]
@@ -3073,7 +3119,9 @@ prep <- scDAPP::prepare_integration_inputs(
   outdir_indi = outdir_indi,
   datadir = if (isTRUE(input_seurat_obj)) NULL else datadir,
   outdir_int = outdir_int,
-  input_seurat_obj = input_seurat_obj
+  input_seurat_obj = input_seurat_obj,
+  saving_algorithm = saving_algorithm,
+  nthreads = workernum
 )
 mdlist <- prep$mdlist
 tmpobjdir <- prep$tmpobjdir
@@ -3100,7 +3148,8 @@ int_res <- scDAPP::run_integration(
   stability_sweep_maxPCs = stability_sweep_maxPCs,
   stability_sweep_res = stability_sweep_res,
   stability_propcells.perrep = stability_propcells.perrep,
-  pipeline_outdir = outdir
+  pipeline_outdir = outdir,
+  saving_algorithm = saving_algorithm
 )
 
 sobjint <- int_res$sobjint
@@ -3169,7 +3218,9 @@ if (run_msigdb_celltype_ora) {
     pathways <- scDAPP::preppathways_pathwayanalysis_crosscondition_module(
       species = species,
       outdir_int = outdir_int,
-      msigdbr_cache_dir = msigdbr_cache_dir
+      msigdbr_cache_dir = msigdbr_cache_dir,
+      saving_algorithm = saving_algorithm,
+      nthreads = workernum
     )
   }
   msigdb_celltype_ora_int_result <- scDAPP::ORA_cluster_markers_msigdb_celltype_module(
@@ -3446,11 +3497,14 @@ dir.create(outdir_indi_seuratobjs, recursive = T)
 predictionmats <- lapply(sample_metadata$Code, function(code){
   
   #read in from temp dir (or resume samples cache)
-  tmp_fp <- paste0(tmpobjdir, '/', code, '.rds')
+  tmp_fp <- scDAPP::scdapp_object_path(file.path(tmpobjdir, code), saving_algorithm)
   if (!file.exists(tmp_fp)) {
-    tmp_fp <- file.path(scDAPP:::.resume_samples_dir(outdir), paste0(code, ".rds"))
+    tmp_fp <- scDAPP::scdapp_object_path(
+      file.path(scDAPP:::.resume_samples_dir(outdir), code),
+      saving_algorithm
+    )
   }
-  sobj <- readRDS(tmp_fp)
+  sobj <- scDAPP::read_scdapp_object(tmp_fp, nthreads = workernum)
   
   #subset intmd for this sample
   intmd_sub <- intmd[intmd$Code == code,]
@@ -3465,9 +3519,12 @@ predictionmats <- lapply(sample_metadata$Code, function(code){
   sobj@meta.data[,clustname] <- intmd_sub[,clustname]
   
   #save each sample obj to proc obj dir
-  invisible( saveRDS(sobj,
-                     paste0(outdir_indi_seuratobjs, '/SeuratObject-', code, '.rds'))
-  )
+  invisible(scDAPP::write_scdapp_object(
+    sobj,
+    file.path(outdir_indi_seuratobjs, paste0("SeuratObject-", code)),
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
+  ))
   
   if(use_labeltransfer == T){
     #return prediction assay with proper risc barcodes
@@ -3488,7 +3545,10 @@ unlink(tmpobjdir, recursive = T)
 
 
 #read sobjint back in
-sobjint <- readRDS( paste0(outdir_int_objects, '/Seurat-object_integrated.rds') )
+sobjint <- scDAPP::read_scdapp_object(
+  scDAPP::scdapp_object_path(file.path(outdir_int_objects, "Seurat-object_integrated"), saving_algorithm),
+  nthreads = workernum
+)
 
 
 #add predictions assay to integrated seurat object
@@ -3591,7 +3651,12 @@ sobjint$Condition <- factor(sobjint$Condition, levels = levels(sample_metadata$C
 
 
 #update saved sobjint with predictions assay
-saveRDS(sobjint,  paste0(outdir_int_objects, '/Seurat-object_integrated.rds') )
+scDAPP::write_scdapp_object(
+  sobjint,
+  file.path(outdir_int_objects, "Seurat-object_integrated"),
+  saving_algorithm = saving_algorithm,
+  nthreads = workernum
+)
 
 
 ## clean up env
@@ -4059,7 +4124,7 @@ if(use_labeltransfer == T){
   
   
   # heatmap of reference markers
-  m_reference <- readRDS(m_reference_path)
+  m_reference <- scDAPP::read_scdapp_object(m_reference_path, nthreads = 1L)
   
   #MAKE SURE ONLY POS MARKERS
   m_reference <- m_reference[m_reference$avg_log2FC > 0,]
@@ -5823,7 +5888,9 @@ if (!exists("pathways")) {
   pathways <- preppathways_pathwayanalysis_crosscondition_module(
     species = species,
     outdir_int = outdir_int,
-    msigdbr_cache_dir = msigdbr_cache_dir
+    msigdbr_cache_dir = msigdbr_cache_dir,
+    saving_algorithm = saving_algorithm,
+    nthreads = workernum
   )
 }
 
@@ -5835,7 +5902,9 @@ pways_output_list <- pathwayanalysis_crosscondition_module(
   # deg.weight = "pval", #this is deprecated now
   comps = comps,
   workernum = workernum,
-  outdir_int = outdir_int
+  outdir_int = outdir_int,
+  saving_algorithm = saving_algorithm,
+  nthreads = workernum
 )
 
 
@@ -5859,9 +5928,17 @@ DE_pathways_plot_objects_list <- list(comps = comps,
 
 
 
-DE_pathways_plot_objects_list_file <- paste0(pwayoutdir, '/DE_pathways_plot_objects_list.rds')
+DE_pathways_plot_objects_list_file <- scDAPP::scdapp_object_path(
+  file.path(pwayoutdir, "DE_pathways_plot_objects_list"),
+  saving_algorithm
+)
 
-saveRDS(DE_pathways_plot_objects_list, DE_pathways_plot_objects_list_file)
+scDAPP::write_scdapp_object(
+  DE_pathways_plot_objects_list,
+  DE_pathways_plot_objects_list_file,
+  saving_algorithm = saving_algorithm,
+  nthreads = workernum
+)
 
 
 
@@ -5886,7 +5963,9 @@ if(run_ORA == T){
                                                   crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
                                                   crossconditionDE_min.pct = crossconditionDE_min.pct,
                                                   workernum = workernum,
-                                                  outdir_int = outdir_int
+                                                  outdir_int = outdir_int,
+                                                  saving_algorithm = saving_algorithm,
+                                                  nthreads = workernum
   )
   
   

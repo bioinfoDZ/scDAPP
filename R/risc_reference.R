@@ -747,12 +747,22 @@
 
 #' Write RISC reference selection artifacts.
 #' @keywords internal
-.risc_reference_selection_write <- function(selection, dir) {
+.risc_reference_selection_write <- function(
+    selection,
+    dir,
+    saving_algorithm = "RDS",
+    nthreads = 1L
+) {
   if (is.null(dir) || !nzchar(as.character(dir)[1])) {
     return(invisible(NULL))
   }
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-  saveRDS(selection, file.path(dir, "risc_reference_selection.rds"))
+  write_scdapp_object(
+    selection,
+    file.path(dir, "risc_reference_selection"),
+    saving_algorithm = saving_algorithm,
+    nthreads = nthreads
+  )
   if (!is.null(selection$table)) {
     utils::write.csv(
       selection$table,
@@ -772,12 +782,15 @@
 
 #' Read RISC reference selection artifacts if present.
 #' @keywords internal
-.risc_reference_selection_read <- function(dir) {
-  fp <- file.path(dir, "risc_reference_selection.rds")
-  if (!file.exists(fp)) {
+.risc_reference_selection_read <- function(dir, saving_algorithm = "RDS") {
+  fp <- tryCatch(
+    find_scdapp_object(file.path(dir, "risc_reference_selection"), saving_algorithm),
+    error = function(e) NA_character_
+  )
+  if (is.na(fp) || !file.exists(fp)) {
     return(NULL)
   }
-  tryCatch(readRDS(fp), error = function(e) NULL)
+  tryCatch(read_scdapp_object(fp), error = function(e) NULL)
 }
 
 #' Freeze RISC reference on a stability backend after \code{prep_reference()}.
@@ -799,7 +812,11 @@
   if (is.function(backend$set_risc_reference)) {
     backend$set_risc_reference(sel$selected_code)
   }
-  .risc_reference_selection_write(sel, outdir)
+  .risc_reference_selection_write(
+    sel,
+    outdir,
+    saving_algorithm = if (is.null(backend$saving_algorithm)) "RDS" else backend$saving_algorithm
+  )
   if (isTRUE(verbose)) {
     message(
       "RISC reference (", sel$mode, "): ", sel$selected_code,

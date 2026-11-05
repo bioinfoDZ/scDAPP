@@ -346,8 +346,14 @@ check_integration_dependencies <- function(config, pcs_int = NULL, res_int = NUL
     datadir = NULL,
     input_seurat_obj = FALSE
 ) {
-  if (!is.null(matlist_path) && nzchar(matlist_path) && file.exists(matlist_path)) {
-    return(readRDS(matlist_path))
+  if (!is.null(matlist_path) && nzchar(matlist_path)) {
+    found <- tryCatch(
+      find_scdapp_object(matlist_path),
+      error = function(e) NA_character_
+    )
+    if (!is.na(found) && file.exists(found)) {
+      return(read_scdapp_object(found))
+    }
   }
   if (isTRUE(input_seurat_obj)) {
     if (is.null(tmpobjdir) || !nzchar(tmpobjdir)) {
@@ -415,12 +421,17 @@ check_integration_dependencies <- function(config, pcs_int = NULL, res_int = NUL
 
 #' Attach joined raw RNA counts assay to integrated object for pseudobulk DE.
 #' @keywords internal
-.append_concat_rna_assay <- function(sobjint, outdir_int_objects, sample_metadata) {
-  matlist_path <- file.path(outdir_int_objects, ".concatmatrix.rds")
-  if (!file.exists(matlist_path)) {
-    stop("Missing ", matlist_path, "; run integration prep first.", call. = FALSE)
-  }
-  matlist <- readRDS(matlist_path)
+.append_concat_rna_assay <- function(
+    sobjint,
+    outdir_int_objects,
+    sample_metadata,
+    saving_algorithm = "RDS"
+) {
+  matlist_path <- find_scdapp_object(
+    file.path(outdir_int_objects, ".concatmatrix"),
+    saving_algorithm
+  )
+  matlist <- read_scdapp_object(matlist_path)
 
   bigmat <- do.call(cbind, matlist)
   num_nonzeros <- tabulate(bigmat@i + 1L, nbins = nrow(bigmat))
@@ -474,9 +485,11 @@ check_integration_dependencies <- function(config, pcs_int = NULL, res_int = NUL
 
 #' Load Code.rds objects from pipeline tmpobjdir for Seurat merge integration.
 #' @keywords internal
-.read_sobjlist_from_dir <- function(objdir, codes) {
+.read_sobjlist_from_dir <- function(objdir, codes, saving_algorithm = "RDS") {
   out <- lapply(codes, function(code) {
-    readRDS(file.path(objdir, paste0(code, ".rds")))
+    read_scdapp_object(
+      find_scdapp_object(file.path(objdir, code), saving_algorithm)
+    )
   })
   names(out) <- codes
   out
