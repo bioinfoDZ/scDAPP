@@ -9,15 +9,19 @@
   sample_metadata,
   risc_reference = NULL,
   ncore = 1L,
-  var.gene = NULL
+  var.gene = NULL,
+  make_plot = TRUE
 )
 }
 \arguments{
 \item{ncore}{Workers for InPlot-equivalent PCA/Louvain (autoV2 / manual comparison).}
+
+\item{make_plot}{Logical. autoV2 stores the diagnostics figure when \code{TRUE}.}
 }
 \value{
 List with \code{selected_code}, \code{would_select}, \code{mode}, \code{table},
-\code{refscore} (V1 named vector or NULL), \code{inplot_scores} (or NULL).
+\code{refscore} (V1 named vector or NULL), \code{inplot_scores} (or NULL),
+and for autoV2 \code{plot} plus \code{panel}.
 }
 \description{
 Select or validate the RISC reference sample.

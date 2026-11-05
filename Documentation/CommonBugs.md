@@ -148,3 +148,22 @@ remotes::install_url('https://cran.r-project.org/src/contrib/Archive/aPEAR/aPEAR
 ```
 
 
+<br />
+<br />
+
+
+
+## 9 RISC InPlot: task N failed - "dim(X) must have a positive length"
+
+2026.10.28
+
+During RISC integration, `RISC::InPlot` runs PCA (`irlba`) on each sample in its own forked process. The process count is `workernum`, capped at one process per sample. If one of those processes runs out of memory, that sample's PCA can return without an error and leave a result with no usable matrix. The next step inside InPlot then stops with:
+
+```
+task N failed - "dim(X) must have a positive length"
+```
+
+`N` is a sample index. A later run can name a different sample.
+
+Fix: request more memory for the job, or rerun with a lower `workernum`.
+

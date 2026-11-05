@@ -86,7 +86,7 @@ r_package_test <- function() {
 #' @param pathway_padj_thres numeric, threshold for significant DE pathways via GSEA test; default is 0.1
 #' @param species string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see `msigdbr::msigdbr_species()`
 #' @param msigdbr_cache_dir optional string, directory for cached MSigDB pathway tables prepared by `preppathways_pathwayanalysis_crosscondition_module()`. When NULL, uses `XDG_CACHE_HOME/scDAPP` if set, else `tools::R_user_dir("scDAPP", "cache")`. Falls back to a subfolder of the pipeline output directory with a warning if those locations are not writable.
-#' @param workernum integer, workers for RISC per-sample prep and Dream pseudobulk DE (`BiocParallel`), default = 1. RISC `InPlot` and `scMultiIntegrate` run at one core.
+#' @param workernum integer, workers for final RISC integration (`InPlot`, `scMultiIntegrate`) and Dream pseudobulk DE (`BiocParallel`), default = 1.
 #' @param stability_workernum integer or NULL; parallel workers for auto stability sweep (NULL uses workernum)
 #' @param run_ORA T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
 #' @param run_msigdb_celltype_ora T/F, default is TRUE. Whether to run ORA of cluster markers against MSigDB cell-type signature gene sets on individual and integrated marker tables. clusterProfiler must be installed.

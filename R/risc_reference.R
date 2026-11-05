@@ -160,7 +160,308 @@
   refscore
 }
 
+#' Palette used by RISC::InPlot for up to 35 samples.
+#' @keywords internal
+.risc_inplot_colors <- function(n) {
+  qual <- RColorBrewer::brewer.pal.info[
+    rownames(RColorBrewer::brewer.pal.info) %in% c("Set1", "Set3", "Dark2", "Paired"),
+    ,
+    drop = FALSE
+  ]
+  cols <- unique(unlist(mapply(RColorBrewer::brewer.pal, qual$maxcolors, rownames(qual))))
+  cols <- cols[order(cols, decreasing = FALSE)]
+  cols <- cols[-c(37:40)]
+  rgb <- grDevices::col2rgb(cols)
+  dist_color <- as.matrix(stats::dist(t(rgb)))
+  diag(dist_color) <- 1e10
+  while (length(cols) > n) {
+    min_col <- apply(dist_color, 1, min)
+    ids <- which(min_col == min(min_col))[1]
+    dist_color <- dist_color[-ids, -ids, drop = FALSE]
+    cols <- cols[-ids]
+  }
+  cols
+}
+
+#' Draw the three InPlot panels from one diagnostics run.
+#' @keywords internal
+.risc_inplot_draw <- function(pc3, pc4, nset) {
+  cols <- NULL
+  if (nset <= 35L) {
+    cols <- .risc_inplot_colors(nset)
+  }
+  plot_stv <- ggplot2::ggplot(pc3, ggplot2::aes(x = Num, y = PC2, g = Group)) +
+    ggplot2::geom_point(ggplot2::aes(fill = Group2), size = 3, shape = 21, alpha = 0.8) +
+    ggplot2::geom_smooth(
+      ggplot2::aes(color = Group),
+      se = FALSE,
+      method = "loess",
+      formula = "y~x",
+      span = 1,
+      linetype = "twodash",
+      show.legend = FALSE
+    ) +
+    ggplot2::labs(x = "PC Number", y = "Score (Stv by PCs)", fill = "Scores") +
+    ggplot2::theme_bw(base_line_size = 0, base_size = 12) +
+    ggplot2::theme(axis.title = ggplot2::element_text(size = 12, face = "bold")) +
+    ggplot2::guides(fill = ggplot2::guide_legend(override.aes = list(size = 4)))
+  plot_ks <- ggplot2::ggplot(pc3, ggplot2::aes(x = Group, y = PC1)) +
+    ggplot2::geom_violin(ggplot2::aes(color = Group), show.legend = FALSE) +
+    ggplot2::geom_boxplot(ggplot2::aes(fill = Group1), width = 0.1, show.legend = FALSE) +
+    ggplot2::geom_jitter(
+      ggplot2::aes(fill = Group1),
+      size = 3,
+      pch = 21,
+      alpha = 0.8,
+      width = 0.25
+    ) +
+    ggplot2::geom_label(
+      ggplot2::aes(x = Group, y = mean0, label = mean0),
+      color = "firebrick",
+      nudge_x = 0.25
+    ) +
+    ggplot2::labs(x = "", y = "Score (Kolmogorov-Smirnov)", fill = "Scores") +
+    ggplot2::theme_bw(base_line_size = 0, base_size = 12) +
+    ggplot2::theme(axis.title = ggplot2::element_text(size = 12, face = "bold")) +
+    ggplot2::guides(fill = ggplot2::guide_legend(override.aes = list(size = 4)))
+  plot_clust <- ggplot2::ggplot(pc4, ggplot2::aes(x = PCs, y = Cluster, group = Group)) +
+    ggplot2::geom_bar(
+      ggplot2::aes(fill = Group),
+      stat = "identity",
+      width = 0.8,
+      position = "dodge"
+    ) +
+    ggplot2::labs(x = "PCs", y = "Cluster Num.", fill = "Scores") +
+    ggplot2::theme_bw(base_line_size = 0, base_size = 12) +
+    ggplot2::theme(axis.title = ggplot2::element_text(size = 12, face = "bold")) +
+    ggplot2::guides(fill = ggplot2::guide_legend(override.aes = list(size = 4)))
+  if (!is.null(cols)) {
+    plot_stv <- plot_stv +
+      ggplot2::scale_fill_manual(values = cols) +
+      ggplot2::scale_color_manual(values = cols)
+    plot_ks <- plot_ks +
+      ggplot2::scale_fill_manual(values = cols) +
+      ggplot2::scale_color_manual(values = cols)
+    plot_clust <- plot_clust + ggplot2::scale_fill_manual(values = cols)
+  }
+  # Same gtable grid.arrange() returns, without drawing during the sweep.
+  gridExtra::arrangeGrob(plot_clust, plot_stv, plot_ks, ncol = 1)
+}
+
+#' InPlot calculation used for autoV2: figure, ranking scores, and panel table.
+#'
+#' One pass over the samples. Scaling, SVD width, PC bins, KS, Stv, and Louvain
+#' follow \code{RISC::InPlot}. Each task sets the seed so the result does not
+#' depend on worker order. The cluster is stopped before return.
+#'
+#' @param make_plot Logical; when \code{FALSE}, \code{plot} is \code{NULL}.
+#' @return List with \code{plot}, \code{scores}, and \code{panel}.
+#' @keywords internal
+.risc_inplot_diagnostics <- function(
+    risclist,
+    var.gene = NULL,
+    nPC = 20L,
+    minPC = 11L,
+    neighbor = 30L,
+    res = 1,
+    Std.cut = 0.95,
+    bin = 5L,
+    ncore = 1L,
+    algorithm = "kd_tree",
+    make_plot = TRUE,
+    seed = 123L
+) {
+  if (is.null(names(risclist)) || any(!nzchar(names(risclist)))) {
+    stop("risclist must be named by sample Code.", call. = FALSE)
+  }
+  nset <- length(risclist)
+  if (nset < 1L) {
+    stop("risclist is empty.", call. = FALSE)
+  }
+  gene0 <- .risc_shared_var_genes(risclist)
+  if (is.null(var.gene)) {
+    var0 <- gene0
+  } else {
+    var0 <- intersect(gene0, as.character(var.gene))
+  }
+  if (length(var0) < 3L) {
+    stop("Too few shared genes for RISC InPlot diagnostics.", call. = FALSE)
+  }
+  npc <- as.integer(nPC)[1]
+  minpc <- as.integer(minPC)[1]
+  neighbor <- as.integer(neighbor)[1]
+  res <- as.numeric(res)[1]
+  bin <- as.integer(bin)[1]
+  ncore <- max(1L, as.integer(ncore)[1])
+  seed <- as.integer(seed)[1]
+  force(Std.cut)
+  if (minpc >= npc) {
+    minpc <- npc
+  }
+  bin0 <- as.integer(seq(minpc, npc, length.out = bin))
+
+  use_par <- ncore > 1L && nset > 1L
+  if (use_par) {
+    cl <- parallel::makeCluster(ncore)
+    doParallel::registerDoParallel(cl)
+    on.exit({
+      try(parallel::stopCluster(cl), silent = TRUE)
+      foreach::registerDoSEQ()
+    }, add = TRUE)
+  }
+
+  if (use_par) {
+    PC0 <- foreach::`%dopar%`(
+      foreach::foreach(obj = risclist, .packages = c("irlba", "Matrix")),
+      {
+        Sys.setenv(
+          OMP_NUM_THREADS = "1",
+          OPENBLAS_NUM_THREADS = "1",
+          MKL_NUM_THREADS = "1",
+          VECLIB_MAXIMUM_THREADS = "1"
+        )
+        set.seed(seed)
+        vari <- obj@assay$logcount[var0, ]
+        vari <- scale(vari, center = TRUE, scale = TRUE)
+        irlba::irlba(vari, nv = npc)
+      }
+    )
+  } else {
+    PC0 <- lapply(risclist, function(obj) {
+      set.seed(seed)
+      vari <- obj@assay$logcount[var0, ]
+      vari <- scale(vari, center = TRUE, scale = TRUE)
+      irlba::irlba(vari, nv = npc)
+    })
+  }
+
+  ks_stat <- vector("list", nset)
+  ks_mean <- numeric(nset)
+  ks_dev <- numeric(nset)
+  stv_score <- numeric(nset)
+  cumvar <- vector("list", nset)
+  for (i in seq_len(nset)) {
+    ka <- apply(PC0[[i]]$u, 2, function(x) {
+      suppressWarnings(
+        stats::ks.test(x, "pnorm", mean = mean(x), sd = stats::sd(x))$statistic
+      )
+    })
+    ka <- as.numeric(ka)
+    ks_stat[[i]] <- ka
+    ks_mean[i] <- mean(ka)
+    ks_dev[i] <- stats::glm(ka ~ seq_len(npc), family = stats::quasipoisson)$deviance
+    pvar <- PC0[[i]]$d^2 / sum(PC0[[i]]$d^2)
+    pvar <- cumsum(pvar)
+    cumvar[[i]] <- as.numeric(pvar)
+    stv_coef <- stats::glm(pvar ~ seq_len(npc), family = stats::poisson)$coefficients[2]
+    stv_score[i] <- as.numeric(1 - (1 / npc - stv_coef) / (1 / npc))
+  }
+  ks_dev_scaled <- (1 - ks_dev) * (1 / max(1 - ks_dev))
+
+  v_list <- lapply(PC0, `[[`, "v")
+  if (use_par) {
+    clust_vec <- foreach::`%dopar%`(
+      foreach::foreach(
+        i = rep(seq_len(nset), length(bin0)),
+        j = rep(bin0, each = nset),
+        .packages = c("FNN", "igraph")
+      ),
+      {
+        set.seed(seed)
+        v <- v_list[[i]]
+        k0 <- FNN::get.knn(v[, 1:j, drop = FALSE], k = neighbor, algorithm = algorithm)
+        ki <- data.frame(
+          NodStar = rep(seq_len(nrow(v)), neighbor),
+          NodEnd = as.vector(k0$nn.index),
+          stringsAsFactors = FALSE
+        )
+        gi <- igraph::graph_from_data_frame(ki, directed = FALSE)
+        igraph::E(gi)$weight <- 1 / (1 + as.vector(k0$nn.dist))
+        gi <- igraph::simplify(gi)
+        clu <- igraph::cluster_louvain(gi, resolution = res)
+        as.integer(length(unique(clu$membership)))
+      }
+    )
+  } else {
+    clust_vec <- lapply(seq_along(rep(bin0, each = nset)), function(idx) {
+      i <- rep(seq_len(nset), length(bin0))[idx]
+      j <- rep(bin0, each = nset)[idx]
+      set.seed(seed)
+      v <- v_list[[i]]
+      k0 <- FNN::get.knn(v[, 1:j, drop = FALSE], k = neighbor, algorithm = algorithm)
+      ki <- data.frame(
+        NodStar = rep(seq_len(nrow(v)), neighbor),
+        NodEnd = as.vector(k0$nn.index),
+        stringsAsFactors = FALSE
+      )
+      gi <- igraph::graph_from_data_frame(ki, directed = FALSE)
+      igraph::E(gi)$weight <- 1 / (1 + as.vector(k0$nn.dist))
+      gi <- igraph::simplify(gi)
+      clu <- igraph::cluster_louvain(gi, resolution = res)
+      as.integer(length(unique(clu$membership)))
+    })
+  }
+  clust_mat <- matrix(as.integer(unlist(clust_vec)), nrow = nset, ncol = length(bin0))
+
+  cluster_median <- as.numeric(sparseMatrixStats::rowMedians(clust_mat))
+  cluster_score <- cluster_median / max(cluster_median)
+  scores <- data.frame(
+    Code = names(risclist),
+    Set = paste0("Set-", seq_len(nset)),
+    cluster_median = cluster_median,
+    cluster_score = cluster_score,
+    stv_score = stv_score,
+    ks_mean = ks_mean,
+    stringsAsFactors = FALSE
+  )
+
+  pc_labels <- paste0("PC-", bin0)
+  panel <- data.frame(Code = names(risclist), clust_mat, stringsAsFactors = FALSE)
+  colnames(panel)[-1] <- pc_labels
+  panel$Stv <- round(stv_score, 2)
+  panel$KS <- round(ks_mean, 2)
+
+  plot <- NULL
+  if (isTRUE(make_plot)) {
+    set_ids <- paste0("Set-", seq_len(nset))
+    pc3 <- data.frame(
+      PC1 = unlist(ks_stat),
+      PC2 = unlist(cumvar),
+      Group = rep(set_ids, each = npc),
+      Num = rep(seq_len(npc), nset),
+      stringsAsFactors = FALSE
+    )
+    pc3$Group <- factor(pc3$Group, levels = set_ids)
+    pc3$mean0 <- rep(round(ks_mean, 2), each = npc)
+    pc3$Group1 <- factor(
+      pc3$Group,
+      labels = paste0(levels(pc3$Group), ": ", round(ks_dev_scaled, 2))
+    )
+    pc3$Group2 <- factor(
+      pc3$Group,
+      labels = paste0(levels(pc3$Group), ": ", round(stv_score, 2))
+    )
+    pc4 <- do.call(rbind, lapply(seq_len(nset), function(i) {
+      data.frame(
+        Set = set_ids[i],
+        PCs = pc_labels,
+        Cluster = as.integer(clust_mat[i, ]),
+        stringsAsFactors = FALSE
+      )
+    }))
+    cmean <- round(cluster_score, 2)
+    pc4$Group <- factor(pc4$Set, levels = set_ids, labels = paste0(set_ids, ": ", cmean))
+    pc4$PCs <- factor(pc4$PCs, levels = pc_labels)
+    plot <- .risc_inplot_draw(pc3, pc4, nset)
+  }
+
+  list(plot = plot, scores = scores, panel = panel)
+}
+
 #' InPlot-equivalent per-sample cluster, Stv, and KS scores.
+#'
+#' Sequential scorer kept for manual reference comparison. autoV2 uses
+#' \code{.risc_inplot_diagnostics()} instead.
 #'
 #' Mirrors \code{RISC::InPlot} (irlba on scaled logcounts of shared genes; Louvain
 #' cluster counts across PC bins; Stv slope; mean KS of gene loadings vs Normal).
@@ -363,15 +664,18 @@
 #' Select or validate the RISC reference sample.
 #'
 #' @param ncore Workers for InPlot-equivalent PCA/Louvain (autoV2 / manual comparison).
+#' @param make_plot Logical. autoV2 stores the diagnostics figure when \code{TRUE}.
 #' @return List with \code{selected_code}, \code{would_select}, \code{mode}, \code{table},
-#'   \code{refscore} (V1 named vector or NULL), \code{inplot_scores} (or NULL).
+#'   \code{refscore} (V1 named vector or NULL), \code{inplot_scores} (or NULL),
+#'   and for autoV2 \code{plot} plus \code{panel}.
 #' @keywords internal
 .risc_resolve_reference <- function(
     risclist,
     sample_metadata,
     risc_reference = NULL,
     ncore = 1L,
-    var.gene = NULL
+    var.gene = NULL,
+    make_plot = TRUE
 ) {
   spec <- .parse_risc_reference_arg(risc_reference)
   aligned <- .risc_align_sample_metadata(risclist, sample_metadata)
@@ -386,6 +690,8 @@
   refscore <- NULL
   inplot_scores <- NULL
   pick <- NULL
+  plot <- NULL
+  panel <- NULL
 
   if (identical(spec$mode, "manual")) {
     idx <- .risc_lookup_reference_index(sm, spec$value, required = TRUE)
@@ -404,15 +710,19 @@
     would_select <- selected_code
     table <- .risc_reference_table_v1(refscore, selected_code)
   } else {
-    inplot_scores <- .risc_inplot_reference_scores(
+    diag <- .risc_inplot_diagnostics(
       risclist,
       var.gene = var.gene,
-      ncore = ncore
+      ncore = ncore,
+      make_plot = isTRUE(make_plot)
     )
+    inplot_scores <- diag$scores
     pick <- .pick_risc_reference_autov2(inplot_scores)
     selected_code <- pick$selected_code
     would_select <- selected_code
     table <- .risc_reference_table_autov2(inplot_scores, pick, selected_code)
+    plot <- diag$plot
+    panel <- diag$panel
   }
 
   vetoed_codes <- character(0)
@@ -429,7 +739,9 @@
     refscore = refscore,
     inplot_scores = inplot_scores,
     vetoed_codes = vetoed_codes,
-    var.gene_n = length(var.gene)
+    var.gene_n = length(var.gene),
+    plot = plot,
+    panel = panel
   )
 }
 
@@ -445,6 +757,13 @@
     utils::write.csv(
       selection$table,
       file.path(dir, "risc_reference_selection.csv"),
+      row.names = FALSE
+    )
+  }
+  if (!is.null(selection$panel)) {
+    utils::write.csv(
+      selection$panel,
+      file.path(dir, "risc_inplot_scores.csv"),
       row.names = FALSE
     )
   }
@@ -474,7 +793,8 @@
     backend$get_risclist(),
     backend$sample_metadata,
     risc_reference = backend$risc_reference,
-    ncore = backend$risc_ncore
+    ncore = backend$risc_ncore,
+    make_plot = TRUE
   )
   if (is.function(backend$set_risc_reference)) {
     backend$set_risc_reference(sel$selected_code)

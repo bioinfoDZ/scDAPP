@@ -310,7 +310,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
 # ---- Cluster stability: RISC/Seurat backends ----
 
 #' Build RISC object list from mdlist (optionally cell subset)
-#' @param risc_ncore Workers for per-sample socket prep, capped at the number of samples. \code{scMultiIntegrate} stays at one core.
+#' @param risc_ncore Passed to \code{scMultiIntegrate}. Per-sample socket prep uses \code{min(risc_ncore, n samples)}.
 #' @keywords internal
 .risc_stability_build_risclist <- function(
     mdlist,
@@ -429,8 +429,6 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     )
   }
   data0 <- .risc_put_reference_first(risclist, ref)
-  # risc_ncore still sizes socket prep. This call does not forward it.
-  force(risc_ncore)
   data0 <- RISC::scMultiIntegrate(
     objects = data0,
     eigens = as.integer(pcs_int)[1],
@@ -439,8 +437,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     align = "OLS",
     npc = 50,
     adjust = TRUE,
-    # Temporary: RISC forks irlba over an initialized OpenBLAS thread pool.
-    ncore = 1L
+    ncore = as.integer(risc_ncore)[1]
   )
   list(risc = data0, refscore = ref_info$refscore, var0 = var0)
 }
@@ -1514,7 +1511,7 @@ cluster_stability_sweep <- function(
 #' @param propcells.perrep Cell fraction per bootstrap (default 0.8).
 #' @param sweep_maxPCs PC grid when \code{pcs_int = "auto"}.
 #' @param sweep_res Resolution grid when \code{res_int = "auto"}.
-#' @param workernum Pipeline workers. When the sweep is serial, this is the RISC socket-prep width. \code{scMultiIntegrate} stays at one core.
+#' @param workernum Pipeline workers. When the sweep is serial, this is the RISC \code{ncore}. When \code{stability_workernum > 1}, sweep workers pass \code{ncore = 1}.
 #' @param stability_workernum Parallel workers for sweep \code{foreach} stages; \code{NULL} uses \code{workernum}.
 #' @param risc_reference Optional RISC reference: \code{"autoV2"} (default),
 #'   \code{"auto"} for the legacy heuristic, or a sample Code/Sample name.

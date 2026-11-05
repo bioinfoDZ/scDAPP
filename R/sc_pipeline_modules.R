@@ -3409,28 +3409,37 @@ pathwayanalysis_crosscondition_module <- function(de_results,
           rm(res)
           
           ## run GSEA ##
-          # first run multilevel, then try npermsimple = 1000
+          # multilevel first; unbalanced pathways come back with NA NES
           gseares <- fgsea::fgsea(pathways=pwayl, stats=gl, nproc = 1)
           
           invisible(gc(full = T, reset = F, verbose = F))
           
+          gseares <- as.data.frame(gseares)
           
-          #sometimes there are NAs due to "severely unbalanced pathways", try to fix
-          if( any(is.na(gseares$NES)) ){
-            rm(gseares)
-            
-            gseares <- fgsea::fgsea(pathways=pwayl, stats=gl, nPermSimple=10000, nproc = 1)
-            
+          # redo only pathways whose NES is NA, with 1000 simple permutations
+          na_ids <- gseares$pathway[is.na(gseares$NES)]
+          if (length(na_ids)) {
+            redo <- fgsea::fgsea(
+              pathways = pwayl[na_ids],
+              stats = gl,
+              nPermSimple = 1000,
+              nproc = 1
+            )
+            redo <- as.data.frame(redo)
+            gseares <- rbind(
+              gseares[!gseares$pathway %in% na_ids, , drop = FALSE],
+              redo
+            )
             invisible(gc(full = T, reset = F, verbose = F))
-            
           }
           
           #clean env
           rm(gl)
           
+          gseares <- gseares[, c("pathway", "pval", "padj", "log2err", "ES", "NES", "size", "leadingEdge"), drop = FALSE]
           
-          #format as data.frame instead of data.table
-          gseares <- as.data.frame(gseares)
+          # BH across the whole category, not the redo subset
+          gseares$padj <- p.adjust(gseares$pval, method = "BH", n = length(pwayl))
           
           #ensure no NAs are kept
           gseares <- gseares[complete.cases(gseares[,1:7]),,drop=F]

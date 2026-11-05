@@ -529,9 +529,9 @@ The HTML report renders these under **Automated integration parameter sweep** (o
 
 **Parallelism (two worker settings):**
 
-- `workernum` — workers for RISC per-sample prep (socket cluster) and Dream pseudobulk DE. Final `InPlot` and `scMultiIntegrate` run at one core.
+- `workernum` — workers for final RISC integration (`InPlot`, per-sample prep, `scMultiIntegrate`) and Dream pseudobulk DE.
 - `stability_workernum` — optional; parallel workers for the **stability sweep** only (`foreach` over global PC/res clustering, bootstrap replicates, and metric aggregation). If omitted (`NULL`), defaults to `workernum`.
-- When `stability_workernum > 1`, RISC per-sample prep inside sweep workers uses one core to avoid `stability_workernum × workernum` CPU oversubscription. `InPlot` and `scMultiIntegrate` always use one core.
+- When `stability_workernum > 1`, RISC calls inside sweep workers use one core to avoid `stability_workernum × workernum` CPU oversubscription. The final RISC run still uses `workernum`.
 
 - `RISC_louvain_neighbors` integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()`
 
@@ -564,7 +564,7 @@ The pipeline calls `set_parallel_blas_threads()` at startup (and in parallel wor
 
 Running with multiple CPU threads ("workers") can speed up the analysis, *especially if DoubletFinder is used*, but can cause the pipeline to fail due to overuse of memory.
 
-- `workernum` integer, workers for per-sample parallel steps and Dream DE, default = 1. RISC `InPlot` and `scMultiIntegrate` run at one core.
+- `workernum` integer, workers for final RISC integration (`InPlot`, `scMultiIntegrate`), per-sample parallel steps, and Dream DE, default = 1.
 - `stability_workernum` integer or NULL; workers for cluster-stability auto-tuning only (`pcs_int`/`res_int = "auto"`). Defaults to `workernum` when NULL. On HPC, request `max(workernum, stability_workernum)` CPUs when using auto tuning.
 
 If on HPC, make sure to also request the appropriate number of CPUs, for example by adding the following two lines to the SBATCH header for 10 cpus:

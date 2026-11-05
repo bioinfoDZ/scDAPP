@@ -16,8 +16,7 @@
 #'   \code{"auto"} / \code{"autoV1"} (legacy heuristic), a sample Code/Sample name,
 #'   or \code{NULL} (same as \code{"autoV2"}).
 #' @param RISC_louvain_neighbors Louvain neighbors (RISC only).
-#' @param workernum Parallel workers for RISC per-sample prep. \code{InPlot} and
-#'   \code{scMultiIntegrate} run at one core.
+#' @param workernum Parallel workers for final RISC integration (\code{InPlot}, \code{scMultiIntegrate}).
 #' @param stability_workernum Parallel workers for auto stability sweep; \code{NULL} uses \code{workernum}.
 #' @param input_seurat_obj If \code{TRUE}, RISC counts come from \code{sobjlist} at prep (not datadir).
 #' @param stability_outdir Output directory for stability sweep (default \code{outdir_int/cluster_stability}).
@@ -335,8 +334,7 @@ prepare_integration_inputs <- function(
 #'   when set, this sample is used and is not re-selected.
 #' @param risc_reference_selection Optional list from \code{.risc_resolve_reference()}
 #'   (reused for the report when the sweep already selected a reference).
-#' @param workernum Parallel workers for per-sample prep. \code{InPlot} and
-#'   \code{scMultiIntegrate} run at one core.
+#' @param workernum Parallel workers for \code{InPlot} and \code{scMultiIntegrate}.
 #' @param RISC_louvain_neighbors Nearest neighbors for Louvain clustering.
 #' @return List with \code{sobjint}, \code{int_clust_lab}, \code{ip} (InPlot patchwork),
 #'   \code{refscore} (legacy auto named vector or NULL),
@@ -409,11 +407,15 @@ run_risc_integration <- function(
 
   var0 <- Reduce(intersect, lapply(risclist, function(x) x@rowdata$Symbol))
 
-  grDevices::pdf(NULL)
-  # Temporary: RISC forks irlba over an initialized OpenBLAS thread pool.
-  ip <- RISC::InPlot(risclist, var.gene = var0, Std.cut = 0.95, ncore = 1L)
-  ip <- patchwork::wrap_plots(ip)
-  grDevices::dev.off()
+  ref_spec <- .parse_risc_reference_arg(risc_reference)
+  use_autov2 <- identical(ref_spec$mode, "autoV2")
+
+  if (!use_autov2) {
+    grDevices::pdf(NULL)
+    ip <- RISC::InPlot(risclist, var.gene = var0, Std.cut = 0.95, ncore = workernum)
+    ip <- patchwork::wrap_plots(ip)
+    grDevices::dev.off()
+  }
 
   if (!is.null(frozen_risc_reference) && nzchar(as.character(frozen_risc_reference)[1])) {
     ref <- .risc_lookup_reference_index(
@@ -428,7 +430,8 @@ run_risc_integration <- function(
         sample_metadata,
         risc_reference = risc_reference,
         ncore = workernum,
-        var.gene = var0
+        var.gene = var0,
+        make_plot = use_autov2
       )
       risc_reference_selection$selected_code <- selected_risc_reference
       if (!is.null(risc_reference_selection$table) &&
@@ -439,6 +442,15 @@ run_risc_integration <- function(
           ""
         )
       }
+    } else if (use_autov2 && is.null(risc_reference_selection$plot)) {
+      diag <- .risc_inplot_diagnostics(
+        risclist,
+        var.gene = var0,
+        ncore = workernum,
+        make_plot = TRUE
+      )
+      risc_reference_selection$plot <- diag$plot
+      risc_reference_selection$panel <- diag$panel
     }
   } else {
     risc_reference_selection <- .risc_resolve_reference(
@@ -446,7 +458,8 @@ run_risc_integration <- function(
       sample_metadata,
       risc_reference = risc_reference,
       ncore = workernum,
-      var.gene = var0
+      var.gene = var0,
+      make_plot = use_autov2
     )
     selected_risc_reference <- risc_reference_selection$selected_code
     ref <- .risc_lookup_reference_index(
@@ -454,6 +467,15 @@ run_risc_integration <- function(
       selected_risc_reference,
       required = TRUE
     )
+  }
+
+  if (use_autov2) {
+    if (is.null(risc_reference_selection$plot)) {
+      stop("autoV2 InPlot diagnostics did not return a plot.", call. = FALSE)
+    }
+    grDevices::pdf(NULL)
+    ip <- patchwork::wrap_plots(risc_reference_selection$plot)
+    grDevices::dev.off()
   }
   .risc_reference_selection_write(risc_reference_selection, outdir_int_objects)
   refscore <- risc_reference_selection$refscore
@@ -470,8 +492,7 @@ run_risc_integration <- function(
     align = "OLS",
     npc = 50,
     adjust = TRUE,
-    # Temporary: RISC forks irlba over an initialized OpenBLAS thread pool.
-    ncore = 1L
+    ncore = workernum
   )
   rm(var0)
   invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))

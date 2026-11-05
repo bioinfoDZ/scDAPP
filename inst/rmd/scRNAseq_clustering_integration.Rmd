@@ -3215,6 +3215,15 @@ Inspect InPlot even when auto-selection is on. If the chosen sample is not the o
 
 if (!is.null(ip)) print(ip)
 
+if (!is.null(risc_reference_selection$panel)) {
+  cat('
+
+Per-sample values shown in the InPlot: Louvain cluster counts at each PC bin, the Stv score, and the mean KS statistic (the red number).
+
+')
+  knitr::kable(risc_reference_selection$panel)
+}
+
 .ref_mode <- if (!is.null(risc_reference_mode)) risc_reference_mode else "autoV2"
 .ref_used <- selected_risc_reference
 
