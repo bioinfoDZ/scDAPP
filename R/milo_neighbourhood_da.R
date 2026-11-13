@@ -186,17 +186,6 @@
   )
 }
 
-.milo_lfc_fill_scale <- function() {
-  ggplot2::scale_fill_gradient2(
-    low = "#2166AC",
-    mid = "white",
-    high = "#B2182B",
-    midpoint = 0,
-    na.value = "grey80",
-    name = "Log fold change"
-  )
-}
-
 .milo_ggsave <- function(plot, path) {
   ggplot2::ggsave(filename = path, plot = plot, width = 9, height = 7, units = "in")
   invisible(path)
@@ -711,7 +700,6 @@ milo_neighbourhood_da_module <- function(
       )
       milo_plot <- miloR::buildNhoodGraph(milo)
       graph <- miloR::plotNhoodGraphDA(milo_plot, da_plot, alpha = spatial_fdr) +
-        .milo_lfc_fill_scale() +
         ggplot2::ggtitle(lab)
       ma <- miloR::plotNhoodMA(da_plot, alpha = spatial_fdr) +
         ggplot2::ggtitle(lab)

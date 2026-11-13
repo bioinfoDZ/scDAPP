@@ -579,10 +579,34 @@
   )
 }
 
-#' Rank InPlot scores: cluster > stv > KS, with a KS outlier veto.
+#' Product of InPlot scores: cluster * Stv / mean KS.
+#'
+#' A non-positive finite KS with finite cluster and Stv scores is \code{Inf}
+#' (a perfect KS fit). Any other non-finite component is \code{NA}.
+#'
+#' @keywords internal
+.risc_autov2_product <- function(cluster_score, stv_score, ks_mean) {
+  cluster <- as.numeric(cluster_score)
+  stv <- as.numeric(stv_score)
+  ks <- as.numeric(ks_mean)
+  product <- rep(NA_real_, length(cluster))
+  finite_cs <- is.finite(cluster) & is.finite(stv)
+  good_ks <- finite_cs & is.finite(ks) & ks > 0
+  perfect_ks <- finite_cs & is.finite(ks) & ks <= 0
+  product[good_ks] <- cluster[good_ks] * stv[good_ks] / ks[good_ks]
+  product[perfect_ks] <- Inf
+  product
+}
+
+#' Rank InPlot scores by cluster * Stv / KS, after a KS outlier veto.
+#'
+#' Survivors are ordered by \code{cluster_score * stv_score / ks_mean}
+#' (higher wins). Exact ties fall back to cluster, then Stv, then lower KS,
+#' then sample Code. Vetoed samples stay in \code{product} and are not ranked.
 #'
 #' @param scores data.frame from \code{.risc_inplot_reference_scores()}.
-#' @return List with \code{selected_code}, \code{vetoed} (logical), \code{rank}.
+#' @return List with \code{selected_code}, \code{vetoed} (logical), \code{rank},
+#'   and \code{product}.
 #' @keywords internal
 .pick_risc_reference_autov2 <- function(scores) {
   n <- nrow(scores)
@@ -610,8 +634,14 @@
     keep <- seq_len(n)
     veto[] <- FALSE
   }
+  product <- .risc_autov2_product(
+    scores$cluster_score,
+    scores$stv_score,
+    scores$ks_mean
+  )
   sub <- scores[keep, , drop = FALSE]
   o <- order(
+    -product[keep],
     -as.numeric(sub$cluster_score),
     -as.numeric(sub$stv_score),
     as.numeric(sub$ks_mean),
@@ -625,7 +655,8 @@
   list(
     selected_code = selected,
     vetoed = veto,
-    rank = rank_all
+    rank = rank_all,
+    product = product
   )
 }
 
@@ -642,6 +673,7 @@
     cluster_median = round(as.numeric(scores$cluster_median), 2),
     stv = round(as.numeric(scores$stv_score), 4),
     KS = round(as.numeric(scores$ks_mean), 4),
+    product = round(as.numeric(pick$product), 4),
     Vetoed = ifelse(pick$vetoed, "yes", ""),
     Rank = pick$rank,
     Selected = ifelse(as.character(scores$Code) == as.character(selected_code), "*", ""),

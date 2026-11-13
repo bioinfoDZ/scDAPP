@@ -24,7 +24,7 @@ print(one$beeswarm)
 ```{r milo-comp-graph-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE, fig.width=6.5, fig.height=5, eval=!isTRUE(one$skipped)}
 cat("\n\n### Neighborhood graph on the integrated UMAP\n\n")
 cat(sprintf(
-  "Each node is a neighborhood, drawn on the integrated UMAP. Color is the log fold change. Neighborhoods with SpatialFDR above %s are drawn at a log fold change of zero so the significant regions stand out. Edges connect neighborhoods that share cells.\n\n",
+  "Each node is a neighborhood, drawn on the integrated UMAP. Color is the log fold change. Neighborhoods with SpatialFDR above %s are drawn at a log fold change of zero so the significant regions stand out. When no neighborhood is below that cutoff, every node is drawn at zero, so the graph is white. Edges connect neighborhoods that share cells.\n\n",
   milo_fdr_label
 ))
 print(one$graph)

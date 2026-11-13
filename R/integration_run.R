@@ -12,7 +12,7 @@
 #' @param outdir_indi Individual-sample output folder.
 #' @param pcs_int PCs for integration, or \code{"auto"} for stability-based selection.
 #' @param res_int Louvain resolution, or \code{"auto"}.
-#' @param risc_reference RISC reference: \code{"autoV2"} (default; InPlot-faithful),
+#' @param risc_reference RISC reference: \code{"autoV2"} (default; product of InPlot cluster score, Stv, and inverse mean KS after a KS veto),
 #'   \code{"auto"} / \code{"autoV1"} (legacy heuristic), a sample Code/Sample name,
 #'   or \code{NULL} (same as \code{"autoV2"}).
 #' @param RISC_louvain_neighbors Louvain neighbors (RISC only).

@@ -81,7 +81,7 @@ Comparative DE always re-runs. Delete \verb{.scdapp_resume/} or use a new outdir
 
 \item{Pseudobulk_mode}{T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR (or Dream) for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the \code{prop.test()} function for compositional analysis.}
 
-\item{risc_reference}{string; RISC reference sample. Default \code{"autoV2"} ranks InPlot-equivalent cluster > Stv > KS scores with a KS outlier veto. Use \code{"auto"} (alias \code{"autoV1"}) for the legacy size-weighted cluster-variance heuristic. Set to a sample \code{Code} or \code{Sample} name to force that reference (used for both the PC/res stability sweep and the final integration). \code{NULL} is the same as \code{"autoV2"}. RISC integration only.}
+\item{risc_reference}{string; RISC reference sample. Default \code{"autoV2"} ranks samples by the product of InPlot cluster score, Stv, and inverse mean KS after a KS outlier veto. Use \code{"auto"} (alias \code{"autoV1"}) for the legacy size-weighted cluster-variance heuristic. Set to a sample \code{Code} or \code{Sample} name to force that reference (used for both the PC/res stability sweep and the final integration). \code{NULL} is the same as \code{"autoV2"}. RISC integration only.}
 
 \item{min_num_UMI}{numeric, default is 500, if no filter is desired set to -Inf}
 

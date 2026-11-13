@@ -3713,6 +3713,8 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
   ann_vars <- if (complex_design) {
     sort_vars <- .design_heatmap_sort_vars(formula)
     sort_vars[sort_vars %in% colnames(md)]
+  } else if ("Condition" %in% colnames(md)) {
+    "Condition"
   } else {
     character()
   }
@@ -3734,7 +3736,7 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
   )
   top_ha <- NULL
   column_split <- NULL
-  if (complex_design && length(ann_vars)) {
+  if (length(ann_vars)) {
     ann_df <- as.data.frame(md[, ann_vars, drop = FALSE], stringsAsFactors = FALSE)
     rownames(ann_df) <- labels
     top_ha <- ComplexHeatmap::HeatmapAnnotation(
@@ -3743,7 +3745,8 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
       annotation_name_side = "left",
       show_legend = TRUE
     )
-  } else {
+  }
+  if (!complex_design && "Condition" %in% colnames(md)) {
     column_split <- md$Condition
   }
   sgn <- sign(nes)

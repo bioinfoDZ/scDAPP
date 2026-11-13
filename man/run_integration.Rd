@@ -50,7 +50,7 @@ run_integration(
 
 \item{res_int}{Louvain resolution, or \code{"auto"}.}
 
-\item{risc_reference}{RISC reference: \code{"autoV2"} (default; InPlot-faithful),
+\item{risc_reference}{RISC reference: \code{"autoV2"} (default; product of InPlot cluster score, Stv, and inverse mean KS after a KS veto),
 \code{"auto"} / \code{"autoV1"} (legacy heuristic), a sample Code/Sample name,
 or \code{NULL} (same as \code{"autoV2"}).}
 

@@ -145,6 +145,19 @@
   ))
 }
 
+#' Attach the autoV2 product-rule key to a resume fingerprint.
+#'
+#' Older lexicographic autoV2 caches then miss. Manual and legacy
+#' \code{"auto"} fingerprints are left unchanged.
+#'
+#' @keywords internal
+.resume_fingerprint_with_autov2_rule <- function(payload, risc_reference) {
+  if (identical(.parse_risc_reference_arg(risc_reference)$mode, "autoV2")) {
+    payload$risc_autov2_rule <- "product"
+  }
+  payload
+}
+
 #' @keywords internal
 .resume_fingerprint_stability <- function(
     sample_metadata,
@@ -160,7 +173,7 @@
     input_seurat_obj,
     stability_outdir = NULL
 ) {
-  .resume_digest(list(
+  .resume_digest(.resume_fingerprint_with_autov2_rule(list(
     stage = "stability",
     samples = .resume_sample_key(sample_metadata),
     integration_method = as.character(integration_method),
@@ -174,7 +187,7 @@
     RISC_louvain_neighbors = as.integer(RISC_louvain_neighbors)[1],
     input_seurat_obj = isTRUE(input_seurat_obj),
     stability_outdir = if (is.null(stability_outdir)) NA_character_ else as.character(stability_outdir)
-  ))
+  ), risc_reference))
 }
 
 #' @keywords internal
@@ -187,7 +200,7 @@
     RISC_louvain_neighbors,
     input_seurat_obj
 ) {
-  .resume_digest(list(
+  .resume_digest(.resume_fingerprint_with_autov2_rule(list(
     stage = "integration",
     samples = .resume_sample_key(sample_metadata),
     integration_method = as.character(integration_method),
@@ -196,7 +209,7 @@
     risc_reference = .risc_reference_fingerprint_value(risc_reference),
     RISC_louvain_neighbors = as.integer(RISC_louvain_neighbors)[1],
     input_seurat_obj = isTRUE(input_seurat_obj)
-  ))
+  ), risc_reference))
 }
 
 #' @keywords internal

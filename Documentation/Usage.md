@@ -335,7 +335,7 @@ When using RISC integration, the pipeline runs the ["Robust Integration of Singl
 
 RISC requires a reference sample: RPCI uses that sample's gene eigenvectors as the global frame. `risc_reference` is either a method keyword or a sample name:
 
-- `"autoV2"` (default; also used when the argument is omitted or `NULL`) — rank the same three diagnostics as RISC `InPlot` (**cluster score > Stv > KS**), after a KS outlier veto. This is the recommended automatic choice.
+- `"autoV2"` (default; also used when the argument is omitted or `NULL`) — after a KS outlier veto, rank samples by the product of the three RISC `InPlot` scores (**cluster score × Stv / mean KS**; higher is better). This is the recommended automatic choice.
 - `"auto"` (alias `"autoV1"`) — legacy heuristic: size-weighted Seurat cluster count times cluster-moderated expression variance. Kept for reproducing older runs; it does not apply the KS veto.
 - A sample `Code` or `Sample` name — that sample is used as the reference. An unmatched name is an error (no silent fallback).
 
@@ -396,7 +396,7 @@ These parameters allow for control of sophisticated analysis methods.
 - `refdatapath` string, path to a Seurat object .rds file, pre-processed with `Seurat::SCTransform()`, with a column called "Celltype" in its meta.data. Ignored if `use_labeltransfer` = F.
 - `m_reference` string, path to .rds file containing output of `Seurat::FindAllMarkers` run on the reference object specified above. Ignored if `use_labeltransfer` = F
 
-- `risc_reference` — string; RISC reference (RISC integration only). Default `"autoV2"` (InPlot-faithful rank with KS veto). `"auto"` / `"autoV1"` is the legacy heuristic. A `Code` or `Sample` name forces that reference for the stability sweep and the final integration.
+- `risc_reference` — string; RISC reference (RISC integration only). Default `"autoV2"` (product of InPlot cluster × Stv / mean KS, after a KS veto). `"auto"` / `"autoV1"` is the legacy heuristic. A `Code` or `Sample` name forces that reference for the stability sweep and the final integration.
 
 - `integration_method` - character, default `RISC`. One of `integration_method_choices()`: `RISC`; Seurat v5 `CCAIntegration`, `RPCAIntegration`, `CCAIntegration_SCT`, `RPCAIntegration_SCT`, and `HarmonyIntegration`. See **Integration method dependencies**, **Integration assays and reductions**, **Cross-condition DE and integration method**, and **Integration runtime expectations** below.
 

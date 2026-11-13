@@ -2,7 +2,7 @@
 % Please edit documentation in R/risc_reference.R
 \name{.pick_risc_reference_autov2}
 \alias{.pick_risc_reference_autov2}
-\title{Rank InPlot scores: cluster > stv > KS, with a KS outlier veto.}
+\title{Rank InPlot scores by cluster * Stv / KS, after a KS outlier veto.}
 \usage{
 .pick_risc_reference_autov2(scores)
 }
@@ -10,9 +10,12 @@
 \item{scores}{data.frame from \code{.risc_inplot_reference_scores()}.}
 }
 \value{
-List with \code{selected_code}, \code{vetoed} (logical), \code{rank}.
+List with \code{selected_code}, \code{vetoed} (logical), \code{rank},
+and \code{product}.
 }
 \description{
-Rank InPlot scores: cluster > stv > KS, with a KS outlier veto.
+Survivors are ordered by \code{cluster_score * stv_score / ks_mean}
+(higher wins). Exact ties fall back to cluster, then Stv, then lower KS,
+then sample Code. Vetoed samples stay in \code{product} and are not ranked.
 }
 \keyword{internal}

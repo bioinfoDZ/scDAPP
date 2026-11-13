@@ -3424,7 +3424,7 @@ if (identical(.ref_mode, "autoV2")) {
   cat(sprintf('
 ### Automated RISC reference selection (autoV2)
 
-Default auto-selection ranks samples using the same three InPlot scores: **cluster score > Stv score > KS**, after a KS outlier veto (mean KS above median + 2 MAD when there are at least four samples; with fewer samples, only a uniquely extreme KS is vetoed). Among remaining samples, the highest cluster score wins, with Stv then lower KS as tie-breakers.
+Default auto-selection drops KS outliers, then ranks the remaining samples by the product **cluster score × Stv score / mean KS**. Higher is better: more clusters and a higher Stv raise the score, and a higher KS lowers it. The KS veto removes a sample whose mean KS is above median + 2 MAD when there are at least four samples; with fewer samples, only a uniquely extreme KS is vetoed. Exact product ties are broken by cluster score, then Stv, then lower KS, then sample Code.
 
 This run used **autoV2** and selected **%s** as the RISC reference.
 
@@ -3450,7 +3450,7 @@ The highest legacy score (starred) is **%s**; that sample was used as the RISC r
   cat(sprintf('
 ### Automated RISC reference selection (autoV2 comparison)
 
-The table below is the **autoV2** ranking (cluster > Stv > KS, with KS veto). autoV2 would select **%s**.
+The table below is the **autoV2** ranking (cluster score × Stv / mean KS, after the KS veto). autoV2 would select **%s**.
 
 ', would_select))
   if (length(risc_reference_selection$vetoed_codes)) {
@@ -5177,8 +5177,8 @@ Each neighborhood is an index cell plus its nearest neighbors on the integrated 
 
 ", info$k, info$d, info$n_nhoods, info$n_cells, info$n_samples, k_note, small_note))
 print(milo_res$size_plot)
-cat("
-The full neighborhood-by-sample count matrix is `nhood_counts.csv`. The full cell-overlap table of every neighborhood against the integrated clusters is `nhood_cluster_overlap.csv`. A cell in several neighborhoods is counted once in each, so those totals exceed the number of cells.
+cat("\n\n")
+cat("The full neighborhood-by-sample count matrix is `nhood_counts.csv`. The full cell-overlap table of every neighborhood against the integrated clusters is `nhood_cluster_overlap.csv`. A cell in several neighborhoods is counted once in each, so those totals exceed the number of cells.
 
 ")
 ```
@@ -6530,7 +6530,7 @@ for(compidx in c(1:compslen) ){
     if (!length(heats)) next
 
     cat("\n\n#### Leading-edge expression by cluster\n\n")
-    cat("Each heatmap is the mean log1p pseudobulk expression of the leading-edge genes for the pathways from the summary plot in that cluster. Samples follow the differential-expression layout: split into the test condition then the reference when the formula is Condition only, and annotated by the formula variables otherwise. The bar on the left is the normalized enrichment score.\n\n")
+    cat("Each heatmap is the mean log1p pseudobulk expression of the leading-edge genes for the pathways from the summary plot in that cluster. Samples follow the differential-expression layout: when the formula is Condition only, columns are split into the test condition then the reference and annotated by Condition. Other formulas are annotated by the formula variables. The bar on the left is the normalized enrichment score.\n\n")
 
     for (clust in names(heats)) {
       cat(sprintf("\n\n##### %s\n\n", clust))
