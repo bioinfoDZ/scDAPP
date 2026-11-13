@@ -4,7 +4,7 @@
 \alias{.read_sobjlist_from_dir}
 \title{Load Code.rds objects from pipeline tmpobjdir for Seurat merge integration.}
 \usage{
-.read_sobjlist_from_dir(objdir, codes)
+.read_sobjlist_from_dir(objdir, codes, saving_algorithm = "qs2")
 }
 \description{
 Load Code.rds objects from pipeline tmpobjdir for Seurat merge integration.

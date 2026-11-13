@@ -9,7 +9,9 @@ preppathways_pathwayanalysis_crosscondition_module(
   outdir_int,
   msigdbr_cache_dir = NULL,
   pwaycats = NULL,
-  refresh_msigdbr_cache = FALSE
+  refresh_msigdbr_cache = FALSE,
+  saving_algorithm = "qs2",
+  nthreads = 1L
 )
 }
 \arguments{

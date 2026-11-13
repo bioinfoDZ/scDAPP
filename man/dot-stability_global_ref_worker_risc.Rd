@@ -12,7 +12,8 @@
   risc_ncore,
   risc_louvain_neighbors,
   globrefdir,
-  verbose = FALSE
+  verbose = FALSE,
+  saving_algorithm = "qs2"
 )
 }
 \description{

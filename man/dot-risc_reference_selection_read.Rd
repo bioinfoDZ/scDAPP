@@ -4,7 +4,7 @@
 \alias{.risc_reference_selection_read}
 \title{Read RISC reference selection artifacts if present.}
 \usage{
-.risc_reference_selection_read(dir)
+.risc_reference_selection_read(dir, saving_algorithm = "qs2")
 }
 \description{
 Read RISC reference selection artifacts if present.

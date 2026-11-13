@@ -162,7 +162,7 @@ resolve_integration_config <- function(
       de_wilcox_slot = "data",
       default_assay = "Integrated_RISC",
       cluster_column_prefix = "RISC_Louvain",
-      report_label = "Reference Principal Component Integration (RISC)",
+      report_label = "Robust Integration of Single Cell RNA-seq (RISC)",
       pcs_int = pcs_int,
       res_int = res_int,
       pcs_int_auto = pcs_auto,
@@ -425,7 +425,7 @@ check_integration_dependencies <- function(config, pcs_int = NULL, res_int = NUL
     sobjint,
     outdir_int_objects,
     sample_metadata,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   matlist_path <- find_scdapp_object(
     file.path(outdir_int_objects, ".concatmatrix"),
@@ -485,7 +485,7 @@ check_integration_dependencies <- function(config, pcs_int = NULL, res_int = NUL
 
 #' Load Code.rds objects from pipeline tmpobjdir for Seurat merge integration.
 #' @keywords internal
-.read_sobjlist_from_dir <- function(objdir, codes, saving_algorithm = "RDS") {
+.read_sobjlist_from_dir <- function(objdir, codes, saving_algorithm = "qs2") {
   out <- lapply(codes, function(code) {
     read_scdapp_object(
       find_scdapp_object(file.path(objdir, code), saving_algorithm)

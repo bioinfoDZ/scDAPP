@@ -787,7 +787,7 @@ per_sample_qc_module <- function(
     qc_pdf_path,
     prefilter_pcs = 30L,
     prefilter_resolution = 0.1,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   message(code)
 
@@ -1102,7 +1102,7 @@ per_sample_qc_module <- function(
 #' @param verbose Passed to \code{SCTransform} and \code{RunPCA}.
 #' @return Invisible \code{NULL}.
 #' @keywords internal
-.per_sample_sct_pca <- function(sobj_path, verbose = FALSE, saving_algorithm = "RDS") {
+.per_sample_sct_pca <- function(sobj_path, verbose = FALSE, saving_algorithm = "qs2") {
   .per_sample_worker_setup()
   sobj <- read_scdapp_object(sobj_path, nthreads = 1L)
   Seurat::DefaultAssay(sobj) <- "RNA"
@@ -1135,7 +1135,7 @@ per_sample_qc_module <- function(
     res_indi,
     marker_csv,
     verbose = FALSE,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   .per_sample_worker_setup()
   sobj <- read_scdapp_object(sobj_path, nthreads = 1L)

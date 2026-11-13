@@ -15,7 +15,9 @@ ORA_crosscondition_module(
   pathway_padj_thres,
   pwaycats,
   workernum,
-  outdir_int
+  outdir_int,
+  saving_algorithm = "qs2",
+  nthreads = 1L
 )
 }
 \arguments{

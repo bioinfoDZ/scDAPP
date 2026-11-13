@@ -89,11 +89,15 @@ r_package_test <- function() {
 #' @param workernum integer, workers for final RISC integration (`InPlot`, `scMultiIntegrate`) and Dream pseudobulk DE (`BiocParallel`), default = 1.
 #' @param stability_workernum integer or NULL; parallel workers for auto stability sweep (NULL uses workernum)
 #' @param run_ORA T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
+#' @param run_MILO T/F, default FALSE. When TRUE and \code{Pseudobulk_mode} is TRUE, run neighbourhood differential abundance with Milo after compositional analysis. Requires the Bioconductor package \code{miloR}. Skipped with a warning when \code{Pseudobulk_mode} is FALSE.
+#' @param milo_k \code{"auto"} (default) or a positive integer. \code{"auto"} uses \code{min(5 * n_samples, milo_k_max, n_cells - 1)}.
+#' @param milo_k_max positive integer, default 100. Cap used only when \code{milo_k = "auto"}.
+#' @param milo_spatial_fdr numeric, default 0.1. A neighborhood is significant when its SpatialFDR is below this cutoff.
 #' @param run_msigdb_celltype_ora T/F, default is TRUE. Whether to run ORA of cluster markers against MSigDB cell-type signature gene sets on individual and integrated marker tables. clusterProfiler must be installed.
 #' @param msigdb_celltype_ora_marker_padj_thres numeric, adjusted p-value cutoff for cluster marker genes included in MSigDB cell-type ORA (default 0.05).
 #' @param msigdb_celltype_ora_top_markers integer, max markers per cluster after padj filter, ranked by score (default 100).
 #' @param input_seurat_obj T/F. If true, will read in Seurat objects from `datadir` with names matching the sample column of `sample_metadata`. Files may be `.rds` or `.qs2` (`Sample1.rds` or `Sample1.qs2`). Useful for data with some preprocessing or hashed data input.
-#' @param saving_algorithm \code{"RDS"} (default) or \code{"qs2"}. Format used when the pipeline writes R objects. \code{qs2} is faster for large Seurat objects. Inputs are read from whichever extension is on the file.
+#' @param saving_algorithm \code{"qs2"} (default) or \code{"RDS"}. Format used when the pipeline writes R objects. \code{qs2} is faster for large Seurat objects. Inputs are read from whichever extension is on the file.
 #' @param title string, title of HTML report. Default is "10X analysis - clustering and integration".
 #' @param author string, name of authors which will be shown on HTML report. We recommend passing a comma separated string. Default is "Alexander Ferrena, Deyou Zheng".
 #' @param pseudobulk_metadata FOR BACKWARDS COMPATIBILITY ONLY. Will be set to `sample_metadata`. string, path to a .csv file containing at least two columns: "Sample", matching exactly the sample names in `datadir`, and "Condition", giving the experiment status of that sample, such as WT or KO, Case vs Control, etc. Optionally, can provide a third column "Code" giving a nickname for each sample; this is set to "Sample_Condition" for each sample if not.
@@ -213,6 +217,10 @@ scRNAseq_pipeline_runner <- function(  datadir,
                                        workernum,
                                        stability_workernum,
                                        run_ORA,
+                                       run_MILO,
+                                       milo_k,
+                                       milo_k_max,
+                                       milo_spatial_fdr,
                                        run_msigdb_celltype_ora,
                                        msigdb_celltype_ora_marker_padj_thres,
                                        msigdb_celltype_ora_top_markers,
@@ -294,12 +302,16 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(missing(workernum)){ workernum = 1}
   if(missing(stability_workernum)){ stability_workernum <- NULL}
   if(missing(run_ORA)){ run_ORA = F }
+  if(missing(run_MILO)){ run_MILO = FALSE }
+  if(missing(milo_k)){ milo_k = "auto" }
+  if(missing(milo_k_max)){ milo_k_max = 100L }
+  if(missing(milo_spatial_fdr)){ milo_spatial_fdr = 0.1 }
   if(missing(run_msigdb_celltype_ora)){ run_msigdb_celltype_ora = TRUE }
   if(missing(msigdb_celltype_ora_marker_padj_thres)){ msigdb_celltype_ora_marker_padj_thres = 0.05 }
   if(missing(msigdb_celltype_ora_top_markers)){ msigdb_celltype_ora_top_markers = 100L }
   
   if(missing(input_seurat_obj)){ input_seurat_obj = FALSE}
-  if(missing(saving_algorithm)){ saving_algorithm = "RDS"}
+  if(missing(saving_algorithm)){ saving_algorithm = "qs2"}
   saving_algorithm <- normalize_saving_algorithm(saving_algorithm)
   
   if(missing(title)){title = 'scDAPP Report'}
@@ -371,6 +383,23 @@ scRNAseq_pipeline_runner <- function(  datadir,
   if(run_ORA == T){
     if(!('clusterProfiler' %in% rownames(installed.packages()))){
       stop('run_ORA is set to T. Please install clusterProfiler first')
+    }
+  }
+
+  if (isTRUE(run_MILO)) {
+    if (!requireNamespace("miloR", quietly = TRUE)) {
+      stop(
+        'run_MILO is TRUE. Please install miloR first ',
+        '(BiocManager::install("miloR")).',
+        call. = FALSE
+      )
+    }
+    if (!isTRUE(Pseudobulk_mode)) {
+      warning(
+        "run_MILO is TRUE but Pseudobulk_mode is FALSE. ",
+        "Milo needs biological replicates and will be skipped.",
+        call. = FALSE
+      )
     }
   }
 
@@ -464,6 +493,10 @@ scRNAseq_pipeline_runner <- function(  datadir,
                       workernum = workernum,
                       stability_workernum = stability_workernum,
                       run_ORA = run_ORA,
+                      run_MILO = run_MILO,
+                      milo_k = milo_k,
+                      milo_k_max = milo_k_max,
+                      milo_spatial_fdr = milo_spatial_fdr,
                       run_msigdb_celltype_ora = run_msigdb_celltype_ora,
                       msigdb_celltype_ora_marker_padj_thres = msigdb_celltype_ora_marker_padj_thres,
                       msigdb_celltype_ora_top_markers = msigdb_celltype_ora_top_markers,

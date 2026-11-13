@@ -4,7 +4,12 @@
 \alias{.resume_restore_tmpobjdir}
 \title{Copy resume sample RDS into tmpobjdir for update_indi_objects / Seurat int.}
 \usage{
-.resume_restore_tmpobjdir(outdir, tmpobjdir, sample_codes)
+.resume_restore_tmpobjdir(
+  outdir,
+  tmpobjdir,
+  sample_codes,
+  saving_algorithm = "qs2"
+)
 }
 \description{
 Copy resume sample RDS into tmpobjdir for update_indi_objects / Seurat int.

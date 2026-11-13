@@ -9,7 +9,8 @@
   path_sobj_merged_temp,
   sweep_config,
   globrefdir,
-  verbose = FALSE
+  verbose = FALSE,
+  saving_algorithm = "qs2"
 )
 }
 \description{

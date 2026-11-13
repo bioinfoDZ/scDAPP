@@ -46,10 +46,15 @@ scRNAseq_pipeline_runner(
   workernum,
   stability_workernum,
   run_ORA,
+  run_MILO,
+  milo_k,
+  milo_k_max,
+  milo_spatial_fdr,
   run_msigdb_celltype_ora,
   msigdb_celltype_ora_marker_padj_thres,
   msigdb_celltype_ora_top_markers,
   input_seurat_obj,
+  saving_algorithm,
   title,
   author,
   de.test.use,
@@ -137,11 +142,19 @@ on the full unfiltered matrix before autofilter (for cluster-level QC diagnostic
 
 \item{msigdbr_cache_dir}{optional string, directory for cached MSigDB pathway tables prepared by \code{preppathways_pathwayanalysis_crosscondition_module()}. When NULL, uses \code{XDG_CACHE_HOME/scDAPP} if set, else \code{tools::R_user_dir("scDAPP", "cache")}. Falls back to a subfolder of the pipeline output directory with a warning if those locations are not writable.}
 
-\item{workernum}{integer, number of CPU threads for final RISC integration and Dream pseudobulk DE (\code{BiocParallel}), default = 1}
+\item{workernum}{integer, workers for final RISC integration (\code{InPlot}, \code{scMultiIntegrate}) and Dream pseudobulk DE (\code{BiocParallel}), default = 1.}
 
 \item{stability_workernum}{integer or NULL; parallel workers for auto stability sweep (NULL uses workernum)}
 
 \item{run_ORA}{T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in \code{clusterProfiler::enricher()}. clusterProfiler must be installed for this. Will save table outputs.}
+
+\item{run_MILO}{T/F, default FALSE. When TRUE and \code{Pseudobulk_mode} is TRUE, run neighbourhood differential abundance with Milo after compositional analysis. Requires the Bioconductor package \code{miloR}. Skipped with a warning when \code{Pseudobulk_mode} is FALSE.}
+
+\item{milo_k}{\code{"auto"} (default) or a positive integer. \code{"auto"} uses \code{min(5 * n_samples, milo_k_max, n_cells - 1)}.}
+
+\item{milo_k_max}{positive integer, default 100. Cap used only when \code{milo_k = "auto"}.}
+
+\item{milo_spatial_fdr}{numeric, default 0.1. A neighborhood is significant when its SpatialFDR is below this cutoff.}
 
 \item{run_msigdb_celltype_ora}{T/F, default is TRUE. Whether to run ORA of cluster markers against MSigDB cell-type signature gene sets on individual and integrated marker tables. clusterProfiler must be installed.}
 
@@ -149,7 +162,9 @@ on the full unfiltered matrix before autofilter (for cluster-level QC diagnostic
 
 \item{msigdb_celltype_ora_top_markers}{integer, max markers per cluster after padj filter, ranked by score (default 100).}
 
-\item{input_seurat_obj}{T/F. If true, will read in Seurat objects from \code{datadir} with names matching the sample column of \code{sample_metadata}. Ie, if datadir contains objects called "Sample1.rds", "Sample2.rds", and psuedobulk_metadata has "Sample1" in the Sample column, only Sample1.rds will be read in. Useful for data with some preprocessing or hashed data input.}
+\item{input_seurat_obj}{T/F. If true, will read in Seurat objects from \code{datadir} with names matching the sample column of \code{sample_metadata}. Files may be \code{.rds} or \code{.qs2} (\code{Sample1.rds} or \code{Sample1.qs2}). Useful for data with some preprocessing or hashed data input.}
+
+\item{saving_algorithm}{\code{"qs2"} (default) or \code{"RDS"}. Format used when the pipeline writes R objects. \code{qs2} is faster for large Seurat objects. Inputs are read from whichever extension is on the file.}
 
 \item{title}{string, title of HTML report. Default is "10X analysis - clustering and integration".}
 

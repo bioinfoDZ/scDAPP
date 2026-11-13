@@ -2,11 +2,15 @@
 % Please edit documentation in R/integration_stability.R
 \name{.stability_plot_save_dims}
 \alias{.stability_plot_save_dims}
-\title{PDF/HTML width/height per plot type for a given sweep grid}
+\title{PDF/HTML width/height per plot type for a given sweep grid.
+Ranked Y-axis plots (bar, bootstrap ARI, nclust) cap near 8-10 in so HTML
+does not downscale labels off the page.}
 \usage{
 .stability_plot_save_dims(perparam, perclust_df, selected_params_i)
 }
 \description{
-PDF/HTML width/height per plot type for a given sweep grid
+PDF/HTML width/height per plot type for a given sweep grid.
+Ranked Y-axis plots (bar, bootstrap ARI, nclust) cap near 8-10 in so HTML
+does not downscale labels off the page.
 }
 \keyword{internal}

@@ -17,7 +17,8 @@
   samplecolumn,
   propcells.perrep,
   bootstrapresdir,
-  verbose = FALSE
+  verbose = FALSE,
+  saving_algorithm = "qs2"
 )
 }
 \description{

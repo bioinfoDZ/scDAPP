@@ -22,7 +22,8 @@ per_sample_qc_module(
   rawobj_path = NULL,
   qc_pdf_path,
   prefilter_pcs = 30L,
-  prefilter_resolution = 0.1
+  prefilter_resolution = 0.1,
+  saving_algorithm = "qs2"
 )
 }
 \arguments{

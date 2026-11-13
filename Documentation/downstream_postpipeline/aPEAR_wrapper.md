@@ -29,25 +29,24 @@ remotes::install_url('https://cran.r-project.org/src/contrib/Archive/aPEAR/aPEAR
 
 ## 1. Inputs from pipeline: 
 
-From the pipeline, you will need the file `DE_pathways_plot_objects_list.rds`, which can be found below:
+From the pipeline, you will need `DE_pathways_plot_objects_list.qs2` by default (`saving_algorithm = "RDS"` writes `.rds` instead). It is here:
 
-
-
-```
+```text
 scDAPP_outdir/
-├── individualsample_analysis
-├── multisample_integration
-│   └── pathwayanalysis_crosscondition
-│        └──**DE_pathways_plot_objects_list.rds**
+├── individualsample_analysis/
+├── multisample_integration/
+│   └── pathwayanalysis_crosscondition/
+│       └── DE_pathways_plot_objects_list.qs2
 ├── pipeline_parameters.csv
 └── scRNAseq_clustering_integration.html
 ```
 
-Read in that file, for example:
+Read it with:
 
-```
-pathway_analysis_result <- readRDS("multisample_integration/pathwayanalysis_crosscondition/DE_pathways_plot_objects_list.rds")
-
+```r
+pathway_analysis_result <- scDAPP::read_scdapp_object(
+  "multisample_integration/pathwayanalysis_crosscondition/DE_pathways_plot_objects_list.qs2"
+)
 ```
 
 

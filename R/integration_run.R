@@ -53,7 +53,7 @@ run_integration <- function(
     stability_sweep_res = seq(0.1, 1.5, by = 0.2),
     stability_propcells.perrep = 0.8,
     pipeline_outdir = NULL,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   integration_method <- match.arg(integration_method, integration_method_choices())
   auto_requested <- .integration_param_needs_auto(pcs_int, res_int)
@@ -315,7 +315,7 @@ prepare_integration_inputs <- function(
     datadir = NULL,
     outdir_int,
     input_seurat_obj = FALSE,
-    saving_algorithm = "RDS",
+    saving_algorithm = "qs2",
     nthreads = 1L
 ) {
   sobjlist <- .annotate_sobjlist_for_integration(sobjlist, sample_metadata)
@@ -397,7 +397,7 @@ run_risc_integration <- function(
     risc_reference_selection = NULL,
     workernum = 1L,
     RISC_louvain_neighbors = 10L,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   outdir_int_objects <- file.path(outdir_int, "data_objects")
   dir.create(outdir_int_objects, recursive = TRUE, showWarnings = FALSE)
@@ -598,8 +598,11 @@ run_risc_integration <- function(
   )
   sobjint <- .finalize_sobjint_clusters(sobjint, config, int_clust_lab)
 
-  sobjint$Code <- factor(sobjint$Code, levels = sample_metadata$Code)
-  sobjint$Condition <- factor(sobjint$Condition, levels = levels(sample_metadata$Condition))
+  sobjint$Code <- factor(sobjint$Code, levels = .metadata_level_values(sample_metadata$Code))
+  sobjint$Condition <- factor(
+    as.character(sobjint$Condition),
+    levels = .metadata_level_values(sample_metadata$Condition)
+  )
 
   list(
     sobjint = sobjint,
@@ -614,10 +617,19 @@ run_risc_integration <- function(
 
 # ---- Seurat v5 integration ----
 
+.metadata_level_values <- function(x) {
+  lv <- levels(x)
+  if (length(lv)) as.character(lv) else unique(as.character(x))
+}
+
 #' Join Seurat v5 split RNA layers before merge/split integration workflow.
 #' @keywords internal
 .join_assay_layers_if_needed <- function(obj, assay_name) {
   if (!assay_name %in% Seurat::Assays(obj)) {
+    return(obj)
+  }
+  # v3 Assay objects list counts and data from Layers() but have no JoinLayers method.
+  if (!inherits(obj[[assay_name]], "Assay5")) {
     return(obj)
   }
   if (!requireNamespace("SeuratObject", quietly = TRUE)) {
@@ -662,7 +674,7 @@ run_risc_integration <- function(
 
 #' Merge per-sample RDS from tmpobjdir into one object for Seurat integration.
 #' @keywords internal
-.seurat_merge_from_tmpobjdir <- function(tmpobjdir, sample_metadata, saving_algorithm = "RDS") {
+.seurat_merge_from_tmpobjdir <- function(tmpobjdir, sample_metadata, saving_algorithm = "qs2") {
   codes <- sample_metadata$Code
   sobjlist <- .read_sobjlist_from_dir(tmpobjdir, codes, saving_algorithm)
   obj <- if (length(sobjlist) == 1L) {
@@ -815,7 +827,7 @@ run_seurat_integration <- function(
     outdir_int,
     config,
     workernum = 1L,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   outdir_int_objects <- file.path(outdir_int, "data_objects")
   dir.create(outdir_int_objects, recursive = TRUE, showWarnings = FALSE)
@@ -851,8 +863,11 @@ run_seurat_integration <- function(
   }
 
   sobjint <- .finalize_sobjint_clusters(sobjint, config, int_clust_lab)
-  sobjint$Code <- factor(sobjint$Code, levels = sample_metadata$Code)
-  sobjint$Condition <- factor(sobjint$Condition, levels = levels(sample_metadata$Condition))
+  sobjint$Code <- factor(sobjint$Code, levels = .metadata_level_values(sample_metadata$Code))
+  sobjint$Condition <- factor(
+    as.character(sobjint$Condition),
+    levels = .metadata_level_values(sample_metadata$Condition)
+  )
 
   list(
     sobjint = sobjint,

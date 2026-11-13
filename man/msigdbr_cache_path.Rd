@@ -9,7 +9,8 @@ msigdbr_cache_path(
   cache_dir = NULL,
   fallback_dir = NULL,
   msigdbr_version = NULL,
-  db_version = NULL
+  db_version = NULL,
+  saving_algorithm = "qs2"
 )
 }
 \arguments{

@@ -115,7 +115,7 @@ msigdbr_cache_path <- function(species,
                                  fallback_dir = NULL,
                                  msigdbr_version = NULL,
                                  db_version = NULL,
-                                 saving_algorithm = "RDS") {
+                                 saving_algorithm = "qs2") {
   if (is.null(msigdbr_version)) {
     msigdbr_version <- as.character(utils::packageVersion("msigdbr"))
   }
@@ -224,7 +224,7 @@ msigdbr_cache_path <- function(species,
     pwaycats,
     cache_dir,
     fallback_dir,
-    saving_algorithm = "RDS",
+    saving_algorithm = "qs2",
     nthreads = 1L
 ) {
   cache_file <- msigdbr_cache_path(
@@ -281,7 +281,7 @@ msigdbr_cache_path <- function(species,
     pwaycats,
     cache_dir,
     fallback_dir,
-    saving_algorithm = "RDS",
+    saving_algorithm = "qs2",
     nthreads = 1L
 ) {
   db_version <- unique(pathways$db_version)

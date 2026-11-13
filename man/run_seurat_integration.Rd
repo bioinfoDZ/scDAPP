@@ -9,7 +9,8 @@ run_seurat_integration(
   sample_metadata,
   outdir_int,
   config,
-  workernum = 1L
+  workernum = 1L,
+  saving_algorithm = "qs2"
 )
 }
 \arguments{

@@ -4,7 +4,12 @@
 \alias{.append_concat_rna_assay}
 \title{Attach joined raw RNA counts assay to integrated object for pseudobulk DE.}
 \usage{
-.append_concat_rna_assay(sobjint, outdir_int_objects, sample_metadata)
+.append_concat_rna_assay(
+  sobjint,
+  outdir_int_objects,
+  sample_metadata,
+  saving_algorithm = "qs2"
+)
 }
 \description{
 Attach joined raw RNA counts assay to integrated object for pseudobulk DE.

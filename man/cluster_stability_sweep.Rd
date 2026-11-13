@@ -15,7 +15,8 @@ cluster_stability_sweep(
   label_top_k = 10L,
   remove_rawouts = TRUE,
   verbose = TRUE,
-  downsize_seurat = TRUE
+  downsize_seurat = TRUE,
+  saving_algorithm = "qs2"
 )
 }
 \arguments{

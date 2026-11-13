@@ -17,6 +17,8 @@ apear_plot_cluster(
   output_height = 10,
   save_network_plot = TRUE,
   save_apearres_obj = TRUE,
+  saving_algorithm = "qs2",
+  nthreads = 1L,
   ...
 )
 }

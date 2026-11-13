@@ -18,6 +18,10 @@
 )
 }
 \description{
+Sequential scorer kept for manual reference comparison. autoV2 uses
+\code{.risc_inplot_diagnostics()} instead.
+}
+\details{
 Mirrors \code{RISC::InPlot} (irlba on scaled logcounts of shared genes; Louvain
 cluster counts across PC bins; Stv slope; mean KS of gene loadings vs Normal).
 }

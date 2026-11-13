@@ -50,11 +50,15 @@ params:
   workernum: 1
   stability_workernum: null
   run_ORA: FALSE
+  run_MILO: FALSE
+  milo_k: auto
+  milo_k_max: 100
+  milo_spatial_fdr: 0.1
   run_msigdb_celltype_ora: TRUE
   msigdb_celltype_ora_marker_padj_thres: 0.05
   msigdb_celltype_ora_top_markers: 100
   input_seurat_obj: FALSE
-  saving_algorithm: RDS
+  saving_algorithm: qs2
   title: scDAPP Report
   author: Pipeline prepared by Alexander Ferrena, Deyou Zheng, and colleagues
 title: "`r params$title`"
@@ -373,6 +377,15 @@ msigdbr_cache_dir <- params$msigdbr_cache_dir
 ## use ORA
 run_ORA <- params$run_ORA
 
+run_MILO <- params$run_MILO
+if (is.null(run_MILO)) run_MILO <- FALSE
+milo_k <- params$milo_k
+if (is.null(milo_k)) milo_k <- "auto"
+milo_k_max <- params$milo_k_max
+if (is.null(milo_k_max)) milo_k_max <- 100L
+milo_spatial_fdr <- params$milo_spatial_fdr
+if (is.null(milo_spatial_fdr)) milo_spatial_fdr <- 0.1
+
 run_msigdb_celltype_ora <- params$run_msigdb_celltype_ora
 msigdb_celltype_ora_marker_padj_thres <- params$msigdb_celltype_ora_marker_padj_thres
 msigdb_celltype_ora_top_markers <- params$msigdb_celltype_ora_top_markers
@@ -384,7 +397,7 @@ msigdb_celltype_ora_top_markers <- params$msigdb_celltype_ora_top_markers
 workernum <- params$workernum
 saving_algorithm <- params$saving_algorithm
 if (is.null(saving_algorithm) || !nzchar(as.character(saving_algorithm))) {
-  saving_algorithm <- "RDS"
+  saving_algorithm <- "qs2"
 }
 
 
@@ -608,58 +621,107 @@ This analysis used the [single cell Differential Analysis and Processing Pipelin
 
 ## Description of methods
 
-Below is a short methods-section style description of the pipeline. More detailed information can be found in each sub-section. If required, software versions of all R packages can be found at the bottom of the document in the SessionInfo section. The version of Cellranger can be found in the web_summary.html files provided with the data release. Please read carefully and adjust accordingly before using for manuscripts or applications.
+Below is a short methods-section style description of the pipeline. More detailed information can be found in each sub-section. If required, software versions of all R packages can be found at the bottom of the document in the Session info section. The version of Cellranger can be found in the web_summary.html files provided with the data release. Please read carefully and adjust accordingly before using for manuscripts or applications.
 
 ```{r methods_intro, results='asis'}
-text1_start <- '
-Sequencing data from the 10x Chromium samples were first analyzed with Cellranger to generate cell-level gene expression data [(10X Genomics)](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger). Data was analyzed using the Single cell Differential Analysis and Processing Pipeline (scDAPP) [(Ferrena et al 2024)](https://github.com/bioinfoDZ/scDAPP) including the following steps. Cells with fewer than 500 Unique Molecular Identifiers (UMIs) detected, fewer than 200 unique genes detected, more than 25% mitochondrial content, or more than 25% hemoglobin gene expression were filtered out (unless otherwise specified). An automated filtering approach to detect outliers of these variables based on median absolute deviation above 3 was also applied. Furthermore, complexity analysis based on the expected number of genes given the number of UMIs per cell was also used to filter out poor quality cells.'
-text1_cluster <- if (cluster_unfiltered) {
-  ' Each sample was clustered on the full unfiltered matrix (SCT, resolution 0.1) before filtering for cluster-level QC diagnostics.'
-} else {
-  ''
+# Phrase for the report only. An empty DE_test is described with the runner
+# default and is not assigned.
+.de_test_for_report <- function(DE_test, Pseudobulk_mode) {
+  test <- DE_test
+  if (is.null(test) || length(test) != 1L || is.na(test) || !nzchar(as.character(test))) {
+    test <- if (isTRUE(Pseudobulk_mode)) "EdgeR-LRT" else "wilcox"
+  } else {
+    test <- as.character(test)
+  }
+  if (isTRUE(Pseudobulk_mode)) {
+    phrase <- switch(
+      test,
+      "EdgeR" = "a pseudobulk edgeR likelihood ratio test",
+      "EdgeR-LRT" = "a pseudobulk edgeR likelihood ratio test",
+      "EdgeR-QLF" = "a pseudobulk edgeR quasi-likelihood F-test",
+      "DESeq2" = "a pseudobulk DESeq2 Wald test",
+      "DESeq2-LRT" = "a pseudobulk DESeq2 likelihood ratio test",
+      "Dream" = "a pseudobulk dream mixed-model test (variancePartition)",
+      paste0("a pseudobulk ", test, " test")
+    )
+    paste0(phrase, " per cluster")
+  } else if (identical(test, "wilcox")) {
+    "the Wilcoxon rank-sum test (Seurat FindMarkers) per cluster"
+  } else {
+    paste0("the Seurat FindMarkers test (test.use = ", test, ") per cluster")
+  }
 }
-text1_end <- '
-Samples were analyzed using the Seurat workflow [(Hao et al 2021)](https://doi.org/10.1016/j.cell.2021.04.048). Each sample was normalized using the SingleCellTransform pipeline [(Hafemeister & Satija 2019)](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1874-1) with method set to "glmGamPoi" [(Ahlmann-Eltze & Huber 2020)](https://academic.oup.com/bioinformatics/article/36/24/5701/6028985). 30 principal components were used for graph construction and resolution was set to 0.5 for Louvain clustering (unless otherwise specified). Marker analysis was performed using the Wilcoxon Rank Sum Test as implemented in the Seurat FindAllMarkers() function with "only.pos" set to True. To identify cell types present in each sample, the Seurat anchor-based Label Transfer method was used, based on a single-cell RNA-seq dataset from similar tissue (unless otherwise specified).
+de_test_phrase <- .de_test_for_report(DE_test, Pseudobulk_mode)
 
-
-'
+text1_start <- paste0(
+  "Sequencing data from the 10x Chromium samples were first analyzed with Cellranger to generate cell-level gene expression data [(10X Genomics)](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger). ",
+  "Data was analyzed using the Single cell Differential Analysis and Processing Pipeline (scDAPP) [(Ferrena et al 2024)](https://github.com/bioinfoDZ/scDAPP) including the following steps. ",
+  "Cells with fewer than ", min_num_UMI, " Unique Molecular Identifiers (UMIs) detected, fewer than ",
+  min_num_Feature, " unique genes detected, more than ",
+  max_perc_mito, "% mitochondrial content, or more than ",
+  max_perc_hemoglobin, "% hemoglobin gene expression were filtered out. ",
+  "Median absolute deviation outliers were removed for UMI counts (Auto.libsize) and mitochondrial content (Auto.mito), using a threshold of ",
+  autofilter_medianabsolutedev_threshold, ". ",
+  "Complexity analysis based on the expected number of genes given the number of UMIs per cell, using linear regression Cook's distance and loess residuals, was also used to filter out poor quality cells."
+)
+text1_cluster <- if (cluster_unfiltered) {
+  " Each sample was clustered on the full unfiltered matrix (SCT, resolution 0.1) before filtering for cluster-level QC diagnostics."
+} else {
+  ""
+}
+text1_label <- if (isTRUE(use_labeltransfer)) {
+  " To identify cell types present in each sample, the Seurat anchor-based label transfer method was used, based on a single-cell RNA-seq dataset from similar tissue."
+} else {
+  ""
+}
+text1_doublet <- if (isTRUE(doubletFinder)) {
+  " Putative doublets were removed with DoubletFinder."
+} else {
+  ""
+}
+text1_end <- paste0(
+  " Samples were analyzed using the Seurat workflow [(Hao et al 2021)](https://doi.org/10.1016/j.cell.2021.04.048). ",
+  "Each sample was normalized using the SingleCellTransform pipeline [(Hafemeister & Satija 2019)](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-019-1874-1) with method set to \"glmGamPoi\" [(Ahlmann-Eltze & Huber 2020)](https://academic.oup.com/bioinformatics/article/36/24/5701/6028985). ",
+  pcs_indi, " principal components were used for graph construction and Louvain resolution was set to ",
+  res_indi, ". ",
+  "Marker analysis was performed using the Wilcoxon rank sum test as implemented in the Seurat FindAllMarkers() function with only.pos set to TRUE.",
+  text1_label,
+  text1_doublet,
+  "\n\n\n"
+)
 text1 <- paste0(text1_start, text1_cluster, text1_end)
 
 int_report <- int_config$report_label
 text2_pcs_res <- if (.pcs_int_auto || .res_int_auto) {
-  'Principal components and/or Louvain resolution for integration were selected automatically via bootstrap cluster stability (see the Integration section for chosen values). '
+  "Principal components and/or Louvain resolution for integration were selected automatically via bootstrap cluster stability (see the Integration section for chosen values). "
 } else {
   paste0(
-    pcs_int, ' principal components were used for integration and Louvain clustering (resolution ',
-    res_int, '), unless otherwise specified. '
+    pcs_int, " principal components were used for integration and Louvain clustering (resolution ",
+    res_int, "), unless otherwise specified. "
   )
 }
 text2_common <- paste0(
-  'Samples were integrated using ', int_report,
-  '. ', text2_pcs_res
+  "Samples were integrated using ", int_report,
+  ". ", text2_pcs_res
 )
 
-if(Pseudobulk_mode == T){
+if (isTRUE(Pseudobulk_mode)) {
   text2 <- paste0(
     text2_common,
-    'Compositional analysis used the Propeller test (speckle package). ',
-    'Cross-condition differential expression used a pseudobulk EdgeR-LRT approach per cluster. ',
-    'Pathway analysis used FGSEA; gene sets from msigdbr.'
+    "Compositional analysis used the Propeller test (speckle package). ",
+    "Cross-condition differential expression used ", de_test_phrase, ". ",
+    "Pathway analysis used FGSEA; gene sets from msigdbr."
   )
-}
-if(Pseudobulk_mode == F){
+} else {
   text2 <- paste0(
     text2_common,
-    'Compositional analysis used a 2-sample Z test (prop.test). ',
-    'Cross-condition differential expression used the Wilcoxon test (Seurat FindMarkers). ',
-    'Pathway analysis used FGSEA; gene sets from msigdbr.'
+    "Compositional analysis used a 2-sample Z test (prop.test). ",
+    "Cross-condition differential expression used ", de_test_phrase, ". ",
+    "Pathway analysis used FGSEA; gene sets from msigdbr."
   )
 }
 
-
-# cat(text1); cat(text2)
-
-alltext <- paste0(text1, '\n', text2)
+alltext <- paste0(text1, "\n", text2)
 cat(alltext)
 ```
 
@@ -738,7 +800,7 @@ First, we preprocess and analyze each individual sample. This will go through th
 * Preprocessing: Normalize and pre-process with the Seurat SingleCellTransform (SCT) pipeline
 * Dimension reduction and clustering: Principal component analysis, graph construction, clustering, and visualization via UMAP to discover clusters in each sample
 * Marker analysis: using the Wilcoxon test for differential expression, find unique marker genes of each cluster
-* Label transfer: from a reference single-cell dataset, quantify how much each cell in the  data resembles a known cell type
+* Label transfer: from a reference single-cell dataset, quantify how much each cell in the data resembles a known cell type
 
 
 After the analysis of individual samples, we will do an integrated analysis.
@@ -766,7 +828,7 @@ Once sequencing is completed, we get a file that has the barcode and cDNA sequen
 
 * Alignment: assign each sequence read to the gene it came from.
 
-* Gene demultiplexing: Once the read-pair is aligned to a gene, we count the UMI barcode as a count for that gene. Two reads may come from the same gene, but if they have the same UMI, it means they came from the same transcript, so it only counts at one UMI. This allows us to get around the problem of short-read sequencing inherent to Illumina technology, to count actual transcripts rather than counting reads.
+* Gene demultiplexing: Once the read-pair is aligned to a gene, we count the UMI barcode as a count for that gene. Two reads may come from the same gene, but if they have the same UMI, it means they came from the same transcript, so it only counts as one UMI. This allows us to get around the problem of short-read sequencing inherent to Illumina technology, to count actual transcripts rather than counting reads.
 
 * cell demultiplexing: During 10X library prep, each cell is isolated and given a barcode. Every read from that cell is labelled with the cell barcode. Using the barcode, we assign the read to a specific cell.
 
@@ -775,9 +837,9 @@ These preprocessing steps are performed by the 10x Genomics software called Cell
 
 
 
-Downstream analysis, including clustering and label transfer, works with the output of Cellranger Count. This includes a gene by cell matrix. Each row is a gene, each column is a cell and each value is the number of UMIs for each gene from each cell; typically, this is ~20K genes (rows) x ~8K cells (columns). Once that is all complete, we are ready for the analysis performed in this document. We use the Seurat pipeline in R to analyze this data, which involves the steps detailed in section 1.
+Downstream analysis, including clustering and label transfer, works with the output of Cellranger Count. This includes a gene by cell matrix. Each row is a gene, each column is a cell and each value is the number of UMIs for each gene from each cell; typically, this is ~20K genes (rows) x ~8K cells (columns). Once that is all complete, we are ready for the analysis performed in this document. We use the Seurat pipeline in R to analyze this data, which involves the steps in the individual-sample processing sections below.
 
-Flawed data points can include poor quality cells and multiplets. Poor quality cells can include cells that have sustained membrane damage and leakage of their RNA, a process which typically results the observed transcriptomic profile of that cell displaying a high proportion of mitochondrial RNA, or low numbers of UMIs or unique genes. Multiplets can be caused by random error of Poisson loading of single-cells in the 10X microfluidics chamber. These can influence and bias downstream analysis. Occasionally, sometimes red blood cells are observed despite usage of RBC lysis buffer. These should not be in the data and so we remove them as well.
+Flawed data points can include poor quality cells and multiplets. Poor quality cells can include cells that have sustained membrane damage and leakage of their RNA, a process which typically results in the observed transcriptomic profile of that cell displaying a high proportion of mitochondrial RNA, or low numbers of UMIs or unique genes. Multiplets can be caused by random error of Poisson loading of single-cells in the 10X microfluidics chamber. These can influence and bias downstream analysis. Occasionally, red blood cells are observed despite usage of RBC lysis buffer. These should not be in the data and so we remove them as well.
 
 
 
@@ -816,7 +878,7 @@ if(input_seurat_obj == T){## read in
     
     
     
-    #make project name the Conditon_Sample
+    #make project name the Condition_Sample
     md_samp <- sample_metadata[sample_metadata$Sample==samp,,drop=F]
     
     #make project name the sample
@@ -856,7 +918,7 @@ if(input_seurat_obj == T){## read in
     
     
     
-    #make project name the Conditon_Sample
+    #make project name the Condition_Sample
     md_samp <- sample_metadata[sample_metadata$Sample==samp,,drop=F]
     
     #make project name the sample
@@ -1065,48 +1127,50 @@ names(bsl) <- cn
 
 
 
-#from outlier list, filter summary
-fs <- lapply(1:length(aflist), function(i){
-  af <- aflist[[i]]
-  samp = names(aflist)[i]
-  sum <- af$filtersummary
-  rownames(sum) <- sum[,1]
-  sum <- sum[,2, drop = F]
+# Cell counts in autofilter order, then DoubletFinder (applied after autofilter).
+filter_steps <- c("Total", "BasicFilter")
+if (isTRUE(autofilter_complexity)) {
+  filter_steps <- c(filter_steps, "globalfilter.complexity")
+}
+if (isTRUE(autofilter_nUMI)) {
+  filter_steps <- c(filter_steps, "globalfilter.libsize")
+}
+if (isTRUE(autofilter_mito)) {
+  filter_steps <- c(filter_steps, "globalfilter.mito")
+}
+if (isTRUE(doubletFinder)) {
+  filter_steps <- c(filter_steps, "DoubletFinder_doublet")
+}
+filter_steps <- c(filter_steps, "Unfiltered")
+filter_labels <- c(
+  Total = "Prefiltered",
+  BasicFilter = "BasicFilter",
+  "globalfilter.complexity" = "globalfilter.complexity",
+  "globalfilter.libsize" = "globalfilter.libsize",
+  "globalfilter.mito" = "globalfilter.mito",
+  DoubletFinder_doublet = "Doublet",
+  Unfiltered = "Postfiltered"
+)
+
+fs <- lapply(names(aflist), function(samp) {
+  sum <- aflist[[samp]]$filtersummary
+  rownames(sum) <- sum[, 1]
+  sum <- sum[, 2, drop = FALSE]
   colnames(sum) <- samp
-  sum
-})
-
-#sometimes, some samples don't have any removed for some category ,so need to fix
-remnames <- unique(unlist(lapply(fs, rownames)))
-
-fs <- lapply(fs, function(sum){
-  
-  #identify missing filters and set to 0
-  if( any(!(remnames %in% rownames(sum))) ){
-    missingfilts <- remnames[!(remnames %in% rownames(sum))]
-    adddf <- data.frame(samp = rep(0, length(missingfilts)))
-    colnames(adddf) <- colnames(sum)
-    rownames(adddf) <- missingfilts
+  missing <- setdiff(filter_steps, rownames(sum))
+  if (length(missing)) {
+    adddf <- data.frame(samp = rep(0, length(missing)))
+    colnames(adddf) <- samp
+    rownames(adddf) <- missing
     sum <- rbind(sum, adddf)
   }
-  
-  
-  #make sure all have same order
-  sum <- sum[match(remnames, rownames(sum)),,drop=F]
-  
+  sum[filter_steps, , drop = FALSE]
 })
 
-
-#bind table
 fs <- dplyr::bind_cols(fs)
 fs <- t(fs)
-
-#shorten names
-colnames(fs) <- gsub('globalfilter', 'auto', colnames(fs))
-colnames(fs) <- gsub('DoubletFinder_doublet', 'Doublet', colnames(fs))
-
-#rearragne, total cells, unfilt, then filtered cells
-fs <- cbind( fs[,c(ncol(fs), ncol(fs)-1)], fs[,1:(ncol(fs)-2)] )
+colnames(fs) <- unname(filter_labels[colnames(fs)])
+fs <- rbind(fs, TOTAL = colSums(fs, na.rm = TRUE))
 
 
 ## also prep some summary plots for each sample ##
@@ -1298,9 +1362,6 @@ post_dens_hemo <- ggplot(combmd, aes(x = .data[[var]]+1, y=orig.ident, fill=afte
 
 ### prepare a whole dataset qc summary pdf
 
-# adjust filter summary table colnames, too long
-colnames(fs) <- gsub('auto.', '', colnames(fs))
-
 allsampfiltsumm <- paste0(qcdir, '/AllSamples_QC_Summary.pdf')
 
 
@@ -1371,13 +1432,16 @@ Sometimes poor quality cells can occur in the data due to cell membrane damage d
 
 
 
-cat("\n\n
+cat(paste0("\n\n
 
-Below we show the number of cells removed with filtering. BasicFilter refers to cells failing a minimum threshold: by default, cells must have >= 500 UMIs, 200 unique genes, and <= 25% mitochondria and hemoglobin content.
-
-Auto.complexity refers to outliers from a regression analysis modelling the number of genes by the number of UMIs, or the 'complexity' of the cell. Specifically we model the log of each of these, where the relationship is close to linear. We use a double-regression strategy of both linear and loess regression, and outlier cells must have both high linear regression Cook's distance value, and very low Loess negative residuals. This means that cells with a lower than expected number of genes given the number of UMIs are filtered out. Typically, this captures poor quality cells of extreme low-complexity realy cells such as red blood cells.
-
-Auto.libsize refers to cells identified as very low outliers based on median absolute deviation from the general distribution of UMIs. Auto.mito refers to cells identified as high outliers based on median absolute deviation from the general distribtuion of mitochondrial content.")
+Below we show the number of cells removed with filtering, in the order the filters are applied. Prefiltered is the number of cells before filtering. Postfiltered is the number remaining. BasicFilter is cells failing a minimum threshold: cells must have >= ",
+min_num_UMI, " UMIs, ", min_num_Feature, " unique genes, and <= ",
+max_perc_mito, "% mitochondria and ", max_perc_hemoglobin, "% hemoglobin content.",
+if (isTRUE(autofilter_complexity)) " globalfilter.complexity is cells with fewer genes than expected for their UMI count (high Cook's distance and a very low loess residual). Typically this captures poor quality cells or extremely low-complexity cells, such as red blood cells." else "",
+if (isTRUE(autofilter_nUMI)) " globalfilter.libsize is very low UMI outliers based on median absolute deviation." else "",
+if (isTRUE(autofilter_mito)) " globalfilter.mito is high mitochondrial-content outliers based on median absolute deviation." else "",
+if (isTRUE(doubletFinder)) " Doublet is cells removed as putative doublets by DoubletFinder after autofilter." else "",
+" The TOTAL row is the sum of each column."))
 
 knitr::kable(fs)
 
@@ -1386,7 +1450,7 @@ knitr::kable(fs)
 
 cat('\n\n
     
-Here we show details of the filtering approach, including the minimum UMI and unique gene cutoffs, maximum percent mito and percent hemoglobin cutoffs. Additionally, we show paramters for the sample-wise cutoffs including median absolute deviation (M.A.D.) score threshold, and Loess residual threshold. These are used to make tighter cutoffs in an automated, sample-by-sample basis. The actual sample wise cutoffs are provided for each sample in a report in the QC folder called "qualitycontrol_filtering".')
+Here we show details of the filtering approach, including the minimum UMI and unique gene cutoffs, maximum percent mito and percent hemoglobin cutoffs. Additionally, we show parameters for the sample-wise cutoffs including median absolute deviation (M.A.D.) score threshold, and Loess residual threshold. These are used to make tighter cutoffs on an automated, sample-by-sample basis. The actual sample-wise cutoffs are provided for each sample in a report in the QC folder called "qualitycontrol_filtering".')
 
 knitr::kable( aflist[[1]]$allcommands )
 
@@ -1506,6 +1570,80 @@ print(post_dens_hemo)
 
 
 
+## Autofilter detailed summary
+
+Each sample below shows the autofilter diagnostics in the order the filters are applied. Plots are omitted when that step was not run.
+
+
+```{r autofilter_detail_plots, results='asis', fig.keep='all', fig.width=10, fig.height=8, message=FALSE}
+
+for (samp in names(aflist)) {
+  af <- aflist[[samp]]
+  cat(sprintf("\n\n### %s\n\n", samp))
+
+  if (!is.null(af$vln_umi)) {
+    cat("\n\n#### Basic filter cutoffs\n\nViolins of UMIs, genes, mitochondrial content, and hemoglobin content. Dotted lines are the BasicFilter thresholds.\n\n")
+    print(af$vln_umi)
+    print(af$vln_feature)
+    print(af$vln_mito)
+    print(af$vln_hemo)
+  }
+
+  if (!is.null(af$globalfilter.complexity$plot)) {
+    cat("\n\n#### Complexity filter\n\nCells with high Cook's distance and a loess residual below the threshold are removed.\n\n")
+    print(af$globalfilter.complexity$plot)
+  }
+
+  if (!is.null(af$globalfilter.libsize$plot)) {
+    cat("\n\n#### UMI library-size filter\n\nThe dashed line is the low-UMI median absolute deviation cutoff.\n\n")
+    print(af$globalfilter.libsize$plot)
+  }
+
+  if (!is.null(af$globalfilter.mito$plot)) {
+    cat("\n\n#### Mitochondrial filter\n\nThe dashed line is the high mitochondrial-content median absolute deviation cutoff.\n\n")
+    print(af$globalfilter.mito$plot)
+  }
+
+  if (!is.null(af$d_rawclust)) {
+    cat("\n\n#### Unfiltered clusters\n\n")
+    print(af$d_rawclust)
+  }
+  if (!is.null(af$d_raw_filt)) {
+    cat("\n\n#### Cells marked for removal\n\n")
+    print(af$d_raw_filt)
+  }
+  if (!is.null(af$d_raw_filt_reason)) {
+    cat("\n\n#### Removal reason\n\n")
+    print(af$d_raw_filt_reason)
+  }
+  if (!is.null(af$fp_raw_qc)) {
+    cat("\n\n#### QC metrics on the embedding\n\n")
+    print(af$fp_raw_qc)
+  }
+  if (!is.null(af$hm_raw)) {
+    cat("\n\n#### Pre-filter cluster markers\n\n")
+    print(af$hm_raw)
+  }
+  if (!is.null(af$ap_filt)) {
+    cat("\n\n#### Cluster filtering\n\n")
+    print(af$ap_filt)
+  }
+  if (!is.null(af$twt_filt)) {
+    cat("\n\n")
+    print(af$twt_filt)
+  }
+  if (!is.null(af$ap_filt_reason)) {
+    cat("\n\n#### Cluster filtering reason\n\n")
+    print(af$ap_filt_reason)
+  }
+  if (!is.null(af$twt_filt_reason)) {
+    cat("\n\n")
+    print(af$twt_filt_reason)
+  }
+}
+
+```
+
 
 
 
@@ -1535,7 +1673,7 @@ Principal Component Analysis (PCA) is important for downstream analysis includin
 
 PCA finds high-dimensional planes which vary strongly across the cells. Essentially, each PC consists of very highly correlated genes. The first PC specifically can be thought of as a list of genes that together drive the most variance across cells. Each following PC has less variance.
 
-PCA is used to help de-noising the data for downstream tasks like clustering. Individual genes can be noisy, but groups of correlated genes are less noisy.
+PCA is used to denoise the data for downstream tasks like clustering. Individual genes can be noisy, but groups of correlated genes are less noisy.
 
 An important caveat of PCA is that it is a linear method, in that the PC axes it finds are straight lines. This is okay for denoising genes but can often fail to capture the complexity of single-cell RNA-seq and other types of high dimensional genomic datasets. This is why the analysis does not stop at PCA but includes other more complex non-linear methods described below.
 
@@ -1543,7 +1681,7 @@ One important parameter for downstream analysis is the selection of how many PCs
 
 Including too few PCs can mean missing important sources of variations downstream and may result in, for example, cell types being merged together in a single cluster. Conversely, including too many PCs can introduce noise into the data and result in clusters not easily explained by biology.
 
-By default, we set the number of PCs to use as 30, which will be appropriate for most samples and is recommended as a default by the developers of SingleCellTransform. If the “Elbow” in the elbow plots strongly deviates from this, a different value may be selected and the analysis can be rerun later.
+In this analysis, the number of PCs used for each sample is `r pcs_indi`. A value of 30 is appropriate for most samples and is recommended as a default by the developers of SingleCellTransform. If the “Elbow” in the elbow plots strongly deviates from the chosen cutoff, a different value may be selected and the analysis can be rerun later.
 
 
 
@@ -1648,7 +1786,7 @@ Once PCA is completed and the number of critical PCs is selected, we perform a n
 * Non-linear dimensionality reduction for visualization, such as t-SNE or UMAP
 
 
-This process allows us to group cells together based on transcriptomic similarity. Louvain clustering optionally allows for input of a hyperparameter called “resolution,” with high resolution finding larger numbers of clusters. By default, we set this value to 0.5.
+This process allows us to group cells together based on transcriptomic similarity. Louvain clustering optionally allows for input of a hyperparameter called “resolution,” with high resolution finding larger numbers of clusters. In this analysis, we set this value to `r res_indi`.
 
 
 ```{r preproc_individual_graph_cluster_umap, message='hold', results='hide', message=F, fig.keep='all'}
@@ -2105,8 +2243,8 @@ summaryplots_individualsamples <- lapply( sobjlist , function(sobj){
   # labdf <- aggregate(cbind(UMAP3D_1, UMAP3D_2, UMAP3D_3) ~ seurat_clusters, embs, median)
   # labdf$cluster_color <- levels(embs$cluster_color)
   # 
-  # #store inrgedients, run rgl when its time to print
-  # three_d_umap_ingrdients <- list(embs = embs, labdf=labdf)
+  # #store ingredients, run rgl when its time to print
+  # three_d_umap_ingredients <- list(embs = embs, labdf=labdf)
   # 
   # 
   
@@ -2201,7 +2339,7 @@ summaryplots_individualsamples <- lapply( sobjlist , function(sobj){
   
   list(
     d1_a=d1_a,
-    # three_d_umap_ingrdients = three_d_umap_ingrdients,
+    # three_d_umap_ingredients = three_d_umap_ingredients,
     
     hm=hm,
     d0=d0
@@ -2687,10 +2825,10 @@ Here we plot a UMAP of the Louvain clusters for this sample.
   #   labdf <- aggregate(cbind(UMAP3D_1, UMAP3D_2, UMAP3D_3) ~ seurat_clusters, embs, median)
   #   labdf$cluster_color <- levels(embs$cluster_color)
   #   
-  #   #store inrgedients, run rgl when its time to print
-  #   three_d_umap_ingrdients <- summaryplots_individualsamples$three_d_umap_ingrdients
-  #   embs <- three_d_umap_ingrdients$embs
-  #   labdf <- three_d_umap_ingrdients$labdf
+  #   #store ingredients, run rgl when its time to print
+  #   three_d_umap_ingredients <- summaryplots_individualsamples$three_d_umap_ingredients
+  #   embs <- three_d_umap_ingredients$embs
+  #   labdf <- three_d_umap_ingredients$labdf
   #   
   #   
   #   UMAP3D_1 = embs$UMAP3D_1; UMAP3D_2 = embs$UMAP3D_2; UMAP3D_3 = embs$UMAP3D_3
@@ -2715,15 +2853,19 @@ Here we plot the top 5 marker genes of each cluster as identified by Wilcoxon te
   print( sampsumplots$hm )
 
   if (run_msigdb_celltype_ora) {
-    plotlab <- "
+    plotlab <- sprintf(
+      "
 
 
 ### MSigDB cell-type signature enrichment
 
-Over-representation analysis (ORA) of cluster marker genes against MSigDB cell-type signature gene sets. For each cluster, up to the top 100 markers passing adjusted p < threshold are tested. The dotplot shows the top 5 enriched cell-type gene sets per cluster (inclusive: shared gene sets appear across clusters). Full tables are saved under `celltype_marker_prediction/`.
+Over-representation analysis (ORA) of cluster marker genes against MSigDB cell-type signature gene sets. For each cluster, up to the top %s markers passing adjusted p < %s are tested. The dotplot shows the top 5 enriched cell-type gene sets per cluster (inclusive: shared gene sets appear across clusters). Full tables are saved under `celltype_marker_prediction/`.
 
 
-"
+",
+      msigdb_celltype_ora_top_markers,
+      msigdb_celltype_ora_marker_padj_thres
+    )
     cat(plotlab)
     ora_dotplot <- msigdb_celltype_ora_indi_plots[[sampname]]
     if (!is.null(ora_dotplot) && inherits(ora_dotplot, "ggplot")) {
@@ -2739,7 +2881,7 @@ Over-representation analysis (ORA) of cluster marker genes against MSigDB cell-t
 
 ### QC plots 
 
-Here we plot some QC information, including the number of UMIs (nCount_RNA) and the number of unique genes (nFeature_RNA). Very low values may indicate a low number of cells in a specific area or low quality. If the clustering and markers look very strange, the quality metrics may help diagnose issues by indicating a cluster of poor quality cells.
+Here we plot violins of quality metrics for each cluster: number of UMIs per cell (nCount_RNA), number of unique genes per cell (nFeature_RNA), percent mitochondrial gene expression (percent.mito), and percent hemoglobin gene expression (percent.hemoglobin). Low UMI or gene counts, or high mitochondrial or hemoglobin content, can mark a poor-quality cluster. If the clustering and markers look very strange, these metrics may help diagnose a cluster of poor quality cells.
 
 
 "
@@ -2858,9 +3000,9 @@ Here we plot the label transfer scores, which are used to predict cell types fro
 
 ### Dotplot of label transfer cell type scores
 
-Here we plot the label transfer scores, which are used to predict cell types from the reference single-cell RNAseq dataset. The values are scaled, allowing easy comparison across clusters. It is very similar to the heatmap above. 
+Here we plot the label transfer scores, which are used to predict cell types from the reference single-cell RNAseq dataset. The values are scaled, allowing easy comparison across clusters. It is very similar to the heatmap above.
 
-However, the dotplot also includes information about how many cells in the cluster express the cell type score. A big dot indicates many cells in that cluster express it at non-zero level. A big gray dot indicates widespread, low score among cells. A big red dot indicates widespread, high score among cells. A blue dot indicates relatively low score. A small dot indicates few cells express the score.
+Dot color is the scaled average prediction score: blue is low, grey is the midpoint, and red is high. Dot size is how many cells in that cluster have a nonzero score. A large dot means the score is widespread; a small dot means few cells have a nonzero score.
 
 
 "
@@ -3023,7 +3165,7 @@ As described above, we extend the label transfer prediction from individual cell
 
 ### Violin plots for each cell type
 
-Here we plot a violin plot for each cell type to analyze the label transfer scores type in detail.
+Here we plot a violin plot for each cell type to analyze the label transfer scores for each cell type in detail.
 
 
 "
@@ -3076,7 +3218,7 @@ Here, we combine all of the samples into a single unified dataset.
 ```{r integration_intro_prose, results='asis'}
 if (int_config$engine == "RISC") {
   cat('
-Integration refers to the process of combining together the data from individual samples with batch correction. Typically, library prep is done one sample at a time, which may introduce bias due to technical artifacts associated with processing for that sample. To combine samples, we apply batch-correction using Reference Principal Component Integration (RISC) [(Liu, Zheng et al Nat Biotech 2021)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8456427/). This approach matches transcriptomic patterns across samples while preserving cell-type structure.
+Integration refers to the process of combining together the data from individual samples with batch correction. Typically, library prep is done one sample at a time, which may introduce bias due to technical artifacts associated with processing for that sample. To combine samples, we apply batch-correction using Robust Integration of Single Cell RNA-seq (RISC) [(Liu, Zheng et al Nat Biotech 2021)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8456427/). This approach matches transcriptomic patterns across samples while preserving cell-type structure.
 ')
 } else {
   cat(sprintf('
@@ -3247,7 +3389,7 @@ if (run_msigdb_celltype_ora) {
 cat('
 ## Selection of reference sample for integration
 
-RISC requires a reference sample. RPCI uses that sample\'s gene eigenvectors as the global frame for all other datasets, so the reference should be a diverse, non-outlier sample.
+RISC requires a reference sample. Reference principal component integration (RPCI) uses that sample\'s gene eigenvectors as the global frame for all other datasets, so the reference should be a diverse, non-outlier sample.
 
 ')
 
@@ -3355,7 +3497,7 @@ int_fig <- list(
   vln = list(width = 10, height = 8),
   alluvial = list(width = 8, height = 6),
   alluvial_sample = list(width = 7, height = 5.5),
-  twt = list(width = 6, height = 4.5)
+  twt = list(width = 7, height = 6)
 )
 if (!is.null(int_auto_selection)) {
   stab_mod <- scDAPP::integration_stability_plots_module(
@@ -3721,7 +3863,7 @@ int_fig <- list(
     height = min(12, max(6, 4 * .int_split_nrow))
   ),
   alluvial_sample = list(width = 7, height = 5.5),
-  twt = list(width = 6, height = 4.5)
+  twt = list(width = 7, height = 6)
 )
 
 
@@ -3969,29 +4111,8 @@ names(twt_samp_to_clust_list) <- unique(sample_metadata$Condition)
 
 
 
-#loop thru each code, make alluvialplot of indi to int cluster
+# per sample, two-way table of individual clusters vs integrated clusters
 mdint <- sobjint@meta.data
-indi_int_clust_ap_list <- lapply(sample_metadata$Code, function(code){
-  md <- mdint[mdint$Code == code,]
-  
-  indiclustname <- paste0("SCT_snn_res.", res_indi)
-  intclustname <- int_clust_lab
-  labelsdf <- md[,c(indiclustname, intclustname)]
-  
-  labelsdf[,1] <- factor(labelsdf[,1], levels = stringr::str_sort(unique(labelsdf[,1]), numeric = T) )
-  
-  names(labelsdf)[1] <- 'Individual Clusters'
-  
-  
-  
-  indi_int_clust_ap <- scDAPP::alluvialplot(labelsdf)
-  
-  
-  return(indi_int_clust_ap)
-  
-})
-names(indi_int_clust_ap_list) <- sample_metadata$Code
-
 indi_int_clust_twt_list <- lapply(sample_metadata$Code, function(code){
   md <- mdint[mdint$Code == code,]
   
@@ -4018,7 +4139,6 @@ summaryplots_integrated <- list(dcond=dcond,
                                 hm_int=hm_int,
                                 hm_int_avg=hm_int_avg,
                                 int_qc_vln=int_qc_vln,
-                                indi_int_clust_ap_list = indi_int_clust_ap_list,
                                 indi_int_clust_twt_list = indi_int_clust_twt_list)
 
 
@@ -4390,7 +4510,7 @@ print(summaryplots_integrated$dcond)
 cat('
 ## UMAP split by condition and colored by sample
 
-Here, the integrated UMAP is split by condition, meaning that cells from Condition A are separated from cells from Condition B. Additionally, cells are colored according to their sample origin. This allows us to check the overlap of biological replicates from the same condition.
+Here, the integrated UMAP is split by condition, with one panel per condition. Cells are colored by sample so biological replicates within a condition can be compared.
 
 ')
 print(summaryplots_integrated$d2_int)
@@ -4435,12 +4555,16 @@ print(summaryplots_integrated$hm_int_avg)
 ```
 
 ```{r summaryplots_int_print_ora, fig.keep='all', message=FALSE, results='asis', eval=isTRUE(run_msigdb_celltype_ora), fig.width=int_fig$ora$width, fig.height=int_fig$ora$height}
-cat('
+cat(sprintf(
+  '
 ## MSigDB cell-type signature enrichment (integrated clusters)
 
-Over-representation analysis (ORA) of integrated cluster marker genes against MSigDB cell-type signature gene sets. For each cluster, up to the top 100 markers passing adjusted p < threshold are tested. The dotplot shows the top 5 enriched cell-type gene sets per cluster (inclusive: shared gene sets appear across clusters). Full tables are saved under `celltype_marker_prediction/`.
+Over-representation analysis (ORA) of integrated cluster marker genes against MSigDB cell-type signature gene sets. For each cluster, up to the top %s markers passing adjusted p < %s are tested. The dotplot shows the top 5 enriched cell-type gene sets per cluster (inclusive: shared gene sets appear across clusters). Full tables are saved under `celltype_marker_prediction/`.
 
-')
+',
+  msigdb_celltype_ora_top_markers,
+  msigdb_celltype_ora_marker_padj_thres
+))
 if (!is.null(msigdb_celltype_ora_int_dotplot) && inherits(msigdb_celltype_ora_int_dotplot, "ggplot")) {
   print(msigdb_celltype_ora_int_dotplot)
 } else {
@@ -4497,42 +4621,24 @@ These heatmaps show the same sample-to-cluster membership as the alluvial plot a
 ')
 twt_samp_to_clust_list <- summaryplots_integrated$twt_samp_to_clust_list
 for (i in seq_along(twt_samp_to_clust_list)) {
-  cat(sprintf('\n### %s\n\n', names(twt_samp_to_clust_list)[i]))
+  heading <- gsub("_", "\\_", names(twt_samp_to_clust_list)[i], fixed = TRUE)
+  cat(sprintf("\n\n\n### %s\n\n", heading))
   print(twt_samp_to_clust_list[[i]])
 }
 rm(twt_samp_to_clust_list)
-```
-
-```{r summaryplots_int_print_indi_alluvial, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$alluvial_sample$width, fig.height=int_fig$alluvial_sample$height}
-cat('
-## Per-sample alluvial plots mapping individual sample clusters to integrated clusters
-
-For each sample, we plot an alluvial plot mapping the individual sample clusters with the integrated clusters.
-
-')
-indi_int_clust_ap_list <- summaryplots_integrated$indi_int_clust_ap_list
-for (i in seq_along(indi_int_clust_ap_list)) {
-  cat(sprintf('
-### %s
-
-Individual Clusters (left) mapped to Integrated Clusters (right)
-
-', names(indi_int_clust_ap_list)[i]))
-  print(indi_int_clust_ap_list[[i]])
-}
-rm(indi_int_clust_ap_list)
 ```
 
 ```{r summaryplots_int_print_indi_twt, fig.keep='all', message=FALSE, results='asis', fig.width=int_fig$twt$width, fig.height=int_fig$twt$height}
 cat('
 ## Per-sample two-way table heatmaps: individual sample clusters vs integrated clusters
 
-The same individual-to-integrated cluster mapping as the alluvial plots above, as cell counts colored by within-row proportion.
+Cell counts of each sample\'s own clusters against the integrated clusters, colored by within-row proportion.
 
 ')
 indi_int_clust_twt_list <- summaryplots_integrated$indi_int_clust_twt_list
 for (i in seq_along(indi_int_clust_twt_list)) {
-  cat(sprintf('\n### %s\n\n', names(indi_int_clust_twt_list)[i]))
+  heading <- gsub("_", "\\_", names(indi_int_clust_twt_list)[i], fixed = TRUE)
+  cat(sprintf("\n\n\n### %s\n\n", heading))
   print(indi_int_clust_twt_list[[i]])
 }
 rm(indi_int_clust_twt_list)
@@ -4554,9 +4660,7 @@ if(use_labeltransfer == T){
 
 Above, we explored the integrated clusters. Here, we review the cell type scores from label transfer. The goal is to understand which cell types make up each cluster.
 
-Each cell is a mixture of cells. Using label transfer, we can get a score for each cell type in the tissue. If a cell is composed of one cell type, it will have a high score for that cell type only. If a cell is composed of a mix of cell types, it may have a moderately high score for two or more cell types.
-
-As mentioned above, each cell may contain a single cell or a mixture of cells and potentially multiple cell types. Thus, assigning a single label to each cell is difficult. Nevertheless, we use the label transfer scores to detect patterns of cell types in each cluster.
+Using label transfer, we can get a score for each cell type in the reference dataset. A high score is a confident match to one reference cell type. A low score is a match of low confidence and may represent a cell type that was not captured in the reference.
 
 Note that we apply a label transfer score cutoff of 0.3. If the cells are below this, they are marked as NA. These may represent cells missing from the reference.
 
@@ -4598,7 +4702,9 @@ Here we plot the label transfer scores, which are used to predict cell types fro
 
 ## Dotplot of label transfer cell type scores with integrated clusters
 
-Here we plot the label transfer scores, which are used to predict cell types from the reference single-cell RNAseq dataset. The values are scaled, allowing easy comparison across clusters. It is very similar to the heatmap above. However, the dotplot also includes information about how many cells express the cell type score. A big dot indicates many cells in that cluster express it at non-zero level. A big gray dot indicates widespread, low score among cells. A big red dot indicates widespread, high score among cells. A small dot indicates few cells express the score. 
+Here we plot the label transfer scores, which are used to predict cell types from the reference single-cell RNAseq dataset. The values are scaled, allowing easy comparison across clusters. It is very similar to the heatmap above.
+
+Dot color is the scaled average prediction score: blue is low, grey is the midpoint, and red is high. Dot size is how many cells in that cluster have a nonzero score. A large dot means the score is widespread; a small dot means few cells have a nonzero score. 
 
 
 "
@@ -4617,7 +4723,7 @@ Here we plot the label transfer scores, which are used to predict cell types fro
 
 ## Heatmap of reference cell type markers in integrated data
 
-Here we plot the top 5 markers of cell types as sorted by average log2 fold change, which  are derived from the reference dataset. Since these are the top specific markers of each cell type in the reference, their expression pattern should match clusters with a high label transfer score for each given cell type, for example a cluster with high T cell score should express high T cell markers.
+Here we plot the top 5 markers of cell types as sorted by average log2 fold change, which are derived from the reference dataset. Since these are the top specific markers of each cell type in the reference, their expression pattern should match clusters with a high label transfer score for each given cell type, for example a cluster with high T cell score should express high T cell markers.
 
 
 "
@@ -4811,11 +4917,11 @@ Here we plot a summary panel to analyze the label transfer scores for each cell 
 
 Here, we test for differences in the abundance of celltypes (clusters) between conditions. This is referred to as compositional analysis.
 
-If we are comparing two conditions such as treated versus untreated or knockout vs wildtype, one biological effect we can try to test for is the difference in the cell type compositional abundance. The idea that tissue cell type compositions can change in response to biological stimuli has been called "polycreodism" and may reflect particular cell type sensitivity to the perturbation [(Lappalainen & Greally 2017)](https://www.nature.com/articles/nrg.2017.32). For example, it would likely of interest to note that a knockout or drug completely ablates a certain celltype, reduces another by half, increases another by 25%, and leaves others unchanged. Biologically, these kinds of differences can be explained by various mechanisms, such as differentiation of certain cell types being specifically impaired by a knockout, or specific cell types being particularly sensitive to a drug.
+If we are comparing two conditions such as treated versus untreated or knockout vs wildtype, one biological effect we can try to test for is the difference in the cell type compositional abundance. The idea that tissue cell type compositions can change in response to biological stimuli has been called "polycreodism" and may reflect particular cell type sensitivity to the perturbation [(Lappalainen & Greally 2017)](https://www.nature.com/articles/nrg.2017.32). For example, it would likely be of interest to note that a knockout or drug completely ablates a certain celltype, reduces another by half, increases another by 25%, and leaves others unchanged. Biologically, these kinds of differences can be explained by various mechanisms, such as differentiation of certain cell types being specifically impaired by a knockout, or specific cell types being particularly sensitive to a drug.
 
-We use the scRNA-seq data to test for differential compositional abundance of each cluster. If replicates are present, we make use of these to test differential abundance across conditions using the "Propeller" method from the R package "speckle" [(Phipson et al 2022)](https://academic.oup.com/bioinformatics/article/38/20/4720/6675456). This method calculates cell proportions for each sample, applies a variance stabilizing transformation, and then compares proportion across conditions via linear regression. It is similar to pseudobulk differential expression analysis in that it takes into accounts having multiple biological replicate samples for each condition. Specifically, we use the arcsin square root transformation by setting "transform = asin". We picked this test and this transformation based on the results of a benchmarking study comparing compositional analysis methods [(Simmons 2022)](https://www.biorxiv.org/content/10.1101/2022.02.04.479123v1.full). Though Propeller calculates False Discovery Rates (FDR), we define significance using only nominal P value for power reasons.
+We use the scRNA-seq data to test for differential compositional abundance of each cluster. If replicates are present, we make use of these to test differential abundance across conditions using the "Propeller" method from the R package "speckle" [(Phipson et al 2022)](https://academic.oup.com/bioinformatics/article/38/20/4720/6675456). This method calculates cell proportions for each sample, applies a variance stabilizing transformation, and then compares proportions across conditions via linear regression. It is similar to pseudobulk differential expression analysis in that it takes into account having multiple biological replicate samples for each condition. Specifically, we use the arcsin square root transformation by setting "transform = asin". We picked this test and this transformation based on the results of a benchmarking study comparing compositional analysis methods [(Simmons 2022)](https://www.biorxiv.org/content/10.1101/2022.02.04.479123v1.full). Though Propeller calculates False Discovery Rates (FDR), we define significance using only nominal P value for power reasons.
 
-If replicates are not available, we use an ad-hoc method that relies on the R `prop.test()` function, which is very similar to the ChiSquare test (see [this forum discussion](https://stats.stackexchange.com/questions/2391/what-is-the-relationship-between-a-chi-squared-test-and-test-of-equal-proportion)). This works by calculating the proportion of cells in each condition and comparing the proportions. Because there are often thousands of cells being compared, P values can be extremely low. However, this method can result in false-positive conclusions, as the results of 1-vs-1 sample comparisons may not extend to the populations the samples are drawn from. Thus, we advise caution, and interpretation without replicates should be considered as preliminary / pilot data.
+If replicates are not available, we use an ad-hoc method that relies on the R `prop.test()` function, which is very similar to the chi-squared test (see [this forum discussion](https://stats.stackexchange.com/questions/2391/what-is-the-relationship-between-a-chi-squared-test-and-test-of-equal-proportion)). This works by calculating the proportion of cells in each condition and comparing the proportions. Because there are often thousands of cells being compared, P values can be extremely low. However, this method can result in false-positive conclusions, as the results of 1-vs-1 sample comparisons may not extend to the populations the samples are drawn from. Thus, we advise caution, and interpretation without replicates should be considered as preliminary / pilot data.
 
 
 
@@ -4927,8 +5033,8 @@ for(compidx in compslen){
   compres_sub <- composition_results[composition_results$label == lab, , drop = FALSE]
   
   #get testused
-  comptestused <- ifelse(T == T,
-                         yes = 'propeller', 
+  comptestused <- ifelse(isTRUE(Pseudobulk_mode),
+                         yes = 'propeller',
                          no = 'R prop.test()')
   
   
@@ -4994,28 +5100,128 @@ invisible(gc(full = T, reset = F, verbose = F))
 
 
 
+```{r milo_da_run, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+milo_res <- NULL
+milo_fdr_label <- format(milo_spatial_fdr, trim = TRUE, scientific = FALSE)
+if (isTRUE(run_MILO) && isTRUE(Pseudobulk_mode)) {
+  milo_res <- tryCatch(
+    milo_neighbourhood_da_module(
+      sobjint = sobjint,
+      comps = comps,
+      sample_metadata = sample_metadata,
+      outdir_int = outdir_int,
+      grouping_variable = int_clust_lab,
+      cluster_reduction = int_config$cluster_reduction,
+      umap_reduction = int_config$umap_reduction,
+      d = pcs_int,
+      DE_test = DE_test,
+      milo_k = milo_k,
+      milo_k_max = milo_k_max,
+      spatial_fdr = milo_spatial_fdr
+    ),
+    error = function(e) {
+      message("Milo neighborhood DA failed: ", conditionMessage(e))
+      NULL
+    }
+  )
+}
+```
+
+```{r milo_da_intro, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
+if (isTRUE(run_MILO)) {
+  cat(sprintf("
+# Neighborhood differential abundance
+
+Several methods can test whether cell states change in abundance between conditions. This section uses one of them, Milo [(Dann et al 2022)](https://www.nature.com/articles/s41587-021-01033-z). It covers the integrated embedding with overlapping neighborhoods, counts cells from each sample in each neighborhood, and tests those counts with a sample-level negative-binomial quasi-likelihood model, the same kind of test used for pseudobulk differential expression. A cell can belong to more than one neighborhood. Because those tests overlap, significance uses the SpatialFDR, a false-discovery rate that gives less weight to a neighborhood when its cells are shared with many other neighborhoods. A neighborhood is called significant when its SpatialFDR is below %s. The graph is built once, on the integrated clustering embedding, and each comparison below is one contrast from the comps table.
+
+", milo_fdr_label))
+  if (!isTRUE(Pseudobulk_mode)) {
+    cat("
+Milo was requested, but this run does not have biological replicates (`Pseudobulk_mode` is FALSE). Neighborhood abundance testing needs replicate samples to estimate dispersion, so it was skipped. The compositional results above use the two-proportion test instead.
+
+")
+  } else if (is.null(milo_res)) {
+    cat("
+Milo did not finish. The message above has the reason. Later sections of the report were still run.
+
+")
+  }
+}
+```
+
+```{r milo_da_size, echo=FALSE, results='asis', warning=FALSE, message=FALSE, fig.width=6.5, fig.height=5, eval=isTRUE(run_MILO) && isTRUE(Pseudobulk_mode) && !is.null(milo_res)}
+info <- milo_res$run_info
+k_note <- if (isTRUE(info$k_capped)) {
+  paste0(
+    " Automatic selection asked for 5 times the number of samples (",
+    info$k_uncapped, "), which is above milo_k_max, so k was capped at ",
+    info$k, "."
+  )
+} else if (isTRUE(info$k_auto)) {
+  " k was set automatically to 5 times the number of samples."
+} else {
+  " k was set by milo_k."
+}
+small_note <- if (info$n_samples_under_5_cells > 0) {
+  paste0(
+    " ", info$n_samples_under_5_cells,
+    " sample(s) have fewer than 5 cells, so some neighborhoods may contain fewer than 5 cells from those samples. k was not reduced to the smallest sample, because neighbors are taken from the whole dataset."
+  )
+} else {
+  ""
+}
+cat(sprintf("
+## Neighborhood size
+
+Each neighborhood is an index cell plus its nearest neighbors on the integrated graph. This histogram shows how many cells fall in each neighborhood. For this run, k = %s and the graph used %s dimensions of the clustering embedding, giving %s neighborhoods across %s cells and %s samples.%s%s Neighborhoods that are much smaller than k are usually at the edge of the embedding. The count matrix and run settings are saved in `differential_abundance_Milo/`.
+
+", info$k, info$d, info$n_nhoods, info$n_cells, info$n_samples, k_note, small_note))
+print(milo_res$size_plot)
+cat("
+The full neighborhood-by-sample count matrix is `nhood_counts.csv`. The full cell-overlap table of every neighborhood against the integrated clusters is `nhood_cluster_overlap.csv`. A cell in several neighborhoods is counted once in each, so those totals exceed the number of cells.
+
+")
+```
+
+```{r milo_da_comparisons, echo=FALSE, results='asis', warning=FALSE, message=FALSE, eval=isTRUE(run_MILO) && isTRUE(Pseudobulk_mode) && !is.null(milo_res)}
+milo_child <- system.file("rmd", "milo_comparison_section.Rmd", package = "scDAPP")
+if (!nzchar(milo_child)) {
+  stop("Could not find inst/rmd/milo_comparison_section.Rmd", call. = FALSE)
+}
+for (milo_lab in names(milo_res$comparisons)) {
+  one <- milo_res$comparisons[[milo_lab]]
+  chunk_id <- gsub("[^A-Za-z0-9]+", "_", milo_lab)
+  child_txt <- knitr::knit_expand(milo_child, chunk_id = chunk_id)
+  cat(knitr::knit_child(text = child_txt, envir = environment(), quiet = TRUE))
+}
+rm(milo_res, info, one)
+invisible(gc(full = TRUE, reset = FALSE, verbose = FALSE))
+```
+
+
 # Differential expression across conditions
 
 
 Below we summarize the results of cross-condition differential expression (DE) analysis, for example KO vs WT, or disease vs healthy, or drugged vs control. As in single-cell data, we stratify the cross-condition DE by cluster. In other words, using the clusters defined above, we compare KO vs WT in cluster 1, cluster 2, and so on. For these types of analysis, it is recommended to have multiple biological replicates per condition.
 
-If multiple replicates are available, then the best way to take advantage of these is to use a "pseudobulk" strategy. This refers to an approach in which cells from each sample are pooled together, and bulk RNA-seq analysis methods are used to identify DE genes across conditions. Pseudobulk differential expression analysis is done with EdgeR likelihood ratio test, as recommended by [Squair et al 2021 Nat Com.](https://www.nature.com/articles/s41467-021-25960-2)
+If multiple replicates are available, then the best way to take advantage of these is to use a "pseudobulk" strategy. This refers to an approach in which cells from each sample are pooled together, and bulk RNA-seq analysis methods are used to identify DE genes across conditions, as recommended by [Squair et al 2021 Nat Com.](https://www.nature.com/articles/s41467-021-25960-2)
 
-If replicates are not available, it is still possible to compare conditions. This is done using a Wilcoxon test approach. Drawing conclusions from the results of this type of analysis are inherently limited as they constitute "N of 1" experiments, but can be considered as preliminary/pilot data.
+If replicates are not available, it is still possible to compare conditions with a single-cell test. Drawing conclusions from the results of this type of analysis is inherently limited as they constitute "N of 1" experiments, but can be considered as preliminary/pilot data.
 
 
 ```{r de_test_used_text, results='asis'}
 
 
-if(Pseudobulk_mode == T){
-  
-  detestused_text <- 'The differential expression analysis here used a pseudobulk edgeR approach. First, cells are "pseudobulked", or combined,  at the cluster level by adding up the gene UMI counts in all cells in each cluster for each replicate. Next, EdgeR with the likelihood ratio test is applied.'
-  
-}
-if(Pseudobulk_mode == F){
-  
-  detestused_text <- 'The differential expression analysis here used a non-pseudobulk Wilcoxon test approach. The normalized counts of each gene are compared between cells in condition A vs B in each cluster.'
-  
+if (isTRUE(Pseudobulk_mode)) {
+  detestused_text <- paste0(
+    "This analysis used ", de_test_phrase, ". ",
+    "First, cells are \"pseudobulked\", or combined, at the cluster level by adding up the gene UMI counts in all cells in each cluster for each replicate. The test is then applied to those sample-level counts."
+  )
+} else {
+  detestused_text <- paste0(
+    "This analysis used ", de_test_phrase, ". ",
+    "The normalized counts of each gene are compared between cells in c1 (test) and c0 (reference) in each cluster."
+  )
 }
 
 
@@ -5097,6 +5303,16 @@ DEplots_comps <- lapply(compslen, function(compidx){
   c1 <- comps$c1[compidx]
   c0 <- comps$c0[compidx]
   lab <- comps$label[compidx]
+  formula_i <- if ("formula" %in% colnames(de_results)) {
+    unique(as.character(de_results$formula[de_results$label == lab]))[1]
+  } else {
+    "~ Condition"
+  }
+  contrast_i <- if ("contrast" %in% colnames(de_results)) {
+    unique(as.character(de_results$contrast[de_results$label == lab]))[1]
+  } else {
+    ""
+  }
   
   message(lab)
   
@@ -5116,16 +5332,16 @@ DEplots_comps <- lapply(compslen, function(compidx){
   # make a fake df and replace fake with real res
   saved_cluster_levels <- paste0('cluster_',levels(sobjint$seurat_clusters))
   numdegs_all <- data.frame(Cluster = saved_cluster_levels,
-                            c1 = 0, c0 = 0)
-  colnames(numdegs_all) <- c('Cluster', c1, c0)
+                            c0 = 0, c1 = 0)
+  colnames(numdegs_all) <- c('Cluster', c0, c1)
   rownames(numdegs_all) <- numdegs_all$Cluster
   
-  numdegs_all[rownames(numdegs), c1] <- numdegs[,c1]
   numdegs_all[rownames(numdegs), c0] <- numdegs[, c0]
+  numdegs_all[rownames(numdegs), c1] <- numdegs[, c1]
   rownames(numdegs_all) <- NULL
   
   numdegs_kable <- numdegs_all
-  colnames(numdegs_kable) <- c("Cluster", paste0(c1, "_high"), paste0(c0, "_high"))
+  colnames(numdegs_kable) <- c("Cluster", paste0(c0, "_high"), paste0(c1, "_high"))
   
   deg_count_barplot <- scDAPP::plot_crosscondition_deg_barplot(
     numdegs = numdegs_all,
@@ -5144,27 +5360,6 @@ DEplots_comps <- lapply(compslen, function(compidx){
   #make sure all samples from pmd are in the mlist...
   subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1, c0),]
   
-  summary_genes <- scDAPP::select_top_crosscondition_deg_genes_pooled(
-    m_bycluster_crosscondition_de,
-    n_top = 10L,
-    padj_thres = crossconditionDE_padj_thres,
-    lfc_thres = crossconditionDE_lfc_thres,
-    min_pct = crossconditionDE_min.pct
-  )
-  
-  deg_summary_dotplot <- scDAPP::plot_crosscondition_deg_dotplot(
-    sobj = sobjint,
-    genes = summary_genes$all,
-    sample_codes = subpmd$Code,
-    c0 = c0,
-    c1 = c1,
-    assay = int_config$de_wilcox_assay,
-    slot = int_config$de_wilcox_slot,
-    title = paste0(lab, ": top DEGs (comparison summary)"),
-    cluster_id = NULL,
-    sample_metadata = sample_metadata
-  )
-  
   #for each cluster, get the up/dn DEGs
   i = 3
   clustres <- lapply(1:nrow(numdegs), function(i){
@@ -5180,7 +5375,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
     
     ### Sep 22 2024
     ## we started saving normcounts and rawcounts, which broke this code.
-    # we will srip "normcounts" from the colnames
+    # we will strip "normcounts" from the colnames
     colnames(m) <- gsub('normcounts_', '', colnames(m))
     
     
@@ -5648,62 +5843,7 @@ DEplots_comps <- lapply(compslen, function(compidx){
     
     
     
-    if(Pseudobulk_mode == T){
-      ### just plot the values
-      pb_mat <- scDAPP::de_pseudobulk_heatmap_matrix(
-        m,
-        sample_codes = unique(as.character(mdclust$Code))
-      )
-      pb_mat <- log1p(pb_mat)
-      pb_mat <- t(scale(t(pb_mat)))
-      
-      #restrict range
-      pb_mat[pb_mat > 5 ] <- 5
-      pb_mat[pb_mat < -5] <- -5
-      
-      
-      #order md properly
-      #get just this comp samples
-      subpmd <- sample_metadata[sample_metadata$Condition %in% c(c1, c0),]
-      
-      
-      
-      #order columns of heatmap by c1 vs c2
-      code_comps_order <- subpmd[subpmd$Condition == c1,"Code"]
-      code_comps_order <- c(code_comps_order, subpmd[subpmd$Condition == c0, "Code"])
-      
-      #make sure they are in the matrix
-      code_comps_order <- code_comps_order[code_comps_order %in% colnames(pb_mat)]
-      
-      #also prepare factor for ordering of heatmap
-      condition_vector_ordering <- factor(subpmd[match(code_comps_order, subpmd$Code), "Condition"], levels = c(c1, c0))
-      
-      
-      pb_mat <- pb_mat[,code_comps_order,drop=F]
-      
-      
-      hm_de_clust_pb <- Heatmap(pb_mat, 
-                                show_column_names = T, 
-                                cluster_column_slices = F, cluster_columns = F,
-                                cluster_row_slices = F, cluster_rows = F,
-                                show_row_names = ifelse(nrow(mat)<=50, yes = T, no = F), 
-                                name = paste0('Scaled\nPseudobulk\nValues'),
-                                column_split = condition_vector_ordering, 
-                                row_split = factor(sign(m$logFC), levels = c(1,-1)),
-                                border_gp = gpar(col = "black", lwd = 1)
-      )
-      
-      
-      pdf(NULL)
-      hm_de_clust_pb <- invisible(
-        draw(hm_de_clust_pb, 
-             column_title = paste0(lab, '\n', str_to_title(cluster) ),
-             row_title = 'Log Fold Change Sign')
-      )
-      dev.off()
-      
-      
-    }
+    hm_de_clust_pb <- NULL
     
     if(Pseudobulk_mode == F){
       
@@ -5795,9 +5935,22 @@ DEplots_comps <- lapply(compslen, function(compidx){
     }
     
     
+    design_heatmaps <- NULL
+    if (isTRUE(Pseudobulk_mode)) {
+      design_heatmaps <- scDAPP::plot_crosscondition_design_heatmaps(
+        de_table = m,
+        sample_metadata = sample_metadata,
+        formula = formula_i,
+        contrast = contrast_i,
+        label = lab,
+        cluster = cluster
+      )
+    }
+    
     return(list(hm_de_clust = hm_de_clust,
                 hm_de_clust_pb = hm_de_clust_pb,
-                dp_top_degs = dp_top_degs))
+                dp_top_degs = dp_top_degs,
+                design_heatmaps = design_heatmaps))
     
   })
   
@@ -5812,7 +5965,6 @@ DEplots_comps <- lapply(compslen, function(compidx){
   deplotlist <- list(#hm_DE = hm_DE,
     #hm_DE_AVG = hm_DE_AVG,
     deg_count_barplot = deg_count_barplot,
-    deg_summary_dotplot = deg_summary_dotplot,
     numdegs_kable = numdegs_kable,
     cluster_de_heatmap_l = cluster_de_heatmap_l,
     cluster_de_dotplot_l = cluster_de_dotplot_l)
@@ -5827,14 +5979,17 @@ DEplots_comps <- lapply(compslen, function(compidx){
   # print(deplotlist$hm_DE)
   # print(deplotlist$hm_DE_AVG)
   print(deplotlist$deg_count_barplot)
-  if (!is.null(deplotlist$deg_summary_dotplot)) {
-    print(deplotlist$deg_summary_dotplot)
-  }
   for (i in seq_along(deplotlist$cluster_de_heatmap_l)) {
     cl <- deplotlist$cluster_de_heatmap_l[[i]]
     invisible(print(cl$hm_de_clust))
     if (!is.null(cl$hm_de_clust_pb)) {
       invisible(print(cl$hm_de_clust_pb))
+    }
+    if (!is.null(cl$design_heatmaps)) {
+      invisible(print(cl$design_heatmaps$all))
+      if (!is.null(cl$design_heatmaps$top)) {
+        invisible(print(cl$design_heatmaps$top))
+      }
     }
     if (!is.null(cl$dp_top_degs)) {
       print(cl$dp_top_degs)
@@ -5910,6 +6065,7 @@ pways_output_list <- pathwayanalysis_crosscondition_module(
 
 pathway_results <- pways_output_list$pathway_results
 pathwaysummplots_comps <- pways_output_list$pathwaysummplots_comps
+pathway_score_heatmaps_comps <- pways_output_list$pathway_score_heatmaps
 pathway_analysis_mainlist_comps <- pways_output_list$pathway_cluster_plots
 
 
@@ -5921,6 +6077,7 @@ DE_pathways_plot_objects_list <- list(comps = comps,
                                       pathway_results = pathway_results,
                                       pathway_cluster_plots = pathway_analysis_mainlist_comps,
                                       pathwaysummplots_comps = pathwaysummplots_comps,
+                                      pathway_score_heatmaps = pathway_score_heatmaps_comps,
                                       crossconditionDE_padj_thres = crossconditionDE_padj_thres,
                                       crossconditionDE_lfc_thres = crossconditionDE_lfc_thres,
                                       crossconditionDE_min.pct = crossconditionDE_min.pct)
@@ -6041,18 +6198,27 @@ Here we check number of differentially expressed genes (DEGs) after applying som
 
 * Log Fold Change > +/- %s
 
-* Proportion of cells expressing gene in condition A > %s if LFC is positive
+* Proportion of cells expressing the gene in %s (c1, test; pct.1) > %s if log fold change is positive
 
-* Proportion of cells expressing gene in condition B > %s if LFC is negative
+* Proportion of cells expressing the gene in %s (c0, reference; pct.2) > %s if log fold change is negative
 
-Differential expression compares genes in condition A (left) versus condition B (right). The left column indicates the number of genes upregulated in the left condition, while the right column indicates genes upregulated in the right condition.
+The first count column is genes higher in %s (c0, reference). The second count column is genes higher in %s (c1, test). Positive log fold change means higher expression in c1.
 
 Finally, the thresholds above do not affect downstream results from pathway analysis, they are just meant to count the number of DEGs. Downstream usage of DEGs can use these thresholds, or you can choose other appropriate cutoffs.
 
 "
     
-    cat( sprintf(plotlab, crossconditionDE_padj_thres, crossconditionDE_lfc_thres,
-                 crossconditionDE_min.pct, crossconditionDE_min.pct) )
+    cat(sprintf(
+      plotlab,
+      crossconditionDE_padj_thres,
+      crossconditionDE_lfc_thres,
+      c1,
+      crossconditionDE_min.pct,
+      c0,
+      crossconditionDE_min.pct,
+      c0,
+      c1
+    ))
     
   }
   
@@ -6070,13 +6236,19 @@ Here we check number of differentially expressed genes (DEGs) after applying som
 
 * Log Fold Change > +/- %s
 
-Differential expression compares genes in condition A (left) versus condition B (right). The left column indicates the number of genes upregulated in the left condition, while the right column indicates genes upregulated in the right condition.
+The first count column is genes higher in %s (c0, reference). The second count column is genes higher in %s (c1, test). Positive log fold change means higher expression in c1.
 
 Finally, the thresholds above do not affect downstream results from pathway analysis, they are just meant to count the number of DEGs. Downstream usage of DEGs can use these thresholds, or you can choose other appropriate cutoffs.
 
 "
     
-    cat( sprintf(plotlab, crossconditionDE_padj_thres, crossconditionDE_lfc_thres) )
+    cat(sprintf(
+      plotlab,
+      crossconditionDE_padj_thres,
+      crossconditionDE_lfc_thres,
+      c0,
+      c1
+    ))
     
   }
   
@@ -6096,25 +6268,6 @@ This barplot summarizes the same DEG counts as the table above. Bars extending t
   cat(sprintf(plotlab, c0, c1))
   
   print(deplotlist$deg_count_barplot)
-  
-  
-  
-  plotlab <- "
-
-
-### Top DEG DotPlot (comparison summary)
-
-This dotplot shows the top 10 upregulated and top 10 downregulated significant DEGs pooled across all clusters (deduplicated by gene). Expression is summarized across all cells in the comparison samples; sample Code is on the X axis and genes on the Y axis. Dot size reflects the fraction of cells expressing each gene; color reflects average expression.
-
-
-"
-  
-  cat(plotlab)
-  
-  if (!is.null(deplotlist$deg_summary_dotplot)) {
-    print(deplotlist$deg_summary_dotplot)
-  }
-  
   
   
   
@@ -6159,16 +6312,31 @@ This dotplot shows the top 10 upregulated and top 10 downregulated significant D
   
   cat('\n\n\n')
   
-  plotlab <- '
+  if (isTRUE(Pseudobulk_mode)) {
+    plotlab <- '
 ### Per-cluster heatmaps of all DEGs
 
-To ensure the differential expression results are robust, it is helpful to inspect all DEGs by visualizing them in a heatmap. For each cluster, we compare the DEGs at both the single cell level, and either the pseudobulk level (if we used pseudobulk_edgeR) or the average RISC value level (if using Wilcox).
+To ensure the differential expression results are robust, it is helpful to inspect all DEGs by visualizing them in a heatmap. For each cluster, we show the DEGs at the single-cell level and as pseudobulk counts for each sample, annotated by the variables in the model formula.
 
 
 
 '
+  } else {
+    plotlab <- paste0(
+      '
+### Per-cluster heatmaps of all DEGs
+
+To ensure the differential expression results are robust, it is helpful to inspect all DEGs by visualizing them in a heatmap. For each cluster, we show the DEGs at the single-cell level and as the mean of the ',
+      int_config$de_wilcox_assay,
+      ' values for each sample.
+
+
+
+'
+    )
+  }
   
-  cat(sprintf(plotlab))
+  cat(plotlab)
   
   cluster_de_heatmap_l <- deplotlist$cluster_de_heatmap_l
   cluster_de_dotplot_l <- deplotlist$cluster_de_dotplot_l
@@ -6190,13 +6358,17 @@ To ensure the differential expression results are robust, it is helpful to inspe
     cat(sprintf(plotlab, clust))
     
     
-    plotlab <- '
+    plotlab <- paste0(
+      '
 ##### Differentially Expressed Gene Heatmap for all cells in this cluster
 
-Here, we plot all significant DEGs for all cells in this cluster from condition A vs condition B. Condition A is denoted with positive fold change.
+Here, we plot all significant DEGs for all cells in this cluster. Positive log fold change means higher expression in ',
+      c1,
+      ' (c1, the test condition).
 
 
 '
+    )
     
     cat(plotlab)
     
@@ -6208,38 +6380,58 @@ Here, we plot all significant DEGs for all cells in this cluster from condition 
     cat('\n\n\n')
     
     
-    if(Pseudobulk_mode == T){
-      plotlab <- '
-##### Differentially Expressed Gene Heatmap plotted at pseudobulk level for replicates for this cluster
+    if (!isTRUE(Pseudobulk_mode)) {
+      plotlab <- paste0(
+        '
+##### Differentially Expressed Gene Heatmap plotted after averaging ',
+        int_config$de_wilcox_assay,
+        ' values for samples for this cluster
 
-Here, we plot all significant DEGs for pseudobulked replicates in this cluster from condition A vs condition B. Condition A is denoted with positive fold change.
-
-
-'
-    }
-    
-    
-    if(Pseudobulk_mode == F){
-      plotlab <- '
-##### Differentially Expressed Gene Heatmap plotted after averaging RISC values for samples for this cluster
-
-Here, we plot all significant DEGs after averaging the RISC-transformed values for samples in this cluster from condition A vs condition B. Condition A is denoted with positive fold change.
+Here, we plot all significant DEGs after averaging the ',
+        int_config$de_wilcox_assay,
+        ' values for samples in this cluster. Positive log fold change means higher expression in ',
+        c1,
+        ' (c1, the test condition).
 
 
 '
+      )
+      cat(plotlab)
+      print(clustplots[[2]])
+      cat('\n\n\n')
     }
     
-    
-    
-    
-    cat(plotlab)
-    
-    
-    print(clustplots[[2]])
-    
+    if (!is.null(clustplots$design_heatmaps)) {
+      plotlab <- '
+##### Pseudobulk heatmap annotated by the model formula
+
+Each column is one sample in the model. The bars above the heatmap are the variables in the formula, and the samples are ordered by those variables. A blocking factor, when the formula has one, is the first sort key. The logFC bar on the left is red when the coefficient is positive and blue when it is negative.
+
+
+'
+      cat(plotlab)
+      print(clustplots$design_heatmaps$all)
+      
+      if (!is.null(clustplots$design_heatmaps$top)) {
+        cat('\n\n\n')
+        plotlab <- '
+##### Top DEGs from the formula heatmap
+
+The heatmap above has more than 50 significant genes, so their names are hidden. This heatmap shows up to 25 genes in each direction, chosen by the smallest P value.
+
+
+'
+        cat(plotlab)
+        print(clustplots$design_heatmaps$top)
+      }
+      
+      cat('\n\n\n')
+    }
     
     
     plotlab <- '
+
+
 ##### Top DEG DotPlot by sample (Code)
 
 This dotplot shows the top 10 upregulated and top 10 downregulated significant DEGs for this cluster. Sample Code is on the X axis and genes on the Y axis.
@@ -6260,30 +6452,49 @@ This dotplot shows the top 10 upregulated and top 10 downregulated significant D
   }
   
   rm(cluster_de_heatmap_l, cluster_de_dotplot_l, clustplots)
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  pwayDElab <- "
 
 
-### Gene set enrichment analysis across conditions
+} # close comparisons loop
+
+
+```
+
+
+
+# Pathway analysis
+
 
 Pathway analysis for the cross-condition analysis is performed for overexpressed and underexpressed genes for each cluster. This is done via Gene Set Enrichment Analysis (GSEA) [(Subramanian et al 2005)](https://www.pnas.org/doi/10.1073/pnas.0506580102).
 
 GSEA is preferred over other pathway analysis such as Fisher tests or chi-square tests because it does not require making arbitrary cutoffs to the number of DEGs and takes into account how strongly differentially expressed each gene may be. For the latter, data-driven gene-specific weight is applied. We use a standard weighting method of -log10(P-value) * sign of Log Fold Change.
 
-The pathways we choose in pathway analysis are derived from the Molecular Signatures Database (MSIGDB) where they are sorted by categories, such as Gene Ontology (GO) Biological Process, GO Molecular Function, KEGG, Reactome, etc. These are databases that annotate genes by function or molecular pathway.
+The pathways we choose in pathway analysis are derived from the Molecular Signatures Database (MSigDB) where they are sorted by categories, such as Gene Ontology (GO) Biological Process, GO Molecular Function, KEGG, Reactome, etc. These are databases that annotate genes by function or molecular pathway.
 
 
-"
-  
-  cat(pwayDElab)
+```{r print_pathway_to_html, fig.keep='all', message=FALSE, results='asis', fig.width=7, fig.height=9}
+
+
+compslen <- nrow(comps)
+
+for(compidx in c(1:compslen) ){
+
+
+  c1 <- comps$c1[compidx]
+  c0 <- comps$c0[compidx]
+  lab <- comps$label[compidx]
+
+  pathway_analysis_mainlist <- pathway_analysis_mainlist_comps[[lab]]
+  if (is.null(pathway_analysis_mainlist)) {
+    pathway_analysis_mainlist <- list()
+  }
+
+  summplots_cats <- pathwaysummplots_comps[[lab]]
+  score_heats <- NULL
+  if (!is.null(pathway_score_heatmaps_comps)) {
+    score_heats <- pathway_score_heatmaps_comps[[lab]]
+  }
+
+  cat(sprintf("\n\n## %s\n\n", lab))
   
   
   
@@ -6296,276 +6507,39 @@ The pathways we choose in pathway analysis are derived from the Molecular Signat
   pathway_analysis_main_nonull <- pathway_analysis_mainlist[lengths(pathway_analysis_mainlist) != 0]
   
   
-  #loop through each category:
-  # loop thru each cluster
-  # get up/down pathways if there are any in each cluster
-  # make some adjustments to the table to adjust for printing: shorten gene list
-  # print for whole category:
-  # 1. summary of whole category, up pathways 
-  # 2. summary of whole category, dn pathways
-  # 3. cluster by cluster, up tables, up dotplots
-  # 4. cluster by cluster, dn tables, dn dotplots
-  
+  # One combined summary dot plot per category, then leading-edge heatmaps per cluster.
   for(i in seq_along(pathway_analysis_main_nonull)){
-    
-    #get category name
+
     cat <- names(pathway_analysis_main_nonull)[i]
-    
-    
-    #get actual cluster results, and remove NAs...
-    pwaycat <- pathway_analysis_main_nonull[[i]]
-    
-    
-    # remove clusters with no pathways --> this sets them to list of lengths 0
-    pwaycat = lapply(pwaycat, function(clust){clust[lengths(clust) != 0]})
-    
-    # remove the clusters with no pathways by removing the lists of length 0
-    pwaycat <- pwaycat[lengths(pwaycat) != 0]
-    
-    
-    ### if the category has NO PATHWAYS SIGNIFICANT in ANY cluster, just skip it
-    if(length(pwaycat) == 0){
-      next
-    }
-    
-    
-    
-    #in each category, loop thru each cluster
-    
-    #loop through each cluster's results; this list contains up/down for each pathway
-    # j is the cluster index
-    #for(j in 1:length(pwaycat) ){
-    clustlist <- lapply(seq_along(pwaycat), function(j){
-      
-      
-      #get cluster name
-      clust <- names(pwaycat)[j]
-      
-      
-      
-      #get this clusters up/down list, and remove if null
-      clustcat <- pwaycat[[j]]
-      clustcat <- clustcat[lengths(clustcat) != 0]
-      
-      if(length(clustcat)==0){
-        return()
-      }
-      
-      
-      
-      #get the results for this cluster
-      dirreslist <- clustcat
-      
-      #get the plot
-      dp <- dirreslist$dp
-      
-      #get the table
-      gseares <- dirreslist$gseares
-      
-      
-      
-      
-      
-      # use the dotplot data to subset only significant
-      gseares_fromplot <- dp$data
-      
-      #fix up so we can match the two
-      gseares_fromplot$Description <- gseares_fromplot$pathway
-      gseares_fromplot$Description <- gsub(' ', replacement = '_', gseares_fromplot$Description)
-      gseares_fromplot$Description <- gsub('\n', replacement = '_', gseares_fromplot$Description)
-      
-      gseares <- gseares[match(gseares_fromplot$Description, gseares$pathway),]
-      
-      
-      #modify cpres... keep only important columns...
-      cpshow <- gseares
-      rownames(cpshow) <- NULL
-      
-      cpshow <- cpshow[,c('pathway', "NES", "ES", "pval", "padj", "log2err", "size", "leadingEdge")]
-      
-      #keep only top 5 leading edge genes
-      top5gene <- sapply(cpshow$leadingEdge, function(x){
-        x <- x[x!='']
-        
-        if(length(x) > 5){
-          x <- head(x,5)
-          x[6] <- '...'
-        }
-        
-        paste(x, collapse = '/')
-      })
-      
-      
-      cpshow$leadingEdge <- top5gene
-      
-      
-      #instead of printing, output a list of them
-      
-      return(
-        list(cpshow=cpshow,
-             dp=dp)
-      )
-      
-      
-      ## return just the cpshow
-      #return(cpshow)
-      
-      
-      
-      
-    }) #close cluster lapply
-    
-    
-    names(clustlist) <- names(pwaycat)
-    
-    
-    
-    #get the summaryplots
-    # i is the category index
-    summplots_conds <- summplots_cats[[i]]
-    
-    
-    
-    
-    
-    
-    
-    # print for whole category:
-    # 1. summary dotplot of whole category, up pathways 
-    # 2. summary dotplot of whole category, dn pathways
-    # 3. cluster by cluster, up/dn table and dotplots
-    
-    #print category label
-    catlab <- "
+    cat(sprintf("\n\n### %s\n\n", cat))
 
-
-#### %s
-
-
-"
-    
-    #prep cluster label, will print this for each cluster
-    cat(sprintf(catlab, cat))
-    
-    
-    
-    
-    
-    for(condidx in 1:length(c(c1, c0)) ){
-      
-      cond <- c(c1, c0)[condidx]
-      
-      
-      summplot <- summplots_conds[[condidx]]
-      
-      
-      
-      
-      if( is.null(summplot) ){
-        
-        summlab <- "
-
-
-##### Summary %s, no pathways enriched
-    
-This category of pathways had no signifcantly enriched pathways in %s
-
-
-"
-        
-        cat(sprintf(summlab, cond, cond))
-        
-        next
-        
-      }
-      
-      
-      
-      summlab <- "
-
-
-##### Summaryplot: %s
-    
-Here we plot a summary of the gene sets/pathways that are enriched in genes overexpressed in %s. If there are more than 30 significant pathways total, we plot the top 5 per cluster with the lowest adjusted P value.
-
-
-"
-      
-      cat(sprintf(summlab, cond, cond))
-      
+    summplot <- NULL
+    if (!is.null(summplots_cats)) summplot <- summplots_cats[[cat]]
+    if (is.null(summplot) || !inherits(summplot, "ggplot")) {
+      cat("\n\n#### Summary, no pathways enriched\n\nThis category had no significantly enriched pathways.\n\n")
+    } else {
+      cat("\n\n#### Summary of enriched pathways\n\n")
+      cat("Dot color is the normalized enrichment score for this comparison's coefficient. Red is a positive coefficient and blue is a negative coefficient. If a category has more than 30 pathway rows, the plot keeps the top 5 per cluster in each direction, and still shows a pathway in every cluster where it was enriched.\n\n")
       print(summplot)
-      
-      
-      
-      
-      
     }
-    
-    
-    
-    
-    
-    
-    clustlab <- "
 
+    heats <- NULL
+    if (!is.null(score_heats)) heats <- score_heats[[cat]]
+    if (is.null(heats)) heats <- list()
+    heats <- heats[!vapply(heats, is.null, logical(1))]
+    if (!length(heats)) next
 
-##### Per-cluster pathway results
-      
-Here we plot the pathways that are significantly enriched in the differentially expressed genes between %s and %s for each cluster.
+    cat("\n\n#### Leading-edge expression by cluster\n\n")
+    cat("Each heatmap is the mean log1p pseudobulk expression of the leading-edge genes for the pathways from the summary plot in that cluster. Samples follow the differential-expression layout: split into the test condition then the reference when the formula is Condition only, and annotated by the formula variables otherwise. The bar on the left is the normalized enrichment score.\n\n")
 
-For each condition, we display a table of the GSEA results. NES refers to Normalized Enrichment Score, the main effect size for GSEA. Positive NES indicates the pathway is enriched in %s relative to %s, and vice-versa.
+    for (clust in names(heats)) {
+      cat(sprintf("\n\n##### %s\n\n", clust))
+      one <- heats[[clust]]
+      print(knitr::kable(one$table))
+      print(one$heatmap)
+      cat("\n\n")
+    }
 
-If a cluster is missing, it indicates no pathways were significantly differentially expressed.
-
-
-
-"
-    
-    cat(sprintf(clustlab, c1, c0, c1, c0))
-    
-    
-    #for each cluster, print out the dotplot and table,
-    # or a print a message saying none significant
-    for(clust in names(clustlist) ){
-      
-      
-      
-      
-      
-      clust_cond_lab <- "
-
-
-
-
-
-###### %s
-
-
-"
-      
-      cat(sprintf(clust_cond_lab, clust))
-      
-      
-      
-      clust_plot_tab <- clustlist[[clust]]
-      
-      
-      
-      cpshow <- clust_plot_tab$cpshow
-      dp <- clust_plot_tab$dp
-      
-      
-      
-      print( knitr::kable(cpshow) )
-      print(dp)
-      
-      
-      
-      
-      
-    } #close cluster printing loop
-    
-    
   } # close category by category for loop
   
   

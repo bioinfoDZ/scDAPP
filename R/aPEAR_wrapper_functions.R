@@ -222,7 +222,7 @@ apear_find_clusters <- function(apear_input_list,
                                 min_leading_edge_threshold = 2,
                                 output_dir = NULL,
                                 save_cluster_parameters_and_results=TRUE,
-                                saving_algorithm = "RDS",
+                                saving_algorithm = "qs2",
                                 nthreads = 1L,
                                 ...
                                 
@@ -656,7 +656,7 @@ apear_plot_cluster <- function(apear_input_list,
                                output_height = 10,
                                save_network_plot=TRUE, 
                                save_apearres_obj=TRUE,
-                               saving_algorithm = "RDS",
+                               saving_algorithm = "qs2",
                                nthreads = 1L,
                                ...){
   

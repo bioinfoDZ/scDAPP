@@ -14,7 +14,7 @@ If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeli
 # Usage
 
 
-If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
+If you run into any issues, you can check the [common bugs and fixes FAQ](CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
 
 
@@ -150,7 +150,7 @@ If you used scDAPP v1.3.x, review these **v2.0** changes before re-running or up
 
 ### `cluster_unfiltered`
 
-- Default is **`FALSE`**. Pre-filter SCT+Louvain clustering and `Unfiltered-SeuratObject-*.rds` outputs run only when `cluster_unfiltered = TRUE`. The `individualsample_analysis/unfiltered_Seurat_objects/` folder is created only in that case.
+- Default is **`FALSE`**. Pre-filter SCT+Louvain clustering and `Unfiltered-SeuratObject-*` outputs run only when `cluster_unfiltered = TRUE`. The extension follows `saving_algorithm` (`.qs2` by default). The `individualsample_analysis/unfiltered_Seurat_objects/` folder is created only in that case.
 
 ### Module return types (programmatic use)
 
@@ -163,7 +163,34 @@ Cross-condition modules now return **flat tables** instead of deeply nested list
 | `pathwayanalysis_crosscondition_module()` | `pathway_results` | `pathway_results_by_cluster()` |
 | `ORA_crosscondition_module()` | `ora_results` | `ora_results_by_cluster()` |
 
-The [subclustering vignette](downstream_postpipeline/Subclustering_and_ComparativeModule_Vignette.md) has been partially updated; some examples may still reflect v1.3 patterns.
+See the [subclustering vignette](downstream_postpipeline/Subclustering_and_ComparativeModule_Vignette.md) for `subset_module()`.
+
+### Subset module
+
+`subset_module()` takes an integrated Seurat object, keeps the clusters or cells you pass, reclusters that subset, and runs composition, differential expression, pathway GSEA, and a short HTML report. Milo runs when `Pseudobulk_mode = TRUE`. ORA is off unless `run_ora = TRUE`.
+
+RISC subsets stay on the parent `Integrated_RISC` correction. Variable genes, scaling, and PCA are all computed on that assay, then neighbors and Louvain use the new PCA. `pcs_int` or `res_int = "auto"` bootstraps that PCA. Each replicate refits it on its own cells. This does not call `scMultiIntegrate`. Pass `reintegrate = TRUE` to re-run RISC instead.
+
+Harmony, CCA, RPCA, and both SCT methods re-integrate the subset through `run_integration()`. `auto` uses the existing integration stability sweep.
+
+```r
+sub <- scDAPP::subset_module(
+  sobjint = sobjint,
+  sample_metadata = sample_metadata,
+  comps = comps,
+  outdir = "subset_cluster1",
+  clusters = "1",
+  cluster_column = "seurat_clusters",
+  Pseudobulk_mode = TRUE,
+  pcs_int = "auto",
+  res_int = "auto",
+  species = "Homo sapiens"
+)
+sub$sobj
+sub$cluster_column
+```
+
+The new cluster column is `RISC_subset_npc{pcs}_res{res}` for a RISC re-embed, or the usual integrated column name after re-integration. Sample and condition columns default to `Code` and `Condition`. If your object uses other names, pass `sample_column` and `condition_column`. The HTML report is `subset_module_report.html` in `outdir`.
 
 ### `integration_method`
 
@@ -397,6 +424,10 @@ Supported species for ortholog mapping are listed in `msigdbr::msigdbr_species()
 - `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. For pseudobulk can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" (paired mixed models via `variancePartition`; requires `(1|var)` in `comps$formula`). `EdgeR-QLF` uses the same comps/contrasts as `EdgeR-LRT` (quasi-likelihood F-test; see [Comparative_Designs.md](Comparative_Designs.md) §2). For single-cell mode, any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 or variancePartition may require installation. Dream uses `workernum` for `BiocParallel` workers.
 
 - `run_ORA` - T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
+- `run_MILO` - T/F, default FALSE. When TRUE and `Pseudobulk_mode` is TRUE, run neighborhood differential abundance with [Milo](https://github.com/MarioniLab/miloR) after the cluster compositional section. Requires Bioconductor `miloR` (`BiocManager::install("miloR")`). The graph is built on the integrated clustering embedding. Each `comps` row is one contrast, using the same formula and contrast grammar as pseudobulk DE. Results and plots are saved under `multisample_integration/differential_abundance_Milo/`. The HTML report prints the size histogram, and for each comparison a beeswarm, a UMAP neighborhood graph, an MA plot, the top 20 neighborhoods with SpatialFDR below `milo_spatial_fdr`, a per-cluster count of all significant neighborhoods, and an alluvial plot plus two-way heatmap for those top 20 only. When `Pseudobulk_mode` is FALSE the section says Milo was skipped, because the test needs replicate samples.
+- `milo_k` - `"auto"` (default) or a positive integer. `"auto"` sets k to `min(5 * n_samples, milo_k_max, n_cells - 1)`. That 5-per-sample rule is the Milo maintainer's neighborhood-size guideline. k is not shrunk to the smallest sample.
+- `milo_k_max` - positive integer, default 100. Used only when `milo_k` is `"auto"`. If 5 times the sample count is larger, k is capped and the report says so. Pass an integer `milo_k` to go higher. Milo does not treat 50 as a maximum.
+- `milo_spatial_fdr` - numeric, default 0.1. Neighborhoods with SpatialFDR below this cutoff are reported as significant. SpatialFDR is a false-discovery rate that gives less weight to neighborhoods that share cells.
 - `run_msigdb_celltype_ora` - T/F, default is TRUE. Whether to run ORA of per-sample and integrated cluster markers against MSigDB cell-type signature gene sets. Uses up to the top 100 markers per cluster (by score) with `p_val_adj` below `msigdb_celltype_ora_marker_padj_thres`. Saves CSV tables and a summary dotplot PDF under `{outdir}/individualsample_analysis/celltype_marker_prediction/` and `{outdir}/multisample_integration/celltype_marker_prediction/`. A combined per-sample table is written as `individualsample_analysis/celltype_marker_prediction/all_samples_ora_results.csv`. Requires clusterProfiler.
 - `msigdb_celltype_ora_marker_padj_thres` - numeric, default 0.05. Adjusted p-value cutoff for cluster marker genes included in MSigDB cell-type ORA.
 - `msigdb_celltype_ora_top_markers` - integer, default 100. Maximum markers per cluster (after padj filter) ranked by marker `score`.
@@ -488,7 +519,7 @@ Finally, we use [DoubletFinder](https://github.com/chris-mcginnis-ucsf/DoubletFi
 - `autofilter_medianabsolutedev_threshold` - numeric, default is 3, threshold for median abs deviation thresholding, ie cutoffs set to ⁠median +/- mad * threshold⁠
 - `autofilter_loess_negative_residual_threshold` - numeric, cutoff for loess residuals applied in complexity filtering, default is -5, if you set it high (ie any higher than -2) you will probably remove many good cells.
 - `doubletFinder` - T/F, default is T, whether to filter doublets with DoubletFinder
-- `cluster_unfiltered` - T/F, default is F. If TRUE, run SCT and Louvain clustering (resolution 0.1) on the full unfiltered matrix before autofilter, enabling cluster-level QC diagnostics (alluvial plots, two-way table heatmaps, pre-filter marker heatmaps), and save `Unfiltered-SeuratObject-*.rds` files under `individualsample_analysis/unfiltered_Seurat_objects/`. When FALSE (default), autofilter runs on QC metadata only, skips pre-filter clustering for faster runs, and does not create `unfiltered_Seurat_objects/` or write unfiltered Seurat RDS files (QC summary PDFs and filtered objects are still produced).
+- `cluster_unfiltered` - T/F, default is F. If TRUE, run SCT and Louvain clustering (resolution 0.1) on the full unfiltered matrix before autofilter, enabling cluster-level QC diagnostics (alluvial plots, two-way table heatmaps, pre-filter marker heatmaps), and save `Unfiltered-SeuratObject-*` files under `individualsample_analysis/unfiltered_Seurat_objects/` (`.qs2` by default, `.rds` when `saving_algorithm = "RDS"`). When FALSE (default), autofilter runs on QC metadata only, skips pre-filter clustering for faster runs, and does not create `unfiltered_Seurat_objects/` or write unfiltered Seurat objects (QC summary PDFs and filtered objects are still produced).
 
 
 Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now possible to pre-calculate some QC values and store them in the Seurat object metadata. These include `percent.mito`, `percent.hemoglobin`, and `Phase` (cell cycle phase). These can be calculated however you wish (such as with `Seurat::AddModuleScore()` or `Seurat::CellCycleScoring()`) and stored with these exact column names in the input Seurat object metadata. This can be useful if working with less common species, where gene names may differ a lot from typical human/mouse symbols for these QC metrics. Make sure to set `input_seurat_obj` to TRUE to use this. Note however that MSIGDBR has a limited set of compatible species with pathway genes. You can run `msigdbr::msigdbr_species()` in R to check the available species. If your species of interest is not on the list, you may consider still using the pipeline and selecting the species / taxon closest to your subject of study, but then using the pipeline outputs to run your own pathway analysis using the DEGs.
@@ -502,7 +533,7 @@ Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now po
 - `res_indi` numeric, default = 0.5; Louvain resolution for individual sample clustering via Seurat. Per-sample cluster markers are written under `individualsample_analysis/individualsample_clustermarkers/markers-PCs_{pcs_indi}-res_{res_indi}/`, including a combined `all_samples_clustermarkers.csv` (one row per marker with a `Sample` column).
 - `pcs_int` integer or `"auto"`, default = 30; number of PCs for integrated clustering. With `"auto"`, PCs are chosen by bootstrap cluster stability (ARI + Jaccard) before the final integration run.
 - `res_int` numeric or `"auto"`, default = 0.5; Louvain resolution for integrated clustering. With `"auto"`, resolution is chosen the same way. Either or both may be `"auto"`.
-- `stability_outdir` optional; folder for stability CSVs and checkpoints (default: `<outdir>/integrated_analysis/cluster_stability` when auto is used).
+- `stability_outdir` optional; folder for stability CSVs and checkpoints (default: `<outdir>/multisample_integration/cluster_stability` when auto is used).
 - `stability_numreps` bootstrap replicates for auto tuning (default 50).
 - `stability_sweep_maxPCs` PC values tested when `pcs_int = "auto"` (default `c(5, 10, 15, 20, 25, 30, 40, 50)`).
 - `stability_sweep_res` resolutions tested when `res_int = "auto"` (default `seq(0.1, 1.5, by = 0.2)`).
@@ -564,7 +595,7 @@ The pipeline calls `set_parallel_blas_threads()` at startup (and in parallel wor
 Running with multiple CPU threads ("workers") can speed up the analysis, *especially if DoubletFinder is used*, but can cause the pipeline to fail due to overuse of memory.
 
 - `workernum` integer, workers for final RISC integration (`InPlot`, `scMultiIntegrate`), per-sample parallel steps, and Dream DE, default = 1.
-- `saving_algorithm` `"RDS"` (default) or `"qs2"`. `"qs2"` writes pipeline objects with the qs2 format, which is faster for large Seurat objects. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.
+- `saving_algorithm` `"qs2"` (default) or `"RDS"`. `"qs2"` writes pipeline objects with the qs2 format, which is faster for large Seurat objects. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.
 - `stability_workernum` integer or NULL; workers for cluster-stability auto-tuning only (`pcs_int`/`res_int = "auto"`). Defaults to `workernum` when NULL. On HPC, request `max(workernum, stability_workernum)` CPUs when using auto tuning.
 
 If on HPC, make sure to also request the appropriate number of CPUs, for example by adding the following two lines to the SBATCH header for 10 cpus:
@@ -606,15 +637,41 @@ For 150GB over 10 CPUs, ask for 15GB for each CPU.
 
 ## Outputs and downstream
 
-The outputs are shown below:
+A full run (RISC, automatic PC and resolution selection, label transfer, cell-type marker ORA, pseudobulk DE, and Milo) writes this folder. Per-sample files are not listed one by one.
 
-<img src="../images/scDAPP_F3_outputs.png" width="300" height="350">
+```text
+outdir/
+├── pipeline_parameters.csv
+├── scRNAseq_clustering_integration.html
+├── .scdapp_resume/                         # fingerprint cache; delete to force a full rerun
+├── individualsample_analysis/
+│   ├── qualitycontrol_filtering/
+│   ├── processed_Seurat_objects/           # SeuratObject-{Sample}.qs2
+│   ├── individualsample_clustermarkers/
+│   ├── individualsample_plots/
+│   ├── celltype_marker_prediction/         # per-sample ORA + all_samples_ora_results.csv
+│   └── labeltransfer/
+└── multisample_integration/
+    ├── data_objects/                       # Seurat-object_integrated.qs2, RISC-object_integrated.qs2, integration_meta.qs2
+    ├── cluster_stability/                  # perparam_meanscores.csv, plots/
+    ├── integration_summaryplots/
+    ├── markergenes_intclusters/
+    ├── celltype_marker_prediction/
+    │   └── integrated/
+    ├── labeltransfer/
+    ├── compositional_proportion_analysis/
+    │   └── Propellertest/{label}/
+    ├── differentialexpression_crosscondition/   # all / significant / summary CSVs
+    │   └── plots/{label}.pdf
+    ├── pathwayanalysis_crosscondition/{label}/  # SummaryDotPlots.pdf, LeadingEdgeMeanHeatmaps.pdf, category/cluster tables
+    └── differential_abundance_Milo/{label}/     # da_results.csv, beeswarm, neighborhood graph, MA plot
+```
 
-
+`unfiltered_Seurat_objects/` is written only when `cluster_unfiltered = TRUE`. `overrepresentation_pathway_analysis/{label}/` is written only when `run_ORA = TRUE`. `cluster_stability/` is written only when `pcs_int` or `res_int` is `"auto"`. `differential_abundance_Milo/` is written only when `run_MILO = TRUE` and `Pseudobulk_mode = TRUE`. `labeltransfer/` is written only when `use_labeltransfer = TRUE`. Object files are `.qs2` by default; `saving_algorithm = "RDS"` writes `.rds` instead.
 
 The .HTML file contains a report summarizing all steps and results of the analysis. Its **Run time** section lists wall-clock time for each code chunk in the order it ran, then the total hours for the whole report. The folders contain information including plots, marker .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
 
-Assays and layers in the integrated Seurat object at `multisample_integration/data_objects/Seurat-object_integrated.rds` depend on `integration_method`:
+Assays and layers in the integrated Seurat object at `multisample_integration/data_objects/Seurat-object_integrated.qs2` depend on `integration_method`:
 
 **All methods**
 - **RNA** assay: `counts` = concatenated raw UMI counts from all samples (non-batch-corrected). Used for pseudobulk DE. `data` = log-normalized values from `NormalizeData()` on those counts.
@@ -622,7 +679,7 @@ Assays and layers in the integrated Seurat object at `multisample_integration/da
 
 **`integration_method = "RISC"`**
 - **Integrated_RISC** assay: `data` = batch-corrected log-normalized matrix from RISC; `counts` ≈ `expm1(data)`. Primary assay for plotting and Wilcox DE on RISC runs.
-- **RISC-object_integrated.rds** in the same folder holds the native RISC object.
+- **RISC-object_integrated.qs2** in the same folder holds the native RISC object.
 
 **Seurat integration methods** (`CCAIntegration`, `RPCAIntegration`, `HarmonyIntegration`, `*_SCT`)
 - Batch correction lives in **reductions** (for example `integrated.cca`, `integrated.dr`, or `harmony`), not in a merged expression assay.
@@ -630,4 +687,4 @@ Assays and layers in the integrated Seurat object at `multisample_integration/da
 - Default assay after integration is `RNA` for RNA-based methods and `SCT` for SCT-based methods.
 
 
-For downstream analysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
+For downstream analysis tips including using aPEAR for network enrichment analysis and ShinyCell for making an exploratory analysis app, see the [downstream instructions guide](downstream_postpipeline/README.md).

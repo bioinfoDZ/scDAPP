@@ -4,7 +4,11 @@
 \alias{.seurat_merge_from_tmpobjdir}
 \title{Merge per-sample RDS from tmpobjdir into one object for Seurat integration.}
 \usage{
-.seurat_merge_from_tmpobjdir(tmpobjdir, sample_metadata)
+.seurat_merge_from_tmpobjdir(
+  tmpobjdir,
+  sample_metadata,
+  saving_algorithm = "qs2"
+)
 }
 \description{
 Merge per-sample RDS from tmpobjdir into one object for Seurat integration.

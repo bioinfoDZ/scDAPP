@@ -12,6 +12,8 @@ apear_find_clusters(
   min_leading_edge_threshold = 2,
   output_dir = NULL,
   save_cluster_parameters_and_results = TRUE,
+  saving_algorithm = "qs2",
+  nthreads = 1L,
   ...
 )
 }

@@ -25,7 +25,8 @@ run_integration(
   stability_sweep_maxPCs = c(5, 10, 15, 20, 25, 30, 40, 50),
   stability_sweep_res = seq(0.1, 1.5, by = 0.2),
   stability_propcells.perrep = 0.8,
-  pipeline_outdir = NULL
+  pipeline_outdir = NULL,
+  saving_algorithm = "qs2"
 )
 }
 \arguments{

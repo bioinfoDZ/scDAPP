@@ -11,7 +11,8 @@
   sample_codes = NULL,
   stability_outdir = NULL,
   outdir_int = NULL,
-  engine = "RISC"
+  engine = "RISC",
+  saving_algorithm = "qs2"
 )
 }
 \description{

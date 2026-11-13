@@ -4,7 +4,7 @@
 \alias{.resume_invalidate_from}
 \title{Clear success markers from a stage through integration.}
 \usage{
-.resume_invalidate_from(outdir, stage)
+.resume_invalidate_from(outdir, stage, saving_algorithm = "qs2")
 }
 \description{
 Clear success markers from a stage through integration.

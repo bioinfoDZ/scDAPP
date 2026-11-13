@@ -64,7 +64,7 @@
       int_state <- backend$integrate_at_pcs(pcs_k)
     }, silent = !verbose)
     if (is.null(int_state)) next
-    alg <- if (is.null(backend$saving_algorithm)) "RDS" else backend$saving_algorithm
+    alg <- if (is.null(backend$saving_algorithm)) "qs2" else backend$saving_algorithm
     for (params_i in params_k) {
       out_path <- scdapp_object_path(
         file.path(savedir, paste0(filename_prefix, params_i)),
@@ -454,7 +454,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     sweep_config,
     globrefdir,
     verbose = FALSE,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   scDAPP::set_parallel_blas_threads()
   outdf <- NULL
@@ -488,7 +488,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     risc_louvain_neighbors,
     globrefdir,
     verbose = FALSE,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   scDAPP::set_parallel_blas_threads()
   outdf <- NULL
@@ -526,7 +526,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     bootstrapresdir,
     downsize_seurat,
     verbose = FALSE,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   scDAPP::set_parallel_blas_threads()
   set.seed(repi)
@@ -579,7 +579,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     propcells.perrep,
     bootstrapresdir,
     verbose = FALSE,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   scDAPP::set_parallel_blas_threads()
   set.seed(repi)
@@ -1105,7 +1105,7 @@ cluster_stability_sweep <- function(
     remove_rawouts = TRUE,
     verbose = TRUE,
     downsize_seurat = TRUE,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   saving_algorithm <- normalize_saving_algorithm(saving_algorithm)
   backend$saving_algorithm <- saving_algorithm
@@ -1579,7 +1579,7 @@ auto_integration_cluster_params <- function(
     RISC_louvain_neighbors = 10L,
     input_seurat_obj = FALSE,
     verbose = TRUE,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   if (!.integration_param_needs_auto(pcs_int, res_int)) {
     stop(

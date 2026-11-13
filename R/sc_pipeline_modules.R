@@ -1328,9 +1328,19 @@ plot_crosscondition_deg_dotplot <- function(sobj,
   }
 
   p <- do.call(Seurat::DotPlot, dot_args) +
+    ggplot2::coord_flip() +
+    ggplot2::scale_color_gradient2(
+      low = "#2166AC",
+      mid = "white",
+      high = "#B2182B",
+      midpoint = 0,
+      name = "Average\nexpression"
+    ) +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
     ggplot2::labs(
       title = title,
+      x = "Gene",
+      y = "Sample",
       caption = paste0("Positive logFC genes higher in ", c1, "; negative logFC higher in ", c0)
     )
 
@@ -1375,6 +1385,280 @@ de_pseudobulk_heatmap_matrix <- function(de_table, sample_codes) {
   mat <- as.matrix(de_table[, sample_codes, drop = FALSE])
   storage.mode(mat) <- "numeric"
   .de_heatmap_set_gene_rownames(mat, de_table$gene_symbol)
+}
+
+# TRUE when the formula has a covariate, an interaction, or a random effect.
+.design_heatmap_is_complex <- function(formula) {
+  f <- .parse_comp_formula(formula)
+  .formula_has_random_effect(f) || !.is_simple_condition_design(f)
+}
+
+.design_heatmap_sort_vars <- function(formula) {
+  f <- .parse_comp_formula(formula)
+  re <- .formula_random_effect_vars(f)
+  fixed <- all.vars(.fixed_effects_formula(f))
+  unique(c(re, fixed))
+}
+
+.design_heatmap_count_col <- function(colnames_de, code) {
+  pref <- paste0("rawcounts_", code)
+  if (pref %in% colnames_de) return(pref)
+  if (code %in% colnames_de) return(code)
+  NA_character_
+}
+
+.design_heatmap_axis_labels <- function(codes, md, ann_vars, max_len = 18L) {
+  codes <- as.character(codes)
+  if (!length(codes) || all(nchar(codes) <= max_len)) return(codes)
+  labels <- sub("_.*$", "", codes)
+  empty <- !nzchar(labels)
+  labels[empty] <- codes[empty]
+  for (v in ann_vars) {
+    if (!any(duplicated(labels))) break
+    if (!v %in% colnames(md)) next
+    vals <- as.character(md[[v]])
+    dups <- unique(labels[duplicated(labels) | duplicated(labels, fromLast = TRUE)])
+    for (d in dups) {
+      idx <- which(labels == d)
+      if (length(unique(vals[idx])) > 1L) {
+        labels[idx] <- paste0(labels[idx], "-", vals[idx])
+      }
+    }
+  }
+  still <- duplicated(labels) | duplicated(labels, fromLast = TRUE)
+  if (!any(still)) return(labels)
+  for (d in unique(labels[still])) {
+    idx <- which(labels == d)
+    rest <- substring(codes[idx], nchar(d) + 2L)
+    rest <- sub(paste0("^", d, "-?"), "", rest)
+    rest[!nzchar(rest)] <- codes[idx][!nzchar(rest)]
+    n <- 1L
+    cand <- paste0(d, "-", substring(rest, 1L, n))
+    while (any(duplicated(cand)) && n < max(nchar(rest), 1L)) {
+      n <- n + 1L
+      cand <- paste0(d, "-", substring(rest, 1L, n))
+    }
+    labels[idx] <- cand
+  }
+  labels
+}
+
+.design_heatmap_order_samples <- function(sample_metadata, formula, colnames_de) {
+  md <- as.data.frame(sample_metadata, stringsAsFactors = FALSE)
+  if (!"Code" %in% colnames(md)) {
+    stop("sample_metadata must include Code.", call. = FALSE)
+  }
+  md$Code <- as.character(md$Code)
+  md$.row_id <- seq_len(nrow(md))
+  count_col <- vapply(md$Code, .design_heatmap_count_col, character(1), colnames_de = colnames_de)
+  names(count_col) <- md$Code
+  keep <- !is.na(count_col)
+  md <- md[keep, , drop = FALSE]
+  count_col <- count_col[keep]
+  if (!nrow(md)) return(NULL)
+  sort_vars <- .design_heatmap_sort_vars(formula)
+  sort_vars <- sort_vars[sort_vars %in% colnames(md)]
+  for (v in sort_vars) {
+    if (is.numeric(md[[v]])) next
+    present <- as.character(md[[v]])
+    md[[v]] <- factor(present, levels = unique(present))
+  }
+  if (length(sort_vars)) {
+    ord <- do.call(order, c(lapply(sort_vars, function(v) md[[v]]), list(md$.row_id)))
+    md <- md[ord, , drop = FALSE]
+    count_col <- count_col[match(md$Code, names(count_col))]
+  }
+  md$.count_col <- unname(count_col)
+  md
+}
+
+.design_heatmap_annotation_colors <- function(md, ann_vars) {
+  pal <- c(
+    "#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3",
+    "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3",
+    "#E41A1C", "#377EB8", "#4DAF4A", "#984EA3",
+    "#FF7F00", "#A65628", "#F781BF", "#999999"
+  )
+  cols <- list()
+  for (i in seq_along(ann_vars)) {
+    v <- ann_vars[[i]]
+    if (is.numeric(md[[v]])) {
+      rng <- range(md[[v]], na.rm = TRUE)
+      if (!all(is.finite(rng)) || diff(rng) == 0) rng <- c(rng[1] - 1, rng[1] + 1)
+      cols[[v]] <- circlize::colorRamp2(rng, c("#F7F7F7", "#B2182B"))
+    } else {
+      levs <- levels(md[[v]])
+      if (is.null(levs)) levs <- unique(as.character(md[[v]]))
+      start <- ((i - 1L) * 2L) %% length(pal)
+      picked <- pal[((seq_along(levs) - 1L + start) %% length(pal)) + 1L]
+      cols[[v]] <- stats::setNames(picked, levs)
+    }
+  }
+  cols
+}
+
+.design_heatmap_order_genes <- function(de_rows) {
+  if (!"PValue" %in% colnames(de_rows)) de_rows$PValue <- NA_real_
+  pos <- de_rows[de_rows$logFC > 0, , drop = FALSE]
+  neg <- de_rows[de_rows$logFC < 0, , drop = FALSE]
+  if (nrow(pos)) pos <- pos[order(-pos$logFC, pos$PValue, pos$gene_symbol), , drop = FALSE]
+  if (nrow(neg)) neg <- neg[order(neg$logFC, neg$PValue, neg$gene_symbol), , drop = FALSE]
+  rbind(pos, neg)
+}
+
+.design_heatmap_top_genes <- function(de_rows, n_per_sign = 25L) {
+  if (!"PValue" %in% colnames(de_rows)) de_rows$PValue <- NA_real_
+  pieces <- lapply(c(1, -1), function(sgn) {
+    sub <- de_rows[sign(de_rows$logFC) == sgn, , drop = FALSE]
+    if (!nrow(sub)) return(NULL)
+    sub <- sub[order(sub$PValue, -abs(sub$logFC), sub$gene_symbol), , drop = FALSE]
+    utils::head(sub, n_per_sign)
+  })
+  pieces <- pieces[!vapply(pieces, is.null, logical(1))]
+  if (!length(pieces)) return(de_rows[0, , drop = FALSE])
+  do.call(rbind, pieces)
+}
+
+.design_heatmap_scale <- function(de_rows, count_cols) {
+  mat <- as.matrix(de_rows[, count_cols, drop = FALSE])
+  storage.mode(mat) <- "numeric"
+  mat <- log1p(mat)
+  mat <- t(scale(t(mat)))
+  mat[!is.finite(mat)] <- 0
+  mat[mat > 5] <- 5
+  mat[mat < -5] <- -5
+  .de_heatmap_set_gene_rownames(mat, de_rows$gene_symbol)
+}
+
+.design_heatmap_draw <- function(de_rows, md, ann_vars, title_lines, show_names) {
+  mat <- .design_heatmap_scale(de_rows, md$.count_col)
+  labels <- .design_heatmap_axis_labels(md$Code, md, ann_vars)
+  colnames(mat) <- labels
+  ann_df <- as.data.frame(md[, ann_vars, drop = FALSE], stringsAsFactors = FALSE)
+  rownames(ann_df) <- labels
+  ha <- ComplexHeatmap::HeatmapAnnotation(
+    df = ann_df,
+    col = .design_heatmap_annotation_colors(md, ann_vars),
+    annotation_name_side = "left",
+    annotation_name_gp = grid::gpar(fontsize = 9),
+    show_legend = TRUE
+  )
+  sgn <- sign(de_rows$logFC)
+  row_split <- factor(sgn, levels = intersect(c(1, -1), unique(sgn)))
+  lfc <- de_rows$logFC
+  lfc_lim <- max(abs(lfc), na.rm = TRUE)
+  if (!is.finite(lfc_lim) || lfc_lim == 0) lfc_lim <- 1
+  lfc_col <- circlize::colorRamp2(
+    c(-lfc_lim, 0, lfc_lim),
+    c("#2166AC", "white", "#B2182B")
+  )
+  row_ha <- ComplexHeatmap::rowAnnotation(
+    logFC = lfc,
+    col = list(logFC = lfc_col),
+    annotation_name_side = "bottom",
+    annotation_name_gp = grid::gpar(fontsize = 9),
+    show_legend = TRUE,
+    annotation_legend_param = list(logFC = list(title = "logFC"))
+  )
+  ComplexHeatmap::Heatmap(
+    mat,
+    name = "Scaled\nPseudobulk\nValues",
+    col = circlize::colorRamp2(c(-5, 0, 5), c("#2166AC", "white", "#B2182B")),
+    cluster_columns = FALSE,
+    cluster_rows = FALSE,
+    cluster_column_slices = FALSE,
+    cluster_row_slices = FALSE,
+    show_column_names = TRUE,
+    column_names_side = "bottom",
+    column_names_rot = 45,
+    column_names_gp = grid::gpar(fontsize = 8),
+    show_row_names = isTRUE(show_names),
+    row_names_gp = grid::gpar(fontsize = 7),
+    row_split = row_split,
+    row_title = NULL,
+    left_annotation = row_ha,
+    top_annotation = ha,
+    border = TRUE,
+    border_gp = grid::gpar(col = "black", lwd = 1),
+    column_title = paste(title_lines, collapse = "\n"),
+    column_title_gp = grid::gpar(fontsize = 11, fontface = "bold"),
+    heatmap_legend_param = list(
+      title_gp = grid::gpar(fontsize = 9),
+      labels_gp = grid::gpar(fontsize = 8)
+    )
+  )
+}
+
+#' Per-sample heatmaps of significant DEGs annotated by the model formula
+#'
+#' Draw one column per sample and annotate the columns with the formula
+#' variables. A plain \code{~ Condition} formula annotates and orders samples
+#' by Condition. When more than 50 significant genes are present, \code{top}
+#' is a second heatmap of up to 25 genes in each logFC direction, chosen by
+#' the smallest P value.
+#'
+#' @param de_table Significant DE rows for one cluster. Must include
+#'   \code{gene_symbol}, \code{logFC}, and \code{rawcounts_} columns named by
+#'   sample \code{Code}.
+#' @param sample_metadata Sample table with \code{Code} and the formula
+#'   variables. Row order sets factor level order (first appearance) and the
+#'   final sample tie-break.
+#' @param formula Formula string for this comparison.
+#' @param contrast Contrast string printed in the title. May be blank.
+#' @param label Comparison label printed in the title.
+#' @param cluster Cluster name printed in the title.
+#' @return A list with \code{all} (a Heatmap) and \code{top} (a Heatmap, or
+#'   \code{NULL} when there are 50 or fewer genes). \code{NULL} when no sample
+#'   count columns match.
+#' @export
+plot_crosscondition_design_heatmaps <- function(de_table,
+                                                sample_metadata,
+                                                formula,
+                                                contrast = "",
+                                                label = "",
+                                                cluster = "") {
+  if (is.null(de_table) || !is.data.frame(de_table) || !nrow(de_table)) return(NULL)
+  needed <- c("gene_symbol", "logFC")
+  if (!all(needed %in% colnames(de_table))) {
+    stop("de_table must include gene_symbol and logFC.", call. = FALSE)
+  }
+  ann_vars <- .design_heatmap_sort_vars(formula)
+  ann_vars <- ann_vars[ann_vars %in% colnames(sample_metadata)]
+  if (!length(ann_vars)) return(NULL)
+  md <- .design_heatmap_order_samples(sample_metadata, formula, colnames(de_table))
+  if (is.null(md) || !nrow(md)) return(NULL)
+
+  contrast <- as.character(contrast)[1]
+  if (is.na(contrast) || !nzchar(contrast)) contrast <- "(not set)"
+  title <- c(
+    paste0(label, " | ", cluster),
+    paste0("formula: ", as.character(formula)[1]),
+    paste0("contrast: ", contrast)
+  )
+  all_rows <- .design_heatmap_order_genes(de_table)
+  if (!nrow(all_rows)) return(NULL)
+  show_all_names <- nrow(all_rows) <= 50L
+  all_title <- c(
+    title,
+    if (show_all_names) {
+      "all significant DEGs"
+    } else {
+      "all significant DEGs (gene names hidden; n > 50)"
+    }
+  )
+  ht_all <- .design_heatmap_draw(all_rows, md, ann_vars, all_title, show_all_names)
+  ht_top <- NULL
+  if (nrow(all_rows) > 50L) {
+    top_rows <- .design_heatmap_order_genes(.design_heatmap_top_genes(all_rows, 25L))
+    if (nrow(top_rows)) {
+      ht_top <- .design_heatmap_draw(
+        top_rows, md, ann_vars,
+        c(title, "top 25 per logFC sign by lowest PValue"),
+        TRUE
+      )
+    }
+  }
+  list(all = ht_all, top = ht_top)
 }
 
 # Safe filename stem encoding run parameters.
@@ -3153,7 +3437,7 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
                                                                msigdbr_cache_dir = NULL,
                                                                pwaycats = NULL,
                                                                refresh_msigdbr_cache = FALSE,
-                                                               saving_algorithm = "RDS",
+                                                               saving_algorithm = "qs2",
                                                                nthreads = 1L)
 {
   if (is.null(pwaycats)) {
@@ -3202,6 +3486,319 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
 
 
 
+.pathway_display_to_id <- function(x) {
+  x <- gsub("\n", "", as.character(x), fixed = TRUE)
+  gsub(" ", "_", x, fixed = TRUE)
+}
+
+.leading_edge_genes <- function(x) {
+  if (is.null(x)) return(character())
+  if (is.list(x)) {
+    if (!length(x)) return(character())
+    x <- unlist(x, recursive = TRUE, use.names = FALSE)
+  }
+  if (!length(x)) return(character())
+  x <- as.character(x)
+  if (length(x) == 1L && !is.na(x) && grepl("/", x, fixed = TRUE)) {
+    x <- strsplit(x, "/", fixed = TRUE)[[1]]
+  }
+  x <- x[!is.na(x) & nzchar(x) & x != "..."]
+  unique(x)
+}
+
+.pathway_category_plot_table <- function(cluster_list) {
+  if (is.null(cluster_list) || !length(cluster_list)) return(NULL)
+  pieces <- lapply(names(cluster_list), function(cl) {
+    entry <- cluster_list[[cl]]
+    if (is.null(entry) || is.null(entry$dp) || is.null(entry$dp$data)) return(NULL)
+    df <- as.data.frame(entry$dp$data, stringsAsFactors = FALSE)
+    if (!nrow(df)) return(NULL)
+    df$cluster <- cl
+    df$pathway <- as.character(df$pathway)
+    if (!"pathway_id" %in% colnames(df)) {
+      df$pathway_id <- .pathway_display_to_id(df$pathway)
+    } else {
+      df$pathway_id <- as.character(df$pathway_id)
+    }
+    df
+  })
+  pieces <- pieces[!vapply(pieces, is.null, logical(1))]
+  if (!length(pieces)) return(NULL)
+  dplyr::bind_rows(pieces)
+}
+
+.pathway_summary_keep <- function(df) {
+  if (is.null(df) || !nrow(df)) return(df)
+  if (nrow(df) <= 30L) return(df)
+  pieces <- lapply(c(1, -1), function(sgn) {
+    sub <- df[sign(df$NES) == sgn, , drop = FALSE]
+    if (!nrow(sub)) return(NULL)
+    sub <- dplyr::group_by(sub, cluster)
+    sub <- dplyr::top_n(sub, n = 5, wt = -log10(padj))
+    sub <- dplyr::top_n(sub, n = 5, wt = abs(NES))
+    as.data.frame(sub)
+  })
+  pieces <- pieces[!vapply(pieces, is.null, logical(1))]
+  if (!length(pieces)) return(df[0, , drop = FALSE])
+  picked <- unique(dplyr::bind_rows(pieces)$pathway_id)
+  df[df$pathway_id %in% picked, , drop = FALSE]
+}
+
+.pathway_summary_dotplot <- function(df, category, subtitle) {
+  if (is.null(df) || !nrow(df)) return(NULL)
+  means <- stats::aggregate(NES ~ pathway_id, data = df, FUN = mean)
+  pos <- means[means$NES > 0, , drop = FALSE]
+  neg <- means[means$NES <= 0, , drop = FALSE]
+  if (nrow(pos)) pos <- pos[order(-pos$NES, pos$pathway_id), , drop = FALSE]
+  if (nrow(neg)) neg <- neg[order(-neg$NES, neg$pathway_id), , drop = FALSE]
+  ord_ids <- c(pos$pathway_id, neg$pathway_id)
+  lab_map <- df[!duplicated(df$pathway_id), c("pathway_id", "pathway"), drop = FALSE]
+  labels <- lab_map$pathway[match(ord_ids, lab_map$pathway_id)]
+  df$pathway <- factor(df$pathway, levels = rev(unique(labels)))
+  df$cluster <- factor(df$cluster, levels = unique(as.character(df$cluster)))
+  ggplot2::ggplot(df, ggplot2::aes(
+    x = cluster, y = pathway, size = -log10(padj), col = NES
+  )) +
+    ggplot2::geom_point() +
+    ggplot2::theme_linedraw() +
+    ggplot2::theme(
+      axis.text = ggplot2::element_text(size = 8),
+      axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)
+    ) +
+    ggplot2::scale_color_gradient2(
+      low = "steelblue", high = "red", mid = "white", midpoint = 0,
+      name = "Normalized\nEnrichment\nScore"
+    ) +
+    ggplot2::scale_size(range = c(2, 6), name = "-log10(padj)") +
+    ggplot2::xlab("Cluster") +
+    ggplot2::ylab("") +
+    ggplot2::ggtitle(category, subtitle = subtitle)
+}
+
+.pathway_summary_legacy_plots <- function(df, category, c0, c1, cp.font.size = 5) {
+  empty <- stats::setNames(list(NULL, NULL), c(as.character(c1), as.character(c0)))
+  if (is.null(df) || !nrow(df)) return(empty)
+  if (!"condition" %in% colnames(df)) {
+    df$condition <- as.character(c1)
+    df$condition[sign(df$NES) == -1] <- as.character(c0)
+  }
+  plots <- lapply(c(as.character(c1), as.character(c0)), function(cond) {
+    sub <- df[df$condition == cond, , drop = FALSE]
+    if (!nrow(sub)) return(NULL)
+    if (nrow(sub) > 30L) {
+      picked <- dplyr::group_by(sub, cluster)
+      picked <- dplyr::top_n(picked, n = 5, wt = -log10(padj))
+      picked <- dplyr::top_n(picked, n = 5, wt = abs(NES))
+      picked <- as.data.frame(picked)
+      sub <- sub[sub$pathway %in% picked$pathway, , drop = FALSE]
+    }
+    sub$cluster <- factor(sub$cluster, levels = unique(as.character(sub$cluster)))
+    sub$pathway <- factor(sub$pathway, levels = rev(unique(as.character(sub$pathway))))
+    ggplot2::ggplot(
+      sub,
+      ggplot2::aes(x = cluster, y = pathway, size = -log10(padj), col = NES)
+    ) +
+      ggplot2::geom_point() +
+      ggplot2::theme_linedraw() +
+      ggplot2::theme(
+        axis.text = ggplot2::element_text(size = cp.font.size),
+        axis.text.x = ggplot2::element_text(angle = 45, vjust = 1, hjust = 1)
+      ) +
+      ggplot2::scale_color_gradient2(
+        low = "steelblue", high = "red", mid = "white", midpoint = 0,
+        name = "Normalized\nEnrichment\nScore"
+      ) +
+      ggplot2::scale_size(range = c(2, 6), name = "-log10(padj)") +
+      ggplot2::xlab("Cluster") +
+      ggplot2::ylab("") +
+      ggplot2::ggtitle(category, subtitle = cond)
+  })
+  names(plots) <- c(as.character(c1), as.character(c0))
+  plots
+}
+
+.pathway_score_rows <- function(summary_rows, gseares) {
+  if (is.null(summary_rows) || !nrow(summary_rows) || is.null(gseares)) return(NULL)
+  gseares <- as.data.frame(gseares, stringsAsFactors = FALSE)
+  if (!"pathway" %in% colnames(gseares) || !"leadingEdge" %in% colnames(gseares)) return(NULL)
+  ids <- as.character(summary_rows$pathway_id)
+  hit <- match(ids, as.character(gseares$pathway))
+  genes <- lapply(seq_along(ids), function(i) {
+    if (is.na(hit[[i]])) return(character())
+    .leading_edge_genes(gseares$leadingEdge[hit[[i]]])
+  })
+  display <- as.character(summary_rows$pathway)
+  pos <- which(summary_rows$NES > 0)
+  neg <- which(summary_rows$NES <= 0)
+  if (length(pos)) pos <- pos[order(-summary_rows$NES[pos], ids[pos])]
+  if (length(neg)) neg <- neg[order(-summary_rows$NES[neg], ids[neg])]
+  ord <- c(pos, neg)
+  data.frame(
+    pathway_id = ids[ord],
+    pathway = display[ord],
+    NES = summary_rows$NES[ord],
+    padj = summary_rows$padj[ord],
+    genes = I(genes[ord]),
+    stringsAsFactors = FALSE
+  )
+}
+
+.pathway_simple_samples <- function(sample_metadata, colnames_de, c0, c1) {
+  md <- as.data.frame(sample_metadata, stringsAsFactors = FALSE)
+  if (!"Code" %in% colnames(md) || !"Condition" %in% colnames(md)) return(NULL)
+  md$Code <- as.character(md$Code)
+  md$.row_id <- seq_len(nrow(md))
+  md <- md[md$Condition %in% c(as.character(c0), as.character(c1)), , drop = FALSE]
+  if (!nrow(md)) return(NULL)
+  count_col <- vapply(
+    md$Code, .design_heatmap_count_col, character(1), colnames_de = colnames_de
+  )
+  keep <- !is.na(count_col)
+  md <- md[keep, , drop = FALSE]
+  count_col <- count_col[keep]
+  if (!nrow(md)) return(NULL)
+  md$Condition <- factor(as.character(md$Condition), levels = c(as.character(c1), as.character(c0)))
+  ord <- order(md$Condition, md$.row_id)
+  md <- md[ord, , drop = FALSE]
+  md$.count_col <- unname(count_col[ord])
+  md
+}
+
+.pathway_leading_edge_matrix <- function(rows, de_table, count_cols) {
+  scores <- lapply(seq_len(nrow(rows)), function(i) {
+    genes <- .leading_edge_genes(rows$genes[i])
+    genes <- genes[genes %in% de_table$gene_symbol]
+    if (!length(genes)) return(rep(NA_real_, length(count_cols)))
+    sub <- de_table[match(genes, de_table$gene_symbol), count_cols, drop = FALSE]
+    mat <- as.matrix(sub)
+    storage.mode(mat) <- "numeric"
+    colMeans(log1p(mat), na.rm = TRUE)
+  })
+  mat <- do.call(rbind, scores)
+  rownames(mat) <- make.unique(gsub("\n", " ", rows$pathway, fixed = TRUE))
+  keep <- rowSums(is.finite(mat)) > 0
+  if (!any(keep)) return(NULL)
+  mat <- mat[keep, , drop = FALSE]
+  rows <- rows[keep, , drop = FALSE]
+  mat <- t(scale(t(mat)))
+  mat[!is.finite(mat)] <- 0
+  mat[mat > 5] <- 5
+  mat[mat < -5] <- -5
+  list(mat = mat, rows = rows)
+}
+
+.pathway_leading_edge_heatmap <- function(rows,
+                                          de_table,
+                                          sample_metadata,
+                                          formula,
+                                          contrast,
+                                          c0,
+                                          c1,
+                                          label,
+                                          cluster,
+                                          category) {
+  if (is.null(rows) || !nrow(rows) || is.null(de_table) || !nrow(de_table)) return(NULL)
+  if (!"gene_symbol" %in% colnames(de_table)) return(NULL)
+  complex_design <- .design_heatmap_is_complex(formula)
+  if (complex_design) {
+    md <- .design_heatmap_order_samples(sample_metadata, formula, colnames(de_table))
+  } else {
+    md <- .pathway_simple_samples(sample_metadata, colnames(de_table), c0, c1)
+  }
+  if (is.null(md) || !nrow(md)) return(NULL)
+  built <- .pathway_leading_edge_matrix(rows, de_table, md$.count_col)
+  if (is.null(built)) return(NULL)
+  mat <- built$mat
+  rows <- built$rows
+  ann_vars <- if (complex_design) {
+    sort_vars <- .design_heatmap_sort_vars(formula)
+    sort_vars[sort_vars %in% colnames(md)]
+  } else {
+    character()
+  }
+  labels <- .design_heatmap_axis_labels(md$Code, md, ann_vars)
+  colnames(mat) <- labels
+  nes <- rows$NES
+  nes_lim <- max(abs(nes), na.rm = TRUE)
+  if (!is.finite(nes_lim) || nes_lim == 0) nes_lim <- 1
+  nes_col <- circlize::colorRamp2(
+    c(-nes_lim, 0, nes_lim),
+    c("#2166AC", "white", "#B2182B")
+  )
+  row_ha <- ComplexHeatmap::rowAnnotation(
+    NES = nes,
+    col = list(NES = nes_col),
+    annotation_name_side = "bottom",
+    show_legend = TRUE,
+    annotation_legend_param = list(NES = list(title = "NES"))
+  )
+  top_ha <- NULL
+  column_split <- NULL
+  if (complex_design && length(ann_vars)) {
+    ann_df <- as.data.frame(md[, ann_vars, drop = FALSE], stringsAsFactors = FALSE)
+    rownames(ann_df) <- labels
+    top_ha <- ComplexHeatmap::HeatmapAnnotation(
+      df = ann_df,
+      col = .design_heatmap_annotation_colors(md, ann_vars),
+      annotation_name_side = "left",
+      show_legend = TRUE
+    )
+  } else {
+    column_split <- md$Condition
+  }
+  sgn <- sign(nes)
+  row_split <- factor(sgn, levels = intersect(c(1, -1), unique(sgn)))
+  contrast <- as.character(contrast)[1]
+  if (is.na(contrast) || !nzchar(contrast)) contrast <- "(not set)"
+  title <- paste(
+    c(
+      paste0(category, " | ", cluster),
+      label,
+      paste0("formula: ", as.character(formula)[1]),
+      paste0("contrast: ", contrast)
+    ),
+    collapse = "\n"
+  )
+  ht <- ComplexHeatmap::Heatmap(
+    mat,
+    name = "Scaled\nleading-edge\nmean",
+    col = circlize::colorRamp2(c(-5, 0, 5), c("#2166AC", "white", "#B2182B")),
+    cluster_columns = FALSE,
+    cluster_rows = FALSE,
+    cluster_column_slices = FALSE,
+    cluster_row_slices = FALSE,
+    column_split = column_split,
+    show_column_names = TRUE,
+    column_names_rot = 45,
+    column_names_gp = grid::gpar(fontsize = 8),
+    show_row_names = TRUE,
+    row_names_gp = grid::gpar(fontsize = 7),
+    row_split = row_split,
+    row_title = NULL,
+    left_annotation = row_ha,
+    top_annotation = top_ha,
+    border = TRUE,
+    column_title = title,
+    column_title_gp = grid::gpar(fontsize = 10, fontface = "bold")
+  )
+  lead_show <- vapply(rows$genes, function(genes) {
+    genes <- genes[!is.na(genes) & nzchar(genes)]
+    if (!length(genes)) return("")
+    shown <- utils::head(genes, 8)
+    out <- paste(shown, collapse = "/")
+    if (length(genes) > 8L) out <- paste0(out, "/...")
+    out
+  }, character(1))
+  table <- data.frame(
+    pathway = gsub("\n", " ", rows$pathway, fixed = TRUE),
+    NES = rows$NES,
+    padj = rows$padj,
+    leading_edge = lead_show,
+    stringsAsFactors = FALSE
+  )
+  list(heatmap = ht, table = table)
+}
+
 #' GSEA analysis for cross condition DE analysis
 #'
 #' This function is a modular component of the scRNAseq pipeline. Perform GSEA analysis via the FGSEA package on the results of differential expression (DE) analysis for cross-condition comparison. Multiple conditions are supported. Plots and tables are saved.
@@ -3217,8 +3814,9 @@ preppathways_pathwayanalysis_crosscondition_module <- function(species,
 #' @param cp.font.size numeric. size of pathway name test in summary plots. larger than 5 will likely result in name overlap and unreadable plots, currently not easy to solve
 #'
 #' @return A list with `pathway_results` (flat data.frame), `pathwaysummplots_comps`
-#'   (summary plots per comparison), and `pathway_cluster_plots` (nested gseares/dotplot
-#'   objects per cluster for HTML reporting; not a tabular API).
+#'   (one summary dot plot per category, or `NULL`), `pathway_score_heatmaps`
+#'   (leading-edge mean heatmaps per category per cluster), and
+#'   `pathway_cluster_plots` (nested gseares objects per cluster).
 #' @export
 #'
 #' @examples
@@ -3256,8 +3854,9 @@ pathwayanalysis_crosscondition_module <- function(de_results,
                                                   workernum,
                                                   outdir_int,
                                                   cp.font.size,
-                                                  saving_algorithm = "RDS",
-                                                  nthreads = 1L
+                                                  saving_algorithm = "qs2",
+                                                  nthreads = 1L,
+                                                  legacy = FALSE
 ){
   
   
@@ -3472,6 +4071,7 @@ pathwayanalysis_crosscondition_module <- function(de_results,
           gseares_plot <- rbind( head( gseares_plot[gseares_plot$NES>0,,drop=F], 10) ,
                                  tail( gseares_plot[gseares_plot$NES<0,,drop=F], 10) )
           
+          gseares_plot$pathway_id <- as.character(gseares_plot$pathway)
           #make pathway names more readable by using spaces instead of underscores
           gseares_plot$pathway <- gsub(gseares_plot$pathway, pattern = '_', replacement = ' ')
           
@@ -3593,9 +4193,8 @@ pathwayanalysis_crosscondition_module <- function(de_results,
           if(is.null(pwayres_DE_across_conditions_per_cluster)){return()}
           
           gseares <- pwayres_DE_across_conditions_per_cluster$gseares
-          dp <- pwayres_DE_across_conditions_per_cluster$dp
           
-          #save PDFs and CSVs
+          #save CSVs
           
           subcatout_clustdir <- paste0(subcatout, '/', clust, '/')
           
@@ -3609,16 +4208,16 @@ pathwayanalysis_crosscondition_module <- function(de_results,
           gseares$leadingEdge <- sapply(gseares$leadingEdge, function(x){ paste(x, collapse = '/') })
           
           write.csv(gseares, subcatout_clustdir_gseares, quote = F, row.names = F)
-          
-          
-          subcatout_clustdir_dp <- paste0(subcatout_clustdir, '/dotplot_toppathways.pdf')
-          
-          pdf(subcatout_clustdir_dp)
-          print( dp )
-          
-          while (!is.null(dev.list()))  dev.off()
-          
-          
+
+          if (isTRUE(legacy)) {
+            dp <- pwayres_DE_across_conditions_per_cluster$dp
+            if (!is.null(dp)) {
+              dot_pdf <- paste0(subcatout_clustdir, "/dotplot_toppathways.pdf")
+              grDevices::pdf(dot_pdf)
+              print(dp)
+              while (!is.null(grDevices::dev.list())) grDevices::dev.off()
+            }
+          }
           
           nrow(gseares)
           
@@ -3681,126 +4280,94 @@ pathwayanalysis_crosscondition_module <- function(de_results,
     lab <- comps$label[compidx]
     
     
-    ### extract the table from all categories
-    
-    cat_cpres_list <- lapply(pathway_analysis_mainlist, function(pwaycatlist){
-      
-      #in each cluster:
-      # get the tables from each up/dn
-      
-      # use cluster index, we need the cluster name
-      
-      clust_cpres <- lapply(seq_along(pwaycatlist), function(clustidx){
-        
-        clustname <- names(pwaycatlist)[clustidx]
-        pwayres_DE_across_conditions_per_cluster <- pwaycatlist[[clustidx]]
-        
-        #use the dotplot data for the table
-        gseares_plot <- pwayres_DE_across_conditions_per_cluster$dp$data
-        
-        gseares_plot$cluster = clustname
-        gseares_plot$condition = c1
-        gseares_plot[sign(gseares_plot$NES) == -1, "condition"] = c0
-        
-        return(gseares_plot)
-        
-        
-      })
-      
-      dplyr::bind_rows(clust_cpres)
-      
-    })
-    
-    
-    #loop thru each category's result data.frame, splitting c1 and c0, and plotting
-    
-    # Use seq_along() so empty categories yield an empty result instead of 1:0 indexing.
-    summplots_cats <- lapply(seq_along(cat_cpres_list), function(catdex){
-      
-      cpres_cat <- cat_cpres_list[[catdex]]
-      catname <- names(cat_cpres_list)[catdex]
-      
-      
-      #make plots for c1 and c0 direction
-      # some categories have no pathways significant for condition, just return null
-      
-      summplots_conds <- lapply( c(c1, c0) , function(cond){
-        
-        #get result tbale for this condition
-        cpres_cat_cond <- cpres_cat[cpres_cat$condition == cond,,drop=F]
-        
-        #if no conditions, it will haev nrow=0 so just return null
-        if(nrow(cpres_cat_cond) == 0){ return() }
-        
-        # subselect categories if more than 30 total, use just top 5 per pathway
-        if(nrow(cpres_cat_cond) > 30){
-          #select the ones to pick
-          cpres_cat_cond_sub <- cpres_cat_cond %>%
-            group_by(cluster) %>%
-            top_n(n=5, wt = -log10(padj)) %>%
-            top_n(n=5, wt = abs(NES)) %>%
-            as.data.frame()
-          
-          #get them, doing it this way allows viewing shared pathways
-          cpres_cat_cond <- cpres_cat_cond[cpres_cat_cond$pathway %in% cpres_cat_cond_sub$pathway,]
-          
+    formula_i <- if ("formula" %in% colnames(de_results)) {
+      unique(as.character(de_results$formula[de_results$label == lab]))[1]
+    } else {
+      "~ Condition"
+    }
+    contrast_i <- if ("contrast" %in% colnames(de_results)) {
+      unique(as.character(de_results$contrast[de_results$label == lab]))[1]
+    } else {
+      ""
+    }
+    if (is.na(contrast_i) || !nzchar(contrast_i)) contrast_i <- "(not set)"
+    subtitle <- paste(
+      lab,
+      paste0("formula: ", formula_i),
+      paste0("contrast: ", contrast_i),
+      sep = "\n"
+    )
+
+    summplots_cats <- list()
+    score_heats <- list()
+    for (catname in names(pathway_analysis_mainlist)) {
+      plot_table <- .pathway_category_plot_table(pathway_analysis_mainlist[[catname]])
+      if (isTRUE(legacy)) {
+        summplots_cats[[catname]] <- .pathway_summary_legacy_plots(
+          plot_table, catname, c0, c1, cp.font.size
+        )
+        score_heats[[catname]] <- list()
+        next
+      }
+      kept <- .pathway_summary_keep(plot_table)
+      summplots_cats[[catname]] <- .pathway_summary_dotplot(kept, catname, subtitle)
+      cluster_heats <- list()
+      if (!is.null(kept) && nrow(kept)) {
+        for (cl in unique(as.character(kept$cluster))) {
+          rows <- kept[as.character(kept$cluster) == cl, , drop = FALSE]
+          entry <- pathway_analysis_mainlist[[catname]][[cl]]
+          de_sub <- de_results[de_results$label == lab & de_results$cluster == cl, , drop = FALSE]
+          cluster_heats[[cl]] <- .pathway_leading_edge_heatmap(
+            rows = .pathway_score_rows(rows, entry$gseares),
+            de_table = de_sub,
+            sample_metadata = sample_metadata,
+            formula = formula_i,
+            contrast = contrast_i,
+            c0 = c0,
+            c1 = c1,
+            label = lab,
+            cluster = cl,
+            category = catname
+          )
         }
-        
-        
-        #make sure orders are proper
-        # for clusters:
-        cpres_cat_cond$cluster <- factor(cpres_cat_cond$cluster, levels = unique(cpres_cat_cond$cluster))
-        
-        
-        #for pathways
-        cpres_cat_cond$pathway <- factor(cpres_cat_cond$pathway, levels = rev(unique(cpres_cat_cond$pathway)))
-        
-        
-        ggplot(cpres_cat_cond, aes(x=cluster, y=pathway ,size = -log10(padj), col = NES))+
-          geom_point()+
-          theme_linedraw()+
-          theme(axis.text=element_text(size=cp.font.size),
-                axis.text.x = element_text(angle = 45, vjust = 1, hjust=1) )+
-          scale_color_gradient2(low = 'steelblue', high = 'red', mid = 'white', midpoint = 0, name = 'Normalized\nEnrichment\nScore')+
-          scale_size(range=c(2,6), name = '-log10(padj)')+
-          xlab('Cluster')+ylab('')+
-          ggtitle(catname, subtitle = cond)
-        
-        
-      }) # close cross-condition loop for summary plots
-      
-      names(summplots_conds) <- c(c1, c0)
-      
-      summplots_conds
-      
-      
-    })
-    
-    
-    names(summplots_cats) <- names(cat_cpres_list)
-    
-    
-    
-    #print them to pdfs...
-    
+      }
+      score_heats[[catname]] <- cluster_heats
+    }
+
     pwayoutdir <- paste0(outdir_int, '/pathwayanalysis_crosscondition/', lab, '/')
-    
-    
     summarypdf <- paste0(pwayoutdir, '/SummaryDotPlots.pdf')
-    pdf(summarypdf, width = 7, height = 7)
-    
-    print(summplots_cats)
-    
-    while (!is.null(dev.list()))  dev.off()
-    
-    return(summplots_cats)
+    pdf(summarypdf, width = 8, height = 8)
+    for (p in summplots_cats) {
+      if (isTRUE(legacy)) {
+        for (one in p) if (!is.null(one)) print(one)
+      } else if (!is.null(p)) {
+        print(p)
+      }
+    }
+    while (!is.null(dev.list())) dev.off()
+
+    if (!isTRUE(legacy)) {
+      heatpdf <- paste0(pwayoutdir, '/LeadingEdgeMeanHeatmaps.pdf')
+      pdf(heatpdf, width = 11, height = 8)
+      for (cat_heats in score_heats) {
+        for (one in cat_heats) {
+          if (!is.null(one)) print(one$heatmap)
+        }
+      }
+      while (!is.null(dev.list())) dev.off()
+    }
+
+    return(list(summary = summplots_cats, heatmaps = score_heats))
     
     
     
   }) # close summary plot across conditons loop
   
   
+  pathway_score_heatmaps <- lapply(pathwaysummplots_comps, `[[`, "heatmaps")
+  pathwaysummplots_comps <- lapply(pathwaysummplots_comps, `[[`, "summary")
   names(pathwaysummplots_comps) <- comps$labels
+  names(pathway_score_heatmaps) <- comps$labels
   
   
   
@@ -3814,6 +4381,7 @@ pathwayanalysis_crosscondition_module <- function(de_results,
     de_results = de_results,
     pathway_results = pathway_results,
     pathwaysummplots_comps = pathwaysummplots_comps,
+    pathway_score_heatmaps = pathway_score_heatmaps,
     pathway_cluster_plots = pathway_analysis_mainlist_comps
   )
   
@@ -3848,12 +4416,46 @@ pathwayanalysis_crosscondition_module <- function(de_results,
   pways_output_list <- list(
     pathway_results = pathway_results,
     pathwaysummplots_comps = pathwaysummplots_comps,
+    pathway_score_heatmaps = pathway_score_heatmaps,
     pathway_cluster_plots = pathway_analysis_mainlist_comps
   )
 
   return(pways_output_list)
   
   
+}
+
+#' Legacy cross-condition GSEA plots
+#'
+#' Runs the same fgsea fit as \code{pathwayanalysis_crosscondition_module()}
+#' and restores the previous figures: a separate summary dot plot for positive
+#' and negative NES, plus a per-cluster \code{dotplot_toppathways.pdf}.
+#' Leading-edge mean heatmaps are not written.
+#'
+#' \code{pathwaysummplots_comps[[label]][[category]]} is a list of two ggplots
+#' named \code{c1} and \code{c0}. Either element is \code{NULL} when that
+#' direction has no pathways.
+#'
+#' @inheritParams pathwayanalysis_crosscondition_module
+#' @return The same list as \code{pathwayanalysis_crosscondition_module()},
+#'   with the legacy summary-plot shape and empty
+#'   \code{pathway_score_heatmaps} entries.
+#' @export
+pathwayanalysis_crosscondition_legacy <- function(de_results,
+                                                  pathways,
+                                                  sample_metadata,
+                                                  comps,
+                                                  pathway_padj_thres,
+                                                  pwaycats,
+                                                  workernum,
+                                                  outdir_int,
+                                                  cp.font.size,
+                                                  saving_algorithm = "qs2",
+                                                  nthreads = 1L) {
+  cl <- match.call()
+  cl[[1L]] <- quote(pathwayanalysis_crosscondition_module)
+  cl$legacy <- TRUE
+  eval(cl, parent.frame())
 }
 
 
@@ -3922,7 +4524,7 @@ ORA_crosscondition_module <- function(de_results,
                                       pwaycats,
                                       workernum,
                                       outdir_int,
-                                      saving_algorithm = "RDS",
+                                      saving_algorithm = "qs2",
                                       nthreads = 1L
 ){
   

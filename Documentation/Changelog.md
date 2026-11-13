@@ -3,9 +3,9 @@
 For all changes, please update changelog and use Year-Month-Day
 
 ## 2.0.0
-2026.11.05
+2026.11.13
 
-- `saving_algorithm` selects `RDS` (default) or `qs2` for pipeline object files. `qs2` saves large objects faster. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.
+- `saving_algorithm` selects `qs2` (default) or `RDS` for pipeline object files. `qs2` saves large objects faster. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.
 - The HTML report Run time section lists wall-clock time for each code chunk in the order it ran, then the total hours for the whole report.
 - Multi-backend integration via `integration_method` (RISC default, plus Seurat CCA/RPCA/Harmony and SCT variants); integrated RISC assay renamed to `Integrated_RISC`.
 - Cluster-stability auto-tuning: `pcs_int` / `res_int` can be `"auto"` (bootstrap ARI + Jaccard) before the final integration.
@@ -19,6 +19,10 @@ For all changes, please update changelog and use Year-Month-Day
 - RISC reference default `"autoV2"` (InPlot-equivalent rank with KS veto); chosen sample is frozen for the stability sweep and final integration (`"auto"` / `"autoV1"` keeps the legacy heuristic).
 - Propeller multivariable/interaction tables stay one row per cluster; preflight also checks the propeller design and pairing.
 - Combined per-sample cluster-marker and MSigDB cell-type ORA CSVs (`all_samples_clustermarkers.csv`, `all_samples_ora_results.csv`).
+- Optional Milo neighbourhood differential abundance (`run_MILO`, `milo_k`, `milo_k_max`). Saved under `multisample_integration/differential_abundance_Milo/`. The report shows the top 20 significant neighbourhoods. Paired formulas use Milo's mixed model with `force = TRUE`, and drop `(1|var)` with a warning if that fit fails or the contrast is not the last fixed coefficient.
+- DE report figures for every design, including plain `~ Condition`: one pseudobulk heatmap per cluster (columns are samples, annotations are the formula variables), and a second heatmap only when that cluster has more than 50 significant genes. The per-cluster dot plot puts genes on the Y axis and samples on the X axis. The old c1-versus-c0 split heatmap and the comparison-wide pooled dot plot are removed.
+- Pathway report: one summary dot plot with positive and negative NES together, plus a leading-edge mean heatmap per cluster using the same sample annotations. `pathwayanalysis_crosscondition_legacy()` keeps the previous up/down plots.
+- `subset_module()` subsets an integrated object, reclusters, then runs composition, DE, GSEA, optional Milo, and writes `subset_module_report.html`. RISC re-embeds `Integrated_RISC` and can bootstrap PCs and resolution. Harmony, CCA, RPCA, and SCT re-integrate.
 
 ## 1.3.1
 2025.05.14

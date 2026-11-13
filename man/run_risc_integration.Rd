@@ -14,7 +14,8 @@ run_risc_integration(
   frozen_risc_reference = NULL,
   risc_reference_selection = NULL,
   workernum = 1L,
-  RISC_louvain_neighbors = 10L
+  RISC_louvain_neighbors = 10L,
+  saving_algorithm = "qs2"
 )
 }
 \arguments{
@@ -37,7 +38,7 @@ when set, this sample is used and is not re-selected.}
 \item{risc_reference_selection}{Optional list from \code{.risc_resolve_reference()}
 (reused for the report when the sweep already selected a reference).}
 
-\item{workernum}{Parallel workers.}
+\item{workernum}{Parallel workers for \code{InPlot} and \code{scMultiIntegrate}.}
 
 \item{RISC_louvain_neighbors}{Nearest neighbors for Louvain clustering.}
 }

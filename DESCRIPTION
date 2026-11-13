@@ -27,7 +27,9 @@ Suggests:
     clusterProfiler,
     mclust,
     harmony,
-    variancePartition
+    variancePartition,
+    miloR,
+    SingleCellExperiment
 Imports: 
     tidyverse,
     Matrix,
@@ -48,6 +50,7 @@ Imports:
     glmGamPoi,
     fgsea,
     ComplexHeatmap,
+    circlize,
     DoubletFinder,
     ggplot2,
     gridExtra,

@@ -42,7 +42,9 @@ twt_colored_heatmap(
 \item{title}{optional string, panel title passed to ComplexHeatmap \code{column_title}}
 }
 \value{
-a ComplexHeatmap object
+a ComplexHeatmap object. Heatmap body width/height scale with the
+number of columns and rows (~5.5 mm per cell) so the matrix stays compact
+on large graphics devices.
 }
 \description{
 A two-way table plotter, starting from long-format (per-sample / per-cell data.frame). Column 1 is the x-axis (columns), while column 2 is the y-axis (rows) of the plot. Factorize to control order of the rows/columns (unless clustering is used).

@@ -23,7 +23,8 @@ auto_integration_cluster_params(
   risc_reference = "autoV2",
   RISC_louvain_neighbors = 10L,
   input_seurat_obj = FALSE,
-  verbose = TRUE
+  verbose = TRUE,
+  saving_algorithm = "qs2"
 )
 }
 \arguments{
@@ -53,7 +54,7 @@ auto_integration_cluster_params(
 
 \item{sweep_res}{Resolution grid when \code{res_int = "auto"}.}
 
-\item{workernum}{Pipeline workers (used for final RISC integration and RISC ncore when sweep is serial).}
+\item{workernum}{Pipeline workers. When the sweep is serial, this is the RISC \code{ncore}. When \code{stability_workernum > 1}, sweep workers pass \code{ncore = 1}.}
 
 \item{stability_workernum}{Parallel workers for sweep \code{foreach} stages; \code{NULL} uses \code{workernum}.}
 

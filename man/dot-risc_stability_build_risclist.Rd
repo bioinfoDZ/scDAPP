@@ -17,7 +17,7 @@
 )
 }
 \arguments{
-\item{risc_ncore}{Passed to \code{scMultiIntegrate}; per-sample parallel uses min(risc_ncore, n samples).}
+\item{risc_ncore}{Passed to \code{scMultiIntegrate}. Per-sample socket prep uses \code{min(risc_ncore, n samples)}.}
 }
 \description{
 Build RISC object list from mdlist (optionally cell subset)

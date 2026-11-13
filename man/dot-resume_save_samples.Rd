@@ -4,7 +4,15 @@
 \alias{.resume_save_samples}
 \title{Save per-sample Seurat objects + QC report state; mark samples OK.}
 \usage{
-.resume_save_samples(outdir, sobjlist, aflist, mdlist, fingerprint)
+.resume_save_samples(
+  outdir,
+  sobjlist,
+  aflist,
+  mdlist,
+  fingerprint,
+  saving_algorithm = "qs2",
+  nthreads = 1L
+)
 }
 \description{
 Save per-sample Seurat objects + QC report state; mark samples OK.

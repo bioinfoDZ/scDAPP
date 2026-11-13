@@ -1,0 +1,80 @@
+```{r milo-comp-head-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
+cat(sprintf("\n\n## %s\n\n", milo_lab))
+cat(sprintf(
+  "Comparison of %s (test, c1) versus %s (reference, c0), formula `%s`, contrast `%s`.\n\n",
+  one$c1, one$c0, one$formula, one$contrast
+))
+if (isTRUE(one$skipped)) {
+  cat(sprintf("This comparison was skipped: %s\n\n", one$skip_reason))
+} else if (one$pairing_status %in% c("fixed_fallback", "glmm") &&
+           !is.na(one$pairing_note) && nzchar(one$pairing_note)) {
+  cat(paste0(one$pairing_note, "\n\n"))
+}
+```
+
+```{r milo-comp-beeswarm-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE, fig.width=6.5, fig.height=5, eval=!isTRUE(one$skipped)}
+cat("\n\n### Beeswarm of neighborhood log fold changes\n\n")
+cat(sprintf(
+  "Each point is one neighborhood. The horizontal axis is the log fold change in cell abundance (positive means more cells in the test group). The vertical axis is the integrated cluster that contributes the most cells to that neighborhood. Neighborhoods with SpatialFDR below %s are colored by their log fold change: blue is a decrease and red is an increase. Neighborhoods above that cutoff are grey and are not on the color scale. Neighborhoods overlap, so a cluster can contain both enriched and depleted neighborhoods.\n\n",
+  milo_fdr_label
+))
+print(one$beeswarm)
+```
+
+```{r milo-comp-graph-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE, fig.width=6.5, fig.height=5, eval=!isTRUE(one$skipped)}
+cat("\n\n### Neighborhood graph on the integrated UMAP\n\n")
+cat(sprintf(
+  "Each node is a neighborhood, drawn on the integrated UMAP. Color is the log fold change. Neighborhoods with SpatialFDR above %s are drawn at a log fold change of zero so the significant regions stand out. Edges connect neighborhoods that share cells.\n\n",
+  milo_fdr_label
+))
+print(one$graph)
+```
+
+```{r milo-comp-ma-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE, fig.width=6.5, fig.height=5, eval=!isTRUE(one$skipped)}
+cat("\n\n### MA plot\n\n")
+cat(sprintf(
+  "Log fold change against the average abundance of the neighborhood. Red points are TRUE: SpatialFDR is below %s. Black points are FALSE: SpatialFDR is not below that cutoff. The grey dashed line is zero. The purple dashed line is the mean log fold change among the neighborhoods that are not significant. The points should sit in a cloud around zero. A strong diagonal trend means the fold changes are tracking how many cells each sample contributed, rather than a local abundance change.\n\n",
+  milo_fdr_label
+))
+print(one$ma)
+```
+
+```{r milo-comp-table-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE, eval=!isTRUE(one$skipped)}
+n_sig <- one$n_significant
+n_show <- if (is.null(one$da_top)) 0L else nrow(one$da_top)
+cat("\n\n### Significant neighborhoods\n\n")
+cat(sprintf(
+  "%s neighborhoods have SpatialFDR below %s. The table shows the %s most significant of those, ranked by SpatialFDR and then by absolute log fold change. `cluster` is the majority integrated cluster in that neighborhood, and `cluster_fraction` is the share of its cells that belong to that cluster. The full table, including neighborhoods that are not significant, is saved as `da_results.csv` in this comparison's folder. Only this top set is printed.\n\n",
+  n_sig, milo_fdr_label, n_show
+))
+if (n_show < 1L) {
+  cat("No neighborhood passed the SpatialFDR cutoff, so there is no table, alluvial plot, or two-way heatmap for this comparison.\n\n")
+} else {
+  show <- one$da_top[, c("Nhood", "cluster", "cluster_fraction", "logFC", "logCPM", "SpatialFDR"), drop = FALSE]
+  num_cols <- c("cluster_fraction", "logFC", "logCPM", "SpatialFDR")
+  show[, num_cols] <- round(show[, num_cols], 3)
+  print(knitr::kable(show))
+}
+```
+
+```{r milo-comp-summary-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE, eval=!isTRUE(one$skipped) && !is.null(one$da_top) && nrow(one$da_top) > 0}
+cat("\n\n### Significant neighborhoods per integrated cluster\n\n")
+cat("Counts below include every neighborhood with SpatialFDR below the cutoff, not only the top rows in the table. Enriched means a positive log fold change (more cells in the test group). Depleted means a negative log fold change. A cluster is listed even when none of its neighborhoods are significant.\n\n")
+print(knitr::kable(one$cluster_summary))
+```
+
+```{r milo-comp-alluvial-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE, fig.width=6.5, fig.height=5, eval=!isTRUE(one$skipped) && !is.null(one$alluvial)}
+cat("\n\n### Overlap of the top neighborhoods with integrated clusters\n\n")
+cat("These two plots use only the neighborhoods in the table above. The alluvial plot shows where those neighborhoods' cells sit among the integrated clusters, ordered by cluster number. The heatmap is the same overlap as cell counts, colored by the within-neighborhood proportion (each row sums to 1). A cell that belongs to more than one of these neighborhoods is counted once per neighborhood, so the flows can add up to more than the number of cells.\n\n")
+withCallingHandlers(
+  print(one$alluvial),
+  warning = function(w) {
+    cat(conditionMessage(w), "\n", file = stderr())
+    invokeRestart("muffleWarning")
+  }
+)
+```
+
+```{r milo-comp-twt-{{chunk_id}}, echo=FALSE, results='asis', warning=FALSE, message=FALSE, fig.width=6.5, fig.height=5, eval=!isTRUE(one$skipped) && !is.null(one$twt)}
+print(one$twt)
+```

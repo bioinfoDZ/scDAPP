@@ -4,7 +4,12 @@
 \alias{.risc_reference_selection_write}
 \title{Write RISC reference selection artifacts.}
 \usage{
-.risc_reference_selection_write(selection, dir)
+.risc_reference_selection_write(
+  selection,
+  dir,
+  saving_algorithm = "qs2",
+  nthreads = 1L
+)
 }
 \description{
 Write RISC reference selection artifacts.

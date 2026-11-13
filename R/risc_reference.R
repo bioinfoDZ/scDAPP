@@ -750,7 +750,7 @@
 .risc_reference_selection_write <- function(
     selection,
     dir,
-    saving_algorithm = "RDS",
+    saving_algorithm = "qs2",
     nthreads = 1L
 ) {
   if (is.null(dir) || !nzchar(as.character(dir)[1])) {
@@ -782,7 +782,7 @@
 
 #' Read RISC reference selection artifacts if present.
 #' @keywords internal
-.risc_reference_selection_read <- function(dir, saving_algorithm = "RDS") {
+.risc_reference_selection_read <- function(dir, saving_algorithm = "qs2") {
   fp <- tryCatch(
     find_scdapp_object(file.path(dir, "risc_reference_selection"), saving_algorithm),
     error = function(e) NA_character_
@@ -815,7 +815,7 @@
   .risc_reference_selection_write(
     sel,
     outdir,
-    saving_algorithm = if (is.null(backend$saving_algorithm)) "RDS" else backend$saving_algorithm
+    saving_algorithm = if (is.null(backend$saving_algorithm)) "qs2" else backend$saving_algorithm
   )
   if (isTRUE(verbose)) {
     message(

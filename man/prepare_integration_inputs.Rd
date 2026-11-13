@@ -10,7 +10,9 @@ prepare_integration_inputs(
   outdir_indi,
   datadir = NULL,
   outdir_int,
-  input_seurat_obj = FALSE
+  input_seurat_obj = FALSE,
+  saving_algorithm = "qs2",
+  nthreads = 1L
 )
 }
 \arguments{

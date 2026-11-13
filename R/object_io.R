@@ -4,10 +4,10 @@
 #' @param saving_algorithm \code{"RDS"} or \code{"qs2"}.
 #' @return \code{"RDS"} or \code{"qs2"}.
 #' @keywords internal
-normalize_saving_algorithm <- function(saving_algorithm = "RDS") {
+normalize_saving_algorithm <- function(saving_algorithm = "qs2") {
   if (is.null(saving_algorithm) || length(saving_algorithm) < 1L ||
       !nzchar(as.character(saving_algorithm)[1])) {
-    return("RDS")
+    return("qs2")
   }
   x <- tolower(trimws(as.character(saving_algorithm)[1]))
   if (x %in% c("rds", "saverds")) {
@@ -21,7 +21,7 @@ normalize_saving_algorithm <- function(saving_algorithm = "RDS") {
 
 #' File extension for a saving algorithm.
 #' @keywords internal
-scdapp_object_ext <- function(saving_algorithm = "RDS") {
+scdapp_object_ext <- function(saving_algorithm = "qs2") {
   if (identical(normalize_saving_algorithm(saving_algorithm), "qs2")) ".qs2" else ".rds"
 }
 
@@ -33,7 +33,7 @@ scdapp_object_ext <- function(saving_algorithm = "RDS") {
 #' @param saving_algorithm \code{"RDS"} or \code{"qs2"}.
 #' @return Character path.
 #' @export
-scdapp_object_path <- function(path, saving_algorithm = "RDS") {
+scdapp_object_path <- function(path, saving_algorithm = "qs2") {
   path <- as.character(path)[1]
   if (is.na(path) || !nzchar(path)) {
     stop("path is empty.", call. = FALSE)
@@ -51,7 +51,7 @@ scdapp_object_path <- function(path, saving_algorithm = "RDS") {
 #' @param saving_algorithm Preferred format when both files exist.
 #' @return Existing path.
 #' @export
-find_scdapp_object <- function(path, saving_algorithm = "RDS") {
+find_scdapp_object <- function(path, saving_algorithm = "qs2") {
   path <- as.character(path)[1]
   if (!is.na(path) && nzchar(path) && file.exists(path)) {
     return(path)
@@ -90,7 +90,7 @@ find_scdapp_object <- function(path, saving_algorithm = "RDS") {
 #'
 #' @param object Object to save.
 #' @param path Destination path. The extension follows \code{saving_algorithm}.
-#' @param saving_algorithm \code{"RDS"} (default) or \code{"qs2"}.
+#' @param saving_algorithm \code{"qs2"} (default) or \code{"RDS"}.
 #' @param compress_level qs2 zstd level. Ignored for RDS. Default 3.
 #' @param nthreads Threads for qs2 compression. Use 1 inside an existing
 #'   parallel worker. Ignored for RDS.
@@ -99,7 +99,7 @@ find_scdapp_object <- function(path, saving_algorithm = "RDS") {
 write_scdapp_object <- function(
     object,
     path,
-    saving_algorithm = "RDS",
+    saving_algorithm = "qs2",
     compress_level = 3L,
     nthreads = 1L
 ) {

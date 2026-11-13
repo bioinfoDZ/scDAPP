@@ -1,6 +1,6 @@
 # Installation
 
-If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
+If you run into any issues, you can check the [common bugs and fixes FAQ](CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
 **Optional packages (v2.0):** Some features need extra R packages not in `conda_env/2025scdapp.yml`. See [Optional packages (v2.0)](#optional-packages-v20) below and [Usage.md — Integration method dependencies](Usage.md#integration-method-dependencies).
 
@@ -112,7 +112,7 @@ Some packages (such as "XML") may already be present due to Conda, but cannot be
 
 It may not work with some packages causing errors. R packages can be installed manually from within R or from conda. If you used the conda virtual environment steps, many R packages are also available via conda (just google package name + "conda") which may be a lot easier than manual installation.
 
-If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
+If you run into any issues, you can check the [common bugs and fixes FAQ](CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
 
 ####  Test installation:
@@ -216,7 +216,7 @@ devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)
 
 # Development branch
 
-The [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch currently carries **scDAPP v2.0.0** (integration backends, cluster-stability auto-tuning, RISC autoV2 reference selection, MSigDB cache, and cross-condition API updates). See the [v2.0 Changelog](Changelog.md) and [Usage — Upgrading from v1.3](Usage.md#upgrading-from-v13).
+The [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch currently carries **scDAPP v2.0.0** (integration backends, cluster-stability auto-tuning, RISC autoV2 reference selection, MSigDB cache, cross-condition designs, Milo, and `subset_module()`). See the [v2.0 Changelog](Changelog.md) and [Usage — Upgrading from v1.3](Usage.md#upgrading-from-v13).
 
 Install from GitHub:
 

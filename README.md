@@ -1,6 +1,6 @@
 # Single cell Differential Analysis and Processing Pipeline (scDAPP)
 
-This package contains an automated pipeline for scRNA-seq that includes individual and integrated data analysis as well as comparative compositional analysis and DE analysis. **v2.0** supports multiple sample-integration backends via `integration_method` (default `RISC`; Seurat v5 CCA, RPCA, Harmony, and SCT variants also supported). See the [usage instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md) for integration options and parameters.
+This package contains an automated pipeline for scRNA-seq that includes individual and integrated data analysis as well as comparative compositional analysis and DE analysis. **v2.0** supports multiple sample-integration backends via `integration_method` (default `RISC`; Seurat v5 CCA, RPCA, Harmony, and SCT variants also supported). See the [usage instructions](Documentation/Usage.md) for integration options and parameters.
 
 
 ![](images/scDAPP_F1_overview.png)
@@ -14,7 +14,7 @@ This package contains an automated pipeline for scRNA-seq that includes individu
 
 This package relies on key dependencies including R >= 4.0, Seurat >= 5.0, and RISC >= 1.7. If you have those working then you should be able to install with minimal difficulty.
 
-For more details including installing on HPC and installing within a Conda environment, see the [detailed installation instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Installation.md).
+For more details including installing on HPC and installing within a Conda environment, see the [detailed installation instructions](Documentation/Installation.md).
 
 You can install this package and its dependencies from Github with:
 
@@ -23,7 +23,7 @@ You can install this package and its dependencies from Github with:
 devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)
 ```
 
-If you run into any issues, you can check the [common bugs and fixes FAQ](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
+If you run into any issues, you can check the [common bugs and fixes FAQ](Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
 
 
@@ -34,7 +34,7 @@ If you run into any issues, you can check the [common bugs and fixes FAQ](https:
 
 ## scRNA-seq pipeline quickstart usage
 
-For detailed input and usage instructions, please see the [usage instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md).
+For detailed input and usage instructions, please see the [usage instructions](Documentation/Usage.md).
 
 
 
@@ -119,7 +119,7 @@ Optional columns: `formula` (e.g. `~ Condition + Batch`), `contrast`, `label`. L
 
 The pipeline will take a fair amount of time and memory. A run with 11 samples took around 24 hours and ran successfully with an allocation of 150GB of memory. It is recommended to use a powerful computer or server such as an HPC system.
 
-Below is an example SLURM HPC submission script. Note fields you may want to edit related to cores, time and memory requests of the job. See the [usage instructions](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Usage.md) for resource requirement estimation for cores, memory, and time.
+Below is an example SLURM HPC submission script. Note fields you may want to edit related to cores, time and memory requests of the job. See the [usage instructions](Documentation/Usage.md) for resource requirement estimation for cores, memory, and time.
 - `cpus-per-task`: number of cores for parallelization. Set this equal to `workernum` in the pipeline_runner.R file.
 - `t`: the time you are requesting for the job.
 - `mem`: how much RAM the job should be given.
@@ -186,22 +186,48 @@ If you used scDAPP v1.3.x, note these **v2.0** breaking changes (full detail in 
 - **`comps.csv`:** use `c0` (reference) and `c1` (test); legacy `c2` is auto-renamed to `c0`.
 - **Integrated assay:** batch-corrected RISC expression is stored in Seurat assay **`Integrated_RISC`** (formerly `"RISC"`).
 - **MSigDB cache:** prepared pathway tables are cached under the user/R cache, not `multisample_integration/pathwayanalysis_crosscondition/msigdb_pathways.rds`.
-- **`cluster_unfiltered`:** default is `FALSE`; the `unfiltered_Seurat_objects/` folder and unfiltered Seurat RDS files are created only when set to `TRUE`.
-- **Module return types:** cross-condition modules return flat tables; see the Changelog if you call modules programmatically (the subclustering vignette is not yet fully updated).
+- **`cluster_unfiltered`:** default is `FALSE`; the `unfiltered_Seurat_objects/` folder and unfiltered Seurat object files are created only when set to `TRUE`.
+- **Module return types:** cross-condition modules return flat tables; see the Changelog if you call modules programmatically. Subclustering after the pipeline is [subset_module()](Documentation/downstream_postpipeline/Subclustering_and_ComparativeModule_Vignette.md).
 
 <br />
 
 ## Outputs and downstream
 
-A diagram showing the output files is shown below (the figure may not yet show all v2 folders such as `celltype_marker_prediction/`):
+A full run (RISC, automatic PC and resolution selection, label transfer, cell-type marker ORA, pseudobulk DE, and Milo) writes this folder. Per-sample files are not listed one by one.
 
-<img src="images/scDAPP_F3_outputs.png" width="300" height="350">
+```text
+outdir/
+├── pipeline_parameters.csv
+├── scRNAseq_clustering_integration.html
+├── .scdapp_resume/                         # fingerprint cache; delete to force a full rerun
+├── individualsample_analysis/
+│   ├── qualitycontrol_filtering/
+│   ├── processed_Seurat_objects/           # SeuratObject-{Sample}.qs2
+│   ├── individualsample_clustermarkers/
+│   ├── individualsample_plots/
+│   ├── celltype_marker_prediction/         # per-sample ORA + all_samples_ora_results.csv
+│   └── labeltransfer/
+└── multisample_integration/
+    ├── data_objects/                       # Seurat-object_integrated.qs2, RISC-object_integrated.qs2, integration_meta.qs2
+    ├── cluster_stability/                  # perparam_meanscores.csv, plots/
+    ├── integration_summaryplots/
+    ├── markergenes_intclusters/
+    ├── celltype_marker_prediction/
+    │   └── integrated/
+    ├── labeltransfer/
+    ├── compositional_proportion_analysis/
+    │   └── Propellertest/{label}/
+    ├── differentialexpression_crosscondition/   # all / significant / summary CSVs
+    │   └── plots/{label}.pdf
+    ├── pathwayanalysis_crosscondition/{label}/  # SummaryDotPlots.pdf, LeadingEdgeMeanHeatmaps.pdf, category/cluster tables
+    └── differential_abundance_Milo/{label}/     # da_results.csv, beeswarm, neighborhood graph, MA plot
+```
 
-
+`unfiltered_Seurat_objects/` is written only when `cluster_unfiltered = TRUE`. `overrepresentation_pathway_analysis/{label}/` is written only when `run_ORA = TRUE`. `cluster_stability/` is written only when `pcs_int` or `res_int` is `"auto"`. `differential_abundance_Milo/` is written only when `run_MILO = TRUE` and `Pseudobulk_mode = TRUE`. `labeltransfer/` is written only when `use_labeltransfer = TRUE`. Object files are `.qs2` by default; `saving_algorithm = "RDS"` writes `.rds` instead.
 
 The .HTML file contains a report summarizing all steps and results of the analysis. The folders contain information including plots, marker .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
 
-Assays and layers in the integrated Seurat object at `multisample_integration/data_objects/Seurat-object_integrated.rds` depend on `integration_method`:
+Assays and layers in the integrated Seurat object at `multisample_integration/data_objects/Seurat-object_integrated.qs2` depend on `integration_method`:
 
 **All methods**
 - **RNA** assay: `counts` = concatenated raw UMI counts from all samples (used for pseudobulk DE). `data` = log-normalized values from `NormalizeData()`.
@@ -209,17 +235,12 @@ Assays and layers in the integrated Seurat object at `multisample_integration/da
 
 **`integration_method = "RISC"`**
 - **Integrated_RISC** assay: `data` = batch-corrected log-normalized matrix from RISC; `counts` ≈ `expm1(data)`. Primary assay for plotting and Wilcox DE.
-- **RISC-object_integrated.rds** in the same folder holds the native RISC object.
+- **RISC-object_integrated.qs2** in the same folder holds the native RISC object.
 
 **Seurat integration methods** (`CCAIntegration`, `RPCAIntegration`, `HarmonyIntegration`, `*_SCT`)
 - Batch correction lives in **reductions** (not a merged expression assay). See [Usage — Integration assays and reductions](Documentation/Usage.md#integration-assays-and-reductions).
 
-**New v2 output folders**
-- `celltype_marker_prediction/` under individual and integrated analysis (MSigDB cell-type ORA; on by default).
-- `integrated_analysis/cluster_stability/` when `pcs_int` or `res_int` is `"auto"`.
-
-
-For downstream analysis tips including using aPEAR for network enrichment analysis, ShinyCell for making an exploratory analysis app, or strategies to re-run the DE analysis after calling celltypes or sub-clustering, see the [downstream instructions guide](https://github.com/bioinfoDZ/scDAPP/tree/main/Documentation/downstream_postpipeline).
+For downstream analysis tips including using aPEAR for network enrichment analysis, ShinyCell for making an exploratory analysis app, or strategies to re-run the DE analysis after calling celltypes or sub-clustering, see the [downstream instructions guide](Documentation/downstream_postpipeline/README.md).
 
 
 <br />
@@ -234,13 +255,13 @@ Please see [here](https://github.com/FerrenaAlexander/scDAPP_example_data) for a
 
 ## Common errors and fixes
 
-Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/CommonBugs.md).
+Please see [here](Documentation/CommonBugs.md).
 
 <br />
 
 ## Changelog
 
-Please see [here](https://github.com/bioinfoDZ/scDAPP/blob/main/Documentation/Changelog.md).
+Please see [here](Documentation/Changelog.md).
 
 <br />
 

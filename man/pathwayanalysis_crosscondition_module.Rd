@@ -13,7 +13,10 @@ pathwayanalysis_crosscondition_module(
   pwaycats,
   workernum,
   outdir_int,
-  cp.font.size
+  cp.font.size,
+  saving_algorithm = "qs2",
+  nthreads = 1L,
+  legacy = FALSE
 )
 }
 \arguments{
@@ -37,8 +40,9 @@ pathwayanalysis_crosscondition_module(
 }
 \value{
 A list with \code{pathway_results} (flat data.frame), \code{pathwaysummplots_comps}
-(summary plots per comparison), and \code{pathway_cluster_plots} (nested gseares/dotplot
-objects per cluster for HTML reporting; not a tabular API).
+(one summary dot plot per category, or \code{NULL}), \code{pathway_score_heatmaps}
+(leading-edge mean heatmaps per category per cluster), and
+\code{pathway_cluster_plots} (nested gseares objects per cluster).
 }
 \description{
 This function is a modular component of the scRNAseq pipeline. Perform GSEA analysis via the FGSEA package on the results of differential expression (DE) analysis for cross-condition comparison. Multiple conditions are supported. Plots and tables are saved.

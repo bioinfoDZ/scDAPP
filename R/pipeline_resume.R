@@ -9,7 +9,7 @@
   file.path(.resume_root(outdir), paste0(stage, ".ok"))
 }
 
-.resume_fingerprint_path <- function(outdir, saving_algorithm = "RDS") {
+.resume_fingerprint_path <- function(outdir, saving_algorithm = "qs2") {
   scdapp_object_path(
     file.path(.resume_root(outdir), "fingerprints"),
     saving_algorithm
@@ -20,7 +20,7 @@
   file.path(.resume_root(outdir), "samples")
 }
 
-.resume_qc_report_path <- function(outdir, saving_algorithm = "RDS") {
+.resume_qc_report_path <- function(outdir, saving_algorithm = "qs2") {
   scdapp_object_path(
     file.path(.resume_root(outdir), "qc_report_state"),
     saving_algorithm
@@ -200,7 +200,7 @@
 }
 
 #' @keywords internal
-.resume_read_fingerprints <- function(outdir, saving_algorithm = "RDS") {
+.resume_read_fingerprints <- function(outdir, saving_algorithm = "qs2") {
   fp <- .resume_fingerprint_path(outdir, saving_algorithm)
   if (!file.exists(fp)) {
     return(list())
@@ -209,7 +209,7 @@
 }
 
 #' @keywords internal
-.resume_write_fingerprints <- function(outdir, fingerprints, saving_algorithm = "RDS") {
+.resume_write_fingerprints <- function(outdir, fingerprints, saving_algorithm = "qs2") {
   dir.create(.resume_root(outdir), recursive = TRUE, showWarnings = FALSE)
   write_scdapp_object(
     fingerprints,
@@ -221,7 +221,7 @@
 
 #' Clear success markers from a stage through integration.
 #' @keywords internal
-.resume_invalidate_from <- function(outdir, stage, saving_algorithm = "RDS") {
+.resume_invalidate_from <- function(outdir, stage, saving_algorithm = "qs2") {
   for (st in .resume_downstream_stages(stage)) {
     mk <- .resume_marker_path(outdir, st)
     if (file.exists(mk)) {
@@ -237,7 +237,7 @@
 }
 
 #' @keywords internal
-.resume_mark_ok <- function(outdir, stage, fingerprint, saving_algorithm = "RDS") {
+.resume_mark_ok <- function(outdir, stage, fingerprint, saving_algorithm = "qs2") {
   dir.create(.resume_root(outdir), recursive = TRUE, showWarnings = FALSE)
   mk <- .resume_marker_path(outdir, stage)
   writeLines(fingerprint, mk)
@@ -267,7 +267,7 @@
 }
 
 #' @keywords internal
-.resume_samples_artifacts_ok <- function(outdir, sample_codes, saving_algorithm = "RDS") {
+.resume_samples_artifacts_ok <- function(outdir, sample_codes, saving_algorithm = "qs2") {
   sdir <- .resume_samples_dir(outdir)
   if (!dir.exists(sdir)) {
     return(FALSE)
@@ -283,7 +283,7 @@
 .resume_integration_artifacts_ok <- function(
     outdir_int,
     engine = "RISC",
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   objdir <- file.path(outdir_int, "data_objects")
   seu <- scdapp_object_path(file.path(objdir, "Seurat-object_integrated"), saving_algorithm)
@@ -310,7 +310,7 @@
     stability_outdir = NULL,
     outdir_int = NULL,
     engine = "RISC",
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   mk <- .resume_marker_path(outdir, stage)
   if (!file.exists(mk)) {
@@ -348,7 +348,7 @@
     aflist,
     mdlist,
     fingerprint,
-    saving_algorithm = "RDS",
+    saving_algorithm = "qs2",
     nthreads = 1L
 ) {
   sdir <- .resume_samples_dir(outdir)
@@ -378,7 +378,7 @@
 }
 
 #' @keywords internal
-.resume_load_samples <- function(outdir, sample_codes, saving_algorithm = "RDS", nthreads = 1L) {
+.resume_load_samples <- function(outdir, sample_codes, saving_algorithm = "qs2", nthreads = 1L) {
   sdir <- .resume_samples_dir(outdir)
   sobjlist <- lapply(sample_codes, function(code) {
     read_scdapp_object(
@@ -436,7 +436,7 @@
     outdir,
     tmpobjdir,
     sample_codes,
-    saving_algorithm = "RDS"
+    saving_algorithm = "qs2"
 ) {
   sdir <- .resume_samples_dir(outdir)
   dir.create(tmpobjdir, recursive = TRUE, showWarnings = FALSE)

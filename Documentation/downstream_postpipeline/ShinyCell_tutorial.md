@@ -17,25 +17,22 @@ Steps:
 
 ## 1. Inputs from pipeline: 
 
-From the pipeline, you will need the file `Seurat-object_integrated.rds`, which can be found below:
+From the pipeline, you will need the integrated Seurat object, `Seurat-object_integrated.qs2` by default (`saving_algorithm = "RDS"` writes `.rds` instead). It is here:
 
-```
+```text
 scDAPP_outdir/
-├── individualsample_analysis
-├── multisample_integration
-│   └── data_objects
-│       └── ** Seurat-object_integrated.rds **
+├── individualsample_analysis/
+├── multisample_integration/
+│   └── data_objects/
+│       └── Seurat-object_integrated.qs2
 ├── pipeline_parameters.csv
 └── scRNAseq_clustering_integration.html
 ```
 
+Read it with:
 
-
-
-Read in the seurat object:
-
-```
-seu <- readRDS("multisample_integration/data_objects/Seurat-object_integrated.rds")
+```r
+seu <- scDAPP::read_scdapp_object("multisample_integration/data_objects/Seurat-object_integrated.qs2")
 ```
 
 

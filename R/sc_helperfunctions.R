@@ -223,9 +223,14 @@ twt_colored_heatmap <- function(labelsdf,
   
   panel_title <- if (!is.null(title)) title else xaxis.title
 
-  cell_mm <- 5.5
-  hm_body_w <- grid::unit(max(ncol(twt_color), 1L) * cell_mm, "mm")
-  hm_body_h <- grid::unit(max(nrow(twt_color), 1L) * cell_mm, "mm")
+  # Grow cells when the matrix is small so a 2-column table fills the figure.
+  # Large matrices stay near the 5.5 mm cell size.
+  n_col <- max(ncol(twt_color), 1L)
+  n_row <- max(nrow(twt_color), 1L)
+  cell_w_mm <- max(5.5, min(28, 110 / n_col))
+  cell_h_mm <- max(5.5, min(28, 80 / n_row))
+  hm_body_w <- grid::unit(n_col * cell_w_mm, "mm")
+  hm_body_h <- grid::unit(n_row * cell_h_mm, "mm")
   
   twt_hm <- ComplexHeatmap::Heatmap(
     twt_color,
