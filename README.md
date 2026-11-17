@@ -1,13 +1,10 @@
 # Single cell Differential Analysis and Processing Pipeline (scDAPP)
 
-This package contains an automated pipeline for scRNA-seq that includes individual and integrated data analysis as well as comparative compositional analysis and DE analysis. **v2.0** supports multiple sample-integration backends via `integration_method` (default `RISC`; Seurat v5 CCA, RPCA, Harmony, and SCT variants also supported). See the [usage instructions](Documentation/Usage.md) for integration options and parameters.
-
+This package contains an automated pipeline for scRNA-seq that includes individual and integrated data analysis as well as comparative compositional analysis and DE analysis.
 
 ![](images/scDAPPv2_F1.png)
 
-
-
-<br />
+  
 
 
 ## Installation
@@ -18,35 +15,29 @@ For more details including installing on HPC and installing within a Conda envir
 
 You can install this package and its dependencies from Github with:
 
-``` r
+```r
 # install.packages("devtools")
 devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)
 ```
 
 If you run into any issues, you can check the [common bugs and fixes FAQ](Documentation/CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
-
-
-
-<br />
-<br />
+  
+  
 
 
 ## scRNA-seq pipeline quickstart usage
 
 For detailed input and usage instructions, please see the [usage instructions](Documentation/Usage.md).
 
-
-
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
 
 ![](images/scDAPPv2_F2.png)
 
+  
 
-<br />
 
 #### 1. Prepare inputs
-
 
 ##### Make a file called pipeline_runner.R containing the following:
 
@@ -77,8 +68,8 @@ scDAPP::scRNAseq_pipeline_runner(
 
 ```
 
-
 ##### Input 1: Prep the input gene expression data samples
+
 The main input is raw counts, either in the form of .h5 files or Seurat objects.
 
 If you want to input .h5 files (ie from Cellranger), datadir should have sub-folders, one per sample. The subfolder names should match the "Sample" column in `sample_metadata.csv`. Minimally, each sub-folder should contain a file called "filtered_feature_bc_matrix.h5" somewhere in the sub-folder, the pipeline will search for it.
@@ -98,7 +89,10 @@ SampleABC2,KO1,KO1_2
 SampleJKL1,KO2,KO2_1
 SampleJKL2,KO2,KO2_1
 ```
+
 Minimally, you just need Sample and Condition. Sample should match the folders containing h5 files (ie, cellranger output folders), or Seurat objects if `input_seurat_obj` is set to TRUE (ie SampleXYZ1.rds). The Code column is optional and allows you to give nicknames to the samples.
+
+In v2.0.0, we added the ability to model more sophisticated experimental designs, such as adjusting for confounders, studying interactions, and accounting for repeated sampling from patients. Please see the [Comparative Cookbook](Documentation/Comparative_Designs.md) for details.
 
 ##### Input 3: comps - tell the pipeline what comparisons to perform
 
@@ -113,13 +107,15 @@ KO1,KO2
 
 Optional columns: `formula` (e.g. `~ Condition + Batch`), `contrast`, `label`. Legacy `c1,c2` CSVs still work (`c2` is renamed to `c0`).
 
-<br />
+  
+
 
 ### 2. Execute pipeline_runner.R from unix shell command line
 
 The pipeline will take a fair amount of time and memory. A run with 11 samples took around 24 hours and ran successfully with an allocation of 150GB of memory. It is recommended to use a powerful computer or server such as an HPC system.
 
 Below is an example SLURM HPC submission script. Note fields you may want to edit related to cores, time and memory requests of the job. See the [usage instructions](Documentation/Usage.md) for resource requirement estimation for cores, memory, and time.
+
 - `cpus-per-task`: number of cores for parallelization. Set this equal to `workernum` in the pipeline_runner.R file.
 - `t`: the time you are requesting for the job.
 - `mem`: how much RAM the job should be given.
@@ -169,27 +165,28 @@ If you put the script above in a file called submit_scDAPP.sh, you can run it vi
 
 Note that this will create a file with extension ".Rout" with a log of the pipeline. The normal sbatch output log files will probably be empty. This is due to the way `R CMD BATCH` works.
 
-
 Alternatively, if your computer has high memory and can keep running for hours, you can execute from the Unix command line (bash, zsh) like so:
 
 ```
 nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 ```
 
-<br />
-<br />
+  
+  
+
 
 ## Upgrading from v1.3
 
 If you used scDAPP v1.3.x, note these **v2.0** breaking changes (full detail in [Usage — Upgrading from v1.3](Documentation/Usage.md#upgrading-from-v13) and the [Changelog](Documentation/Changelog.md)):
 
-- **`comps.csv`:** use `c0` (reference) and `c1` (test); legacy `c2` is auto-renamed to `c0`.
-- **Integrated assay:** batch-corrected RISC expression is stored in Seurat assay **`Integrated_RISC`** (formerly `"RISC"`).
+- `comps.csv`**:** use `c0` (reference) and `c1` (test); legacy `c2` is auto-renamed to `c0`.
+- **Integrated assay:** batch-corrected RISC expression is stored in Seurat assay `Integrated_RISC` (formerly `"RISC"`).
 - **MSigDB cache:** prepared pathway tables are cached under the user/R cache, not `multisample_integration/pathwayanalysis_crosscondition/msigdb_pathways.rds`.
-- **`cluster_unfiltered`:** default is `FALSE`; the `unfiltered_Seurat_objects/` folder and unfiltered Seurat object files are created only when set to `TRUE`.
+- `cluster_unfiltered`**:** default is `FALSE`; the `unfiltered_Seurat_objects/` folder and unfiltered Seurat object files are created only when set to `TRUE`.
 - **Module return types:** cross-condition modules return flat tables; see the Changelog if you call modules programmatically. Subclustering after the pipeline is [subset_module()](Documentation/downstream_postpipeline/Subclustering_and_ComparativeModule_Vignette.md).
 
-<br />
+  
+
 
 ## Outputs and downstream
 
@@ -230,40 +227,45 @@ The .HTML file contains a report summarizing all steps and results of the analys
 Assays and layers in the integrated Seurat object at `multisample_integration/data_objects/Seurat-object_integrated.qs2` depend on `integration_method`:
 
 **All methods**
+
 - **RNA** assay: `counts` = concatenated raw UMI counts from all samples (used for pseudobulk DE). `data` = log-normalized values from `NormalizeData()`.
 - **predictions** assay (optional): [label transfer](https://satijalab.org/seurat/articles/integration_mapping) scores when `use_labeltransfer = TRUE`.
 
-**`integration_method = "RISC"`**
+`integration_method = "RISC"`
+
 - **Integrated_RISC** assay: `data` = batch-corrected log-normalized matrix from RISC; `counts` ≈ `expm1(data)`. Primary assay for plotting and Wilcox DE.
 - **RISC-object_integrated.qs2** in the same folder holds the native RISC object.
 
 **Seurat integration methods** (`CCAIntegration`, `RPCAIntegration`, `HarmonyIntegration`, `*_SCT`)
+
 - Batch correction lives in **reductions** (not a merged expression assay). See [Usage — Integration assays and reductions](Documentation/Usage.md#integration-assays-and-reductions).
 
 For downstream analysis tips including using aPEAR for network enrichment analysis, ShinyCell for making an exploratory analysis app, or strategies to re-run the DE analysis after calling celltypes or sub-clustering, see the [downstream instructions guide](Documentation/downstream_postpipeline/README.md).
 
-
-<br />
-<br />
+  
+  
 
 
 ## Example Dataset
 
 Please see [here](https://github.com/FerrenaAlexander/scDAPP_example_data) for an example dataset.
 
-<br />
+  
+
 
 ## Common errors and fixes
 
 Please see [here](Documentation/CommonBugs.md).
 
-<br />
+  
+
 
 ## Changelog
 
 Please see [here](Documentation/Changelog.md).
 
-<br />
+  
+
 
 ## Citing scDAPP
 

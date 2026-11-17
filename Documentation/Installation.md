@@ -90,7 +90,7 @@ conda activate 2025scdapp
 R
 
 #to quit R, use: 
-# q('no') #remove hashtag in front to use this
+q('no') #remove hashtag in front to use this
 ```
 
 
@@ -100,7 +100,7 @@ R
 You can then install this package and its dependencies from Github with:
 
 ```
-# install.packages("devtools")
+#install.packages("devtools")
 devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)
 ```
 
