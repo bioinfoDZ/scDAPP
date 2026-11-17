@@ -2,10 +2,6 @@
 
 If you run into any issues, you can check the [common bugs and fixes FAQ](CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
-**Optional packages (v2.0):** [`conda_env/2026_scdappv2.yml`](../conda_env/2026_scdappv2.yml) includes the v2 feature packages that are published on conda. `RISC` and `DoubletFinder` are not on conda-forge or bioconda; `devtools::install_github()` still installs them. See [Optional packages (v2.0)](#optional-packages-v20) below and [Usage.md — Integration method dependencies](Usage.md#integration-method-dependencies).
-
-
-
 ### This guide
 
 The general steps for installation described by this guide are:
@@ -42,8 +38,11 @@ source <path/to/your/>conda.sh
 
 #### Note for Einstein HPC users:
 
-On Einstein HPC, I source my locally installed Conda like this. It will change for you depending on which folder you install Conda in:
-```source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/conda.sh```
+On Einstein HPC, conda can be sourced like this. It will change for you depending on which folder you install Conda in:
+
+```
+source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/conda.sh
+```
 
 
 I do not recommend using the pre-installed conda on HPC, but rather starting from fresh. To use pre-installed conda, simply do not source the newly installed conda.
@@ -60,10 +59,6 @@ I do not recommend using the pre-installed conda on HPC, but rather starting fro
 Navigate to yaml file: [conda_env/2026_scdappv2.yml](../conda_env/2026_scdappv2.yml)
 
 Then download or copy and paste it into a file on the server / HPC. You can click the file and click on the "overlapping boxes" to copy raw file contents then paste it as a file in your location.
-
-The file asks for R >= 4.5 and Seurat >= 5. Without those lower bounds, conda can select R 4.1 and Seurat 4, which scDAPP v2 cannot use.
-
-[`conda_env/2025scdapp.yml`](../conda_env/2025scdapp.yml) remains for existing environments. It does not include the v2 feature packages listed below.
 
 
 Create the environment using the .yml file:
@@ -127,102 +122,19 @@ Finally, if you did not get any errors during the package installation steps, yo
 scDAPP::r_package_test()
 ```
 
-`r_package_test()` attaches all pipeline libraries (including RISC) via `attach_scDAPP_pipeline_libraries()` and returns package versions.
-
-For scripts or interactive use without the version table:
-
-```r
-# Default pipeline (RISC integration)
-scDAPP::attach_scDAPP_pipeline_libraries(load_risc = TRUE)
-
-# Seurat-only integration smoke tests (no RISC attach)
-scDAPP::attach_scDAPP_pipeline_libraries(load_risc = FALSE)
-```
-
-By default, `attach_scDAPP_pipeline_libraries()` also calls `set_parallel_blas_threads()` (`configure_parallel = TRUE`) to limit BLAS threading during multi-core work via `RhpcBLASctl::blas_set_num_threads(1)`.
-
-If you created `2026_scdappv2`, **clusterProfiler** is already installed. Verify it with:
-
-```r
-requireNamespace("clusterProfiler", quietly = TRUE)
-```
-
-Bioconda currently ships the Bioconductor 3.22 build (clusterProfiler 4.18). Do not also run `BiocManager::install("clusterProfiler")` inside this env. R cannot upgrade a package that conda installed, the same way it cannot update XML (see above). The yaml does not pin an exact clusterProfiler version, so a later `conda env create` picks up a newer bioconda build when one is published.
-
-If you are not using `2026_scdappv2`, install the feature packages in R after the conda env and `devtools::install_github()`; see [Optional packages (v2.0)](#optional-packages-v20).
-
-You should see messages about packages being activated followed by a data.frame showing the key dependency packages and their versions such as below (version numbers do not need to match the example below, just make sure there are no errors when you run the command):
-```
-              pkg   vers
-1       tidyverse  2.0.0
-2          Seurat  5.0.2
-3       patchwork  1.2.0
-4        ggdendro  0.2.0
-5         foreach  1.5.2
-6         msigdbr  7.5.1
-7      ggalluvial 0.12.5
-8       ggfittext 0.10.2
-9         ggrepel  0.9.5
-10          hdf5r  1.3.9
-11          edgeR 4.0.16
-12      glmGamPoi 1.14.3
-13          fgsea 1.28.0
-14 ComplexHeatmap 2.18.0
-15  DoubletFinder  2.0.4
-16           RISC  1.7.0
-17         scDAPP  2.0.0
-```
+You should see messages about packages being activated followed by a data.frame showing the key dependency packages and their versions such as below. If any errors occur, it means something has gone wrong with one or more dependency packages.
 
 You may need to exit R (via `q('no')`) and reload and rerun this if it does not work immediately following installation.
 
-
-<br />
-
-## Optional packages (v2.0)
-
-`conda_env/2026_scdappv2.yml` installs these from conda-forge or bioconda:
-
-| Package | When needed | Conda package |
-|---------|-------------|----------------|
-| `harmony` | `integration_method = "HarmonyIntegration"` | `r-harmony` |
-| `mclust` | `pcs_int` or `res_int = "auto"` (cluster-stability ARI) | `r-mclust` |
-| `clusterProfiler` | `run_msigdb_celltype_ora = TRUE` (default) or `run_ORA = TRUE` | `bioconductor-clusterprofiler` |
-| `variancePartition` | `DE_test = "Dream"` | `bioconductor-variancepartition` |
-| `miloR` | `run_MILO = TRUE` and `Pseudobulk_mode = TRUE` | `bioconductor-milor` |
-| `SingleCellExperiment` | required by `miloR` | `bioconductor-singlecellexperiment` |
-| `DESeq2` | `DE_test` is `"DESeq2"` or `"DESeq2-LRT"` | `bioconductor-deseq2` |
-| `presto` | faster Wilcoxon tests when Seurat finds it | `r-presto` |
-
-`bioconductor-milor` is published for `linux-64` and `osx-64`. There is no Apple Silicon (`osx-arm64`) build. This conda file is the Linux HPC path.
-
-`RISC` and `DoubletFinder` are not on conda-forge or bioconda. `devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)` installs them from GitHub.
-
-If you skip conda, or you are still using `conda_env/2025scdapp.yml`, install the feature packages in R when you need them:
-
-| Package | Install |
-|---------|---------|
-| `harmony` | `install.packages("harmony")` |
-| `mclust` | `install.packages("mclust")` |
-| `clusterProfiler` | `if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager"); BiocManager::install("clusterProfiler")` |
-| `variancePartition` | `BiocManager::install("variancePartition")` |
-| `miloR` | `BiocManager::install("miloR")` |
-| `DESeq2` | `BiocManager::install("DESeq2")` |
-
-`presto` is a GitHub Suggest (`immunogenomics/presto`). `dependencies = TRUE` on the scDAPP install pulls it when that remote is available.
-
-See [Usage.md](Usage.md) for parameter details and [Upgrading from v1.3](Usage.md#upgrading-from-v13) if migrating from scDAPP v1.3.x.
-
-
-<br />
 <br />
 
 
 
-# If using Mac, start from here
+# Mac tips
 
-If using Mac, the conda virtual environment steps will likely not work. Instead, just skip the conda virtual environment steps and go directly to R. As long as you can get R >= v4.0, Seurat >= v5.0, and RISC >= v1.7 working, you should not have problems running the pipeline.
+If using Mac, the conda virtual environment steps may not work out of the box. As long as you can get R >= v4.0, Seurat >= v5.0, and RISC >= v1.7 working, you should not have problems running the pipeline.
 
-If on Mac then very likely, what you will need to do is install Apple Xcode from the app store, then open a terminal and run the following:
+If on Mac then very likely what you will need to do is install Apple Xcode from the app store, then open a terminal and run the following:
 - `xcode-select --install`
 - `sudo xcodebuild -license accept`
 
@@ -244,9 +156,7 @@ devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)
 
 # Development branch
 
-The [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch currently carries **scDAPP v2.0.0** (integration backends, cluster-stability auto-tuning, RISC autoV2 reference selection, MSigDB cache, cross-condition designs, Milo, and `subset_module()`). See the [v2.0 Changelog](Changelog.md) and [Usage — Upgrading from v1.3](Usage.md#upgrading-from-v13).
-
-Install from GitHub:
+The [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch carries new features and bug fixes. Install from GitHub:
 
 ```
 devtools::install_github("bioinfoDZ/scDAPP@dev", dependencies = TRUE)
