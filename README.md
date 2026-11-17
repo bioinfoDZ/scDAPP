@@ -227,12 +227,14 @@ Assays and layers in the integrated Seurat object at `multisample_integration/da
 
 - Batch correction lives in **reductions** (not a merged expression assay). See [Usage — Integration assays and reductions](Documentation/Usage.md#integration-assays-and-reductions).
 
+<br />
+
 ## Downstream analysis
 
 For downstream analysis tips including using aPEAR for network enrichment analysis, ShinyCell for making an exploratory analysis app, or strategies to re-run the DE analysis after calling celltypes or sub-clustering, see the [downstream instructions guide](Documentation/downstream_postpipeline/README.md).
 
 
-
+<br />
 
 
 ## Example Dataset
@@ -240,21 +242,21 @@ For downstream analysis tips including using aPEAR for network enrichment analys
 Please see [here](https://github.com/FerrenaAlexander/scDAPP_example_data) for an example dataset.
 
   
-
+<br />
 
 ## Common errors and fixes
 
 Please see [here](Documentation/CommonBugs.md).
 
   
-
+<br />
 
 ## Changelog
 
 Please see [here](Documentation/Changelog.md).
 
   
-
+<br />
 
 ## Citing scDAPP
 
