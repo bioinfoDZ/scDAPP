@@ -57,12 +57,12 @@ scDAPP::scRNAseq_pipeline_runner(
                refdatapath = 'path/to/reference/Seuratobject_SCTnormalized.rds',
                m_reference = 'path/to/reference/reference_FindAllMarkers.rds',
 
-               species = 'Mus musculus',
+               species = 'Homo sapiens', # this is for pathway analysis and celltype annotation; see msigdbr::msigdbr_species()
 
                # integration_method = 'RISC',  # or CCAIntegration, HarmonyIntegration, etc.
                # run_msigdb_celltype_ora = TRUE,  # requires clusterProfiler (default TRUE)
 
-               workernum = 1,
+               workernum = 1, # set to number of samples or less
                input_seurat_obj = F
                )
 
@@ -74,11 +74,11 @@ The main input is raw counts, either in the form of .h5 files or Seurat objects.
 
 If you want to input .h5 files (ie from Cellranger), datadir should have sub-folders, one per sample. The subfolder names should match the "Sample" column in `sample_metadata.csv`. Minimally, each sub-folder should contain a file called "filtered_feature_bc_matrix.h5" somewhere in the sub-folder, the pipeline will search for it.
 
-Or, if you want to input Seurat objects, datadir should be a folder with Seurat objects saved as .RDS files, one per sample. The names should match the pseudobulk metadata Sample column, ie "SampleXYZ1.rds", "SampleXYZ2.rds". Then you can set `input_seurat_obj` to TRUE. Note that this option provides flexibility and can be used to process pre-filtered samples, hashed/demultiplexed samples, published data not in h5 format, etc- as long as you can get it into a Seurat object. Also, note that this pipeline works with raw counts. The Seurat assay should be called "RNA" and the layer/slot should be set to "counts".
+Or, if you want to input Seurat objects, datadir should be a folder with Seurat objects saved as .RDS or .qs2 files, one per sample. The names should match the pseudobulk metadata Sample column, ie "SampleXYZ1.rds", "SampleXYZ2.rds". Then you can set `input_seurat_obj` to TRUE. The Seurat assay should be called "RNA" and the layer/slot should be set to "counts". Note that this option provides flexibility and can be used to process pre-filtered samples, hashed/demultiplexed samples, published data not in h5 format, data from PIPseq, etc- as long as you can get it into a Seurat object. Also, note that this pipeline works with raw counts. 
 
 ##### Input 2: `sample_metadata` - tell the pipeline what your samples are
 
-`sample_metadata.csv` tells the pipeline what the samples are, and which condition (ie genotype or experimental state) they are. It should be a csv file that looks like this:
+`sample_metadata.csv` tells the pipeline what the samples are, and which condition (ie genotype or experimental state) they are. It should be a .csv file that looks like this:
 
 ```
 Sample,Condition,Code
@@ -92,11 +92,11 @@ SampleJKL2,KO2,KO2_1
 
 Minimally, you just need Sample and Condition. Sample should match the folders containing h5 files (ie, cellranger output folders), or Seurat objects if `input_seurat_obj` is set to TRUE (ie SampleXYZ1.rds). The Code column is optional and allows you to give nicknames to the samples.
 
-In v2.0.0, we added the ability to model more sophisticated experimental designs, such as adjusting for confounders, studying interactions, and accounting for repeated sampling from patients. Please see the [Comparative Cookbook](Documentation/Comparative_Designs.md) for details.
+As of v2.0.0, you can also pass other biological or technical variables as additional columns, in order to account for these in comparative analysis, as defined by the `comps` file.
 
-##### Input 3: comps - tell the pipeline what comparisons to perform
+##### Input 3: `comps` - tell the pipeline what comparisons to perform
 
-`comps.csv` will tell the pipeline which cross-condition comparison(s) to perform, and it should be a file like this:
+`comps.csv` will tell the pipeline which cross-condition comparison(s) to perform, and minmally it should be a .csv file like this:
 
 ```
 c0,c1
@@ -105,9 +105,11 @@ Control,KO2
 KO1,KO2
 ```
 
-Optional columns: `formula` (e.g. `~ Condition + Batch`), `contrast`, `label`. Legacy `c1,c2` CSVs still work (`c2` is renamed to `c0`).
+Optional columns: `formula` (e.g. `~ Condition + Batch`), `contrast`, `label`.
 
-  
+In v2.0.0, we added the ability to model more sophisticated experimental designs, such as adjusting for confounders, studying interactions, and accounting for repeated sampling from patients. Please see the [Comparative Cookbook](Documentation/Comparative_Designs.md) for details.
+
+Legacy `c1,c2` CSVs still work as of v2.0 (the old`c2` is renamed to `c0`).
 
 
 ### 2. Execute pipeline_runner.R from unix shell command line
@@ -171,26 +173,10 @@ Alternatively, if your computer has high memory and can keep running for hours, 
 nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 ```
 
-  
-  
-
-
-## Upgrading from v1.3
-
-If you used scDAPP v1.3.x, note these **v2.0** breaking changes (full detail in [Usage — Upgrading from v1.3](Documentation/Usage.md#upgrading-from-v13) and the [Changelog](Documentation/Changelog.md)):
-
-- `comps.csv`**:** use `c0` (reference) and `c1` (test); legacy `c2` is auto-renamed to `c0`.
-- **Integrated assay:** batch-corrected RISC expression is stored in Seurat assay `Integrated_RISC` (formerly `"RISC"`).
-- **MSigDB cache:** prepared pathway tables are cached under the user/R cache, not `multisample_integration/pathwayanalysis_crosscondition/msigdb_pathways.rds`.
-- `cluster_unfiltered`**:** default is `FALSE`; the `unfiltered_Seurat_objects/` folder and unfiltered Seurat object files are created only when set to `TRUE`.
-- **Module return types:** cross-condition modules return flat tables; see the Changelog if you call modules programmatically. Subclustering after the pipeline is [subset_module()](Documentation/downstream_postpipeline/Subclustering_and_ComparativeModule_Vignette.md).
-
-  
-
 
 ## Outputs and downstream
 
-A full run (RISC, automatic PC and resolution selection, label transfer, cell-type marker ORA, pseudobulk DE, and Milo) writes this folder. Per-sample files are not listed one by one.
+A full run (RISC, automatic PC and resolution selection, label transfer, cell-type marker ORA, pseudobulk DE, and Milo) writes a folder with this structure.
 
 ```text
 outdir/
@@ -219,10 +205,11 @@ outdir/
     ├── pathwayanalysis_crosscondition/{label}/  # SummaryDotPlots.pdf, LeadingEdgeMeanHeatmaps.pdf, category/cluster tables
     └── differential_abundance_Milo/{label}/     # da_results.csv, beeswarm, neighborhood graph, MA plot
 ```
+The file "scRNAseq_clustering_integration.html" contains a report summarizing all steps and results of the analysis. The folders contain information including plots, result table .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
 
-`unfiltered_Seurat_objects/` is written only when `cluster_unfiltered = TRUE`. `overrepresentation_pathway_analysis/{label}/` is written only when `run_ORA = TRUE`. `cluster_stability/` is written only when `pcs_int` or `res_int` is `"auto"`. `differential_abundance_Milo/` is written only when `run_MILO = TRUE` and `Pseudobulk_mode = TRUE`. `labeltransfer/` is written only when `use_labeltransfer = TRUE`. Object files are `.qs2` by default; `saving_algorithm = "RDS"` writes `.rds` instead.
+Object files are `.qs2` by default; `saving_algorithm = "RDS"` writes `.rds` instead.
 
-The .HTML file contains a report summarizing all steps and results of the analysis. The folders contain information including plots, marker .csv files (which can be opened with Excel), and Seurat / RISC objects which can be used for downstream analysis.
+
 
 Assays and layers in the integrated Seurat object at `multisample_integration/data_objects/Seurat-object_integrated.qs2` depend on `integration_method`:
 
@@ -240,10 +227,12 @@ Assays and layers in the integrated Seurat object at `multisample_integration/da
 
 - Batch correction lives in **reductions** (not a merged expression assay). See [Usage — Integration assays and reductions](Documentation/Usage.md#integration-assays-and-reductions).
 
+## Downstream analysis
+
 For downstream analysis tips including using aPEAR for network enrichment analysis, ShinyCell for making an exploratory analysis app, or strategies to re-run the DE analysis after calling celltypes or sub-clustering, see the [downstream instructions guide](Documentation/downstream_postpipeline/README.md).
 
-  
-  
+
+
 
 
 ## Example Dataset
