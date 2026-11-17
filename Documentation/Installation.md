@@ -57,7 +57,7 @@ I do not recommend using the pre-installed conda on HPC, but rather starting fro
 
 
 ### 2. Create a conda environment using yaml file:
-Navigate to yaml file: https://github.com/bioinfoDZ/scDAPP/blob/main/conda_env/2025scdapp.yml
+Navigate to yaml file: [conda_env/2025scdapp.yml](../conda_env/2025scdapp.yml)
 
 Then download or copy and paste it into a file on the server / HPC. You can click the file and click on the "overlapping boxes" to copy raw file contents then paste it as a file in your location.
 

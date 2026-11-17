@@ -60,9 +60,10 @@ Default \code{"seurat_clusters"}.}
 \item{integration_method}{Parent integration method. Default reads
 \code{sobjint@misc$scDAPP$integration_method}.}
 
-\item{Pseudobulk_mode}{If \code{TRUE}, composition uses propeller, DE uses
-pseudobulk, and Milo runs. If \code{FALSE}, composition is a chi-square
-test and DE is Wilcoxon.}
+\item{Pseudobulk_mode}{If \code{TRUE}, composition uses propeller, DE uses a
+pseudobulk test on \code{RNA}/\code{counts}, and Milo runs. If \code{FALSE},
+composition is a chi-square test and DE is a single-cell test on the
+integration method's normalized assay.}
 
 \item{pcs_int}{PCs for the subset clustering, or \code{"auto"}.}
 
@@ -79,7 +80,14 @@ method re-integrates. \code{TRUE} re-integrates RISC as well.}
 
 \item{run_milo}{Run Milo. Default is \code{Pseudobulk_mode}.}
 
-\item{DE_test}{Passed to the DE module. \code{NULL} uses that module's default.}
+\item{DE_test}{Differential expression test, passed to
+\code{de_across_conditions_module()}. \code{NULL} uses that module's
+default: \code{EdgeR-LRT} when \code{Pseudobulk_mode} is \code{TRUE},
+\code{wilcox} when \code{FALSE}. Pseudobulk choices are \code{DESeq2},
+\code{DESeq2-LRT}, \code{EdgeR}, \code{EdgeR-LRT}, \code{EdgeR-QLF}, and
+\code{Dream} (\code{Dream} requires \code{variancePartition} and a
+\code{(1|var)} term in \code{comps$formula}). Single-cell choices are any
+\code{test.use} value from \code{Seurat::FindMarkers} except \code{roc}.}
 
 \item{stability_numreps}{Bootstrap replicates when PC or resolution is \code{"auto"}.}
 
@@ -104,12 +112,20 @@ List with the subset object, new cluster column, stability results,
 and comparative module results.
 }
 \description{
-RISC subsets are re-embedded on the existing \code{Integrated_RISC} assay.
-Variable genes, scaling, and PCA are all computed on that assay. When
-\code{pcs_int} or \code{res_int} is \code{"auto"}, bootstrap replicates refit
-that PCA. They do not re-run RISC integration.
+Keep selected clusters or cells from an integrated Seurat object, recluster
+that subset, and run the cross-condition analyses on the new clusters.
+Composition uses propeller when \code{Pseudobulk_mode} is \code{TRUE} and a
+chi-square test otherwise. Differential expression uses \code{DE_test}.
+Pathway GSEA runs by default. Milo runs when pseudobulk mode is on. ORA runs
+only when \code{run_ora = TRUE}. If a \code{predictions} assay is present,
+label-transfer scores are summarized on the new clusters. An HTML report is
+written to \code{outdir} unless \code{render_html = FALSE}.
 }
 \details{
-Harmony, CCA, RPCA, and SCT subsets are re-integrated with
-\code{run_integration()}. \code{reintegrate = TRUE} forces that path for RISC.
+Reclustering follows the parent integration method. RISC, by default, keeps
+the existing \code{Integrated_RISC} assay and recomputes variable genes,
+scaling, and PCA on that assay. Harmony, CCA, RPCA, and SCT re-integrate the
+subset with \code{run_integration()}. \code{reintegrate = TRUE} re-integrates
+a RISC subset as well. \code{pcs_int} or \code{res_int = "auto"} selects the
+PC count and Louvain resolution by bootstrap.
 }

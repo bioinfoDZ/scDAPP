@@ -3,7 +3,7 @@
 This package contains an automated pipeline for scRNA-seq that includes individual and integrated data analysis as well as comparative compositional analysis and DE analysis. **v2.0** supports multiple sample-integration backends via `integration_method` (default `RISC`; Seurat v5 CCA, RPCA, Harmony, and SCT variants also supported). See the [usage instructions](Documentation/Usage.md) for integration options and parameters.
 
 
-![](images/scDAPP_F1_overview.png)
+![](images/scDAPPv2_F1.png)
 
 
 
@@ -40,7 +40,7 @@ For detailed input and usage instructions, please see the [usage instructions](D
 
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
 
-![](images/scDAPP_F2_inputs.png)
+![](images/scDAPPv2_F2.png)
 
 
 <br />

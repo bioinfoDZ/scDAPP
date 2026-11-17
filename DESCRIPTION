@@ -5,7 +5,7 @@ Authors@R:
     person("Alexander", "Ferrena", , "alexanderferrena@gmail.com", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-9578-8683"))
 Description: End to end pipeline for cross-group analysis of single cell transcriptomic data.
-License: GPL (>= 3)
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Depends: 

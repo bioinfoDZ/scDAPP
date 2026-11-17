@@ -21,7 +21,7 @@ If you run into any issues, you can check the [common bugs and fixes FAQ](Common
 Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 files or Seurat objects, a file called `sample_metadata.csv` that contains info about the samples, and a file called `comps.csv` that tells the pipeline which cross-condition comparison to perform.
 
 
-![](../images/scDAPP_F2_inputs.png)
+![](../images/scDAPPv2_F2.png)
 
 
 <br />
@@ -167,11 +167,11 @@ See the [subclustering vignette](downstream_postpipeline/Subclustering_and_Compa
 
 ### Subset module
 
-`subset_module()` takes an integrated Seurat object, keeps the clusters or cells you pass, reclusters that subset, and runs composition, differential expression, pathway GSEA, and a short HTML report. Milo runs when `Pseudobulk_mode = TRUE`. ORA is off unless `run_ora = TRUE`.
+`subset_module()` keeps the clusters or cells you pass from an integrated Seurat object, reclusters that subset, and runs the cross-condition analyses on the new clusters.
 
-RISC subsets stay on the parent `Integrated_RISC` correction. Variable genes, scaling, and PCA are all computed on that assay, then neighbors and Louvain use the new PCA. `pcs_int` or `res_int = "auto"` bootstraps that PCA. Each replicate refits it on its own cells. This does not call `scMultiIntegrate`. Pass `reintegrate = TRUE` to re-run RISC instead.
+Composition uses propeller when `Pseudobulk_mode = TRUE` and a chi-square test otherwise. Differential expression uses `DE_test`, the same choices as `de_across_conditions_module()`. Leave `DE_test` unset for `EdgeR-LRT` in pseudobulk mode and `wilcox` otherwise. Pseudobulk tests are `DESeq2`, `DESeq2-LRT`, `EdgeR`, `EdgeR-LRT`, `EdgeR-QLF`, and `Dream` (`Dream` needs `variancePartition` and `(1|var)` in `comps$formula`). Single-cell tests are any `Seurat::FindMarkers` `test.use` value except `roc`. Pathway GSEA runs by default. Milo runs when pseudobulk mode is on. ORA runs only when `run_ora = TRUE`. If the object has a `predictions` assay, label-transfer scores are summarized on the new clusters. The HTML report is `subset_module_report.html` in `outdir`.
 
-Harmony, CCA, RPCA, and both SCT methods re-integrate the subset through `run_integration()`. `auto` uses the existing integration stability sweep.
+Reclustering follows the parent integration. RISC, by default, keeps the existing `Integrated_RISC` assay and recomputes variable genes, scaling, and PCA on that assay. Harmony, CCA, RPCA, and SCT re-integrate the subset. `reintegrate = TRUE` re-integrates a RISC subset as well. `pcs_int` or `res_int = "auto"` selects the PC count and resolution by bootstrap.
 
 ```r
 sub <- scDAPP::subset_module(
@@ -190,7 +190,7 @@ sub$sobj
 sub$cluster_column
 ```
 
-The new cluster column is `RISC_subset_npc{pcs}_res{res}` for a RISC re-embed, or the usual integrated column name after re-integration. Sample and condition columns default to `Code` and `Condition`. If your object uses other names, pass `sample_column` and `condition_column`. The HTML report is `subset_module_report.html` in `outdir`.
+The new cluster column is `RISC_subset_npc{pcs}_res{res}` for a RISC re-embed, or the usual integrated column name after re-integration. Sample and condition columns default to `Code` and `Condition`. If your object uses other names, pass `sample_column` and `condition_column`.
 
 ### `integration_method`
 
