@@ -1,0 +1,33 @@
+name: 2026_scdappv2
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - bioconductor-sparsematrixstats
+  - ca-certificates
+  - cxx-compiler
+  - jags
+  - leidenalg
+  - numpy
+  - openssl
+  - pandas
+  - pip
+  - r-base >=4.5
+  - r-devtools
+  - r-hdf5r
+  - r-matrix.utils
+  - r-sf
+  - r-units
+  - r-seurat >=5
+  - bioconductor-fgsea
+  - bioconductor-summarizedexperiment
+  - bioconductor-glmgampoi
+  - r-harmony
+  - r-mclust
+  - bioconductor-clusterprofiler
+  - bioconductor-variancepartition
+  - bioconductor-milor
+  - bioconductor-singlecellexperiment
+  - bioconductor-deseq2
+  - r-presto

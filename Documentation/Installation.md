@@ -2,7 +2,7 @@
 
 If you run into any issues, you can check the [common bugs and fixes FAQ](CommonBugs.md). If the error is not reported there, please save the error message and open a Github Issue in this repository.
 
-**Optional packages (v2.0):** Some features need extra R packages not in `conda_env/2025scdapp.yml`. See [Optional packages (v2.0)](#optional-packages-v20) below and [Usage.md — Integration method dependencies](Usage.md#integration-method-dependencies).
+**Optional packages (v2.0):** [`conda_env/2026_scdappv2.yml`](../conda_env/2026_scdappv2.yml) includes the v2 feature packages that are published on conda. `RISC` and `DoubletFinder` are not on conda-forge or bioconda; `devtools::install_github()` still installs them. See [Optional packages (v2.0)](#optional-packages-v20) below and [Usage.md — Integration method dependencies](Usage.md#integration-method-dependencies).
 
 
 
@@ -57,14 +57,18 @@ I do not recommend using the pre-installed conda on HPC, but rather starting fro
 
 
 ### 2. Create a conda environment using yaml file:
-Navigate to yaml file: [conda_env/2025scdapp.yml](../conda_env/2025scdapp.yml)
+Navigate to yaml file: [conda_env/2026_scdappv2.yml](../conda_env/2026_scdappv2.yml)
 
 Then download or copy and paste it into a file on the server / HPC. You can click the file and click on the "overlapping boxes" to copy raw file contents then paste it as a file in your location.
+
+The file asks for R >= 4.5 and Seurat >= 5. Without those lower bounds, conda can select R 4.1 and Seurat 4, which scDAPP v2 cannot use.
+
+[`conda_env/2025scdapp.yml`](../conda_env/2025scdapp.yml) remains for existing environments. It does not include the v2 feature packages listed below.
 
 
 Create the environment using the .yml file:
 ```
-conda env create -f 2025scdapp.yml 
+conda env create -f 2026_scdappv2.yml 
 ```
 
 
@@ -84,7 +88,7 @@ If it still does not work, please write down the dependencies that cause trouble
 Activate the conda environment, then within load R:
 ```
 #load conda
-conda activate 2025scdapp
+conda activate 2026_scdappv2
 
 #activate R
 R
@@ -137,13 +141,15 @@ scDAPP::attach_scDAPP_pipeline_libraries(load_risc = FALSE)
 
 By default, `attach_scDAPP_pipeline_libraries()` also calls `set_parallel_blas_threads()` (`configure_parallel = TRUE`) to limit BLAS threading during multi-core work via `RhpcBLASctl::blas_set_num_threads(1)`.
 
-If you will run the default pipeline with `run_msigdb_celltype_ora = TRUE` (the default), verify **clusterProfiler** is available:
+If you created `2026_scdappv2`, **clusterProfiler** is already installed. Verify it with:
 
 ```r
 requireNamespace("clusterProfiler", quietly = TRUE)
 ```
 
-Install optional packages after the conda env and `devtools::install_github()`; see [Optional packages (v2.0)](#optional-packages-v20).
+Bioconda currently ships the Bioconductor 3.22 build (clusterProfiler 4.18). Do not also run `BiocManager::install("clusterProfiler")` inside this env. R cannot upgrade a package that conda installed, the same way it cannot update XML (see above). The yaml does not pin an exact clusterProfiler version, so a later `conda env create` picks up a newer bioconda build when one is published.
+
+If you are not using `2026_scdappv2`, install the feature packages in R after the conda env and `devtools::install_github()`; see [Optional packages (v2.0)](#optional-packages-v20).
 
 You should see messages about packages being activated followed by a data.frame showing the key dependency packages and their versions such as below (version numbers do not need to match the example below, just make sure there are no errors when you run the command):
 ```
@@ -174,13 +180,35 @@ You may need to exit R (via `q('no')`) and reload and rerun this if it does not 
 
 ## Optional packages (v2.0)
 
-These packages are **not** included in `conda_env/2025scdapp.yml`. Install them in R after creating the conda environment and installing scDAPP, when you need the corresponding feature.
+`conda_env/2026_scdappv2.yml` installs these from conda-forge or bioconda:
 
-| Package | When needed | Install |
-|---------|-------------|---------|
-| `harmony` | `integration_method = "HarmonyIntegration"` | `install.packages("harmony")` |
-| `mclust` | `pcs_int` or `res_int = "auto"` (cluster-stability ARI) | `install.packages("mclust")` |
-| `clusterProfiler` | `run_msigdb_celltype_ora = TRUE` (default) or `run_ORA = TRUE` | `if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager"); BiocManager::install("clusterProfiler")` |
+| Package | When needed | Conda package |
+|---------|-------------|----------------|
+| `harmony` | `integration_method = "HarmonyIntegration"` | `r-harmony` |
+| `mclust` | `pcs_int` or `res_int = "auto"` (cluster-stability ARI) | `r-mclust` |
+| `clusterProfiler` | `run_msigdb_celltype_ora = TRUE` (default) or `run_ORA = TRUE` | `bioconductor-clusterprofiler` |
+| `variancePartition` | `DE_test = "Dream"` | `bioconductor-variancepartition` |
+| `miloR` | `run_MILO = TRUE` and `Pseudobulk_mode = TRUE` | `bioconductor-milor` |
+| `SingleCellExperiment` | required by `miloR` | `bioconductor-singlecellexperiment` |
+| `DESeq2` | `DE_test` is `"DESeq2"` or `"DESeq2-LRT"` | `bioconductor-deseq2` |
+| `presto` | faster Wilcoxon tests when Seurat finds it | `r-presto` |
+
+`bioconductor-milor` is published for `linux-64` and `osx-64`. There is no Apple Silicon (`osx-arm64`) build. This conda file is the Linux HPC path.
+
+`RISC` and `DoubletFinder` are not on conda-forge or bioconda. `devtools::install_github("bioinfoDZ/scDAPP", dependencies = TRUE)` installs them from GitHub.
+
+If you skip conda, or you are still using `conda_env/2025scdapp.yml`, install the feature packages in R when you need them:
+
+| Package | Install |
+|---------|---------|
+| `harmony` | `install.packages("harmony")` |
+| `mclust` | `install.packages("mclust")` |
+| `clusterProfiler` | `if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager"); BiocManager::install("clusterProfiler")` |
+| `variancePartition` | `BiocManager::install("variancePartition")` |
+| `miloR` | `BiocManager::install("miloR")` |
+| `DESeq2` | `BiocManager::install("DESeq2")` |
+
+`presto` is a GitHub Suggest (`immunogenomics/presto`). `dependencies = TRUE` on the scDAPP install pulls it when that remote is available.
 
 See [Usage.md](Usage.md) for parameter details and [Upgrading from v1.3](Usage.md#upgrading-from-v13) if migrating from scDAPP v1.3.x.
 

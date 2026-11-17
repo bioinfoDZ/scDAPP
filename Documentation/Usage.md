@@ -277,7 +277,7 @@ source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/cond
 
 #activate conda env
 # see detailed install instructions for this conda env
-conda activate 2025scdapp
+conda activate 2026_scdappv2
 
 #run R file 
 # assumes there is the file "pipeline_runner.R" in the current working directory
@@ -579,7 +579,7 @@ The HTML report renders these under **Automated integration parameter sweep** (o
 
 ### Optional packages (parallelism and features)
 
-Some features require packages that are not installed by the default conda yaml. Install them in R when needed; see [Installation — Optional packages (v2.0)](Installation.md#optional-packages-v20).
+The default conda env [conda_env/2026_scdappv2.yml](../conda_env/2026_scdappv2.yml) includes `harmony`, `mclust`, and `clusterProfiler`. If you are not using that env, install them in R when needed; see [Installation — Optional packages (v2.0)](Installation.md#optional-packages-v20).
 
 | Package | When needed |
 |---------|-------------|

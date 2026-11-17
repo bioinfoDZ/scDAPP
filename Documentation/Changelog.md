@@ -3,6 +3,10 @@
 For all changes, please update changelog and use Year-Month-Day
 
 ## 2.0.0
+2026.11.17
+
+- Add `conda_env/2026_scdappv2.yml`: R >= 4.5, Seurat >= 5, and the v2 feature packages that are on conda (`harmony`, `mclust`, `clusterProfiler`, `variancePartition`, `miloR`, `DESeq2`, `presto`). `2025scdapp.yml` remains for existing environments. `RISC` and `DoubletFinder` are still installed from GitHub.
+
 2026.11.13
 
 - `saving_algorithm` selects `qs2` (default) or `RDS` for pipeline object files. `qs2` saves large objects faster. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.

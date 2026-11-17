@@ -143,7 +143,7 @@ source /gs/gsfs0/home/aferrena/packages/miniconda3/miniconda3/etc/profile.d/cond
 
 #activate conda env
 # see detailed install instructions for this conda env
-conda activate 2025scdapp
+conda activate 2026_scdappv2
 
 #run R file 
 # assumes there is the file "pipeline_runner.R" in the current working directory
