@@ -24,7 +24,7 @@ For all changes, please update changelog and use Year-Month-Day
 
 
 #### Additional pipeline updates
-- Combined per-sample cluster-marker and MSigDB cell-type ORA CSVs (`all_samples_clustermarkers.csv`, `all_samples_ora_results.csv`).
+- Combined per-sample cluster-marker and MSigDB cell-type ORA CSVs (`all_samples_clustermarkers.csv`, `all_samples_ora_results.csv`). Based on cluster marker genes, find associations with published cell type signatures; aids with celltype annotation of numeric clusters.
 - `subset_module()` subsets an integrated object, reclusters, then runs composition, DE, GSEA, optional Milo, and writes `subset_module_report.html`. RISC re-embeds `Integrated_RISC` and can bootstrap PCs and resolution. Harmony, CCA, RPCA, and SCT re-integrate.
 - `comparative_module()` runs composition, DE, GSEA, and optional Milo on an existing integrated object grouped by a metadata column (for example called cell types), without subsetting or reclustering. Writes `comparative_module_report.html`.
 
