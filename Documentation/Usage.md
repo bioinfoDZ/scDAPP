@@ -1,12 +1,10 @@
 # scDAPP single-cell RNA-seq analysis pipeline usage
 
-This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), multi-sample integration via `integration_method` (default `RISC`; Seurat v5 CCA, RPCA, Harmony, and SCT variants also supported — see [Integration assays and reductions](#integration-assays-and-reductions)), and cross-condition compositional (cell proportion) analysis and differential expression (DE) analysis. Multi-condition comparisons (condition A vs B vs C, ie WT vs KO vs Drug) are supported. **v2.0.0** is the current release on the [`dev`](https://github.com/bioinfoDZ/scDAPP/tree/dev) branch; install with `devtools::install_github("bioinfoDZ/scDAPP@dev", dependencies = TRUE)` (see [Installation](Installation.md)).
+This pipeline will perform individual QC and clustering, label transfer from a reference scRNAseq dataset to guess cell types (optional), multi-sample batch-correction/"integration", and cross-condition compositional (cell proportion) analysis and differential expression (DE) analysis. 
 
 If multiple replicates are present (ie WT 1 and WT2 vs KO1 and KO2), this pipeline can make use of pseudobulk methods for compositional analysis and DE.
 
-
-
-
+Multi-condition comparisons (condition A vs B vs C, ie WT vs KO vs Drug), and as of V2.0, complex designs (adjusting for confounders, interaction models, and repeated sampling) are supported.
 
 
 <br />
@@ -35,29 +33,25 @@ Minimally, this pipeline needs three inputs: the raw UMI counts data in .h5 file
 Run Cellranger and keep the output folders from all samples together in a single folder.
 The parameter `datadir` is the path to a folder containing the Cellranger outputs.
 
-Cellranger produces many output files for each sample. Minimally, the folders in `datadir` must contain one item, the file called `filtered_feature_bc_matrix.h5`. For example, if you have four samples, you will need (or if you have run Cellranger, already have) a folder with four sub-folders with the sample names. `datadir` should be the path pointing to folder holding everything. It will search the subfolders for the `filtered_feature_bc_matrix.h5` files. The sample names (sample sub-folder names) should match the "Sample" column of the `sample_metadata.csv` file as explained below.
+Cellranger produces many output files for each sample. Minimally, the folders in `datadir` must contain one item, the file called "filtered_feature_bc_matrix.h5". For example, if you have four samples, you will need (or if you have run Cellranger, already have) a folder with four sub-folders with the sample names. `datadir` should be the path pointing to folder holding everything. It will search the subfolders for the "filtered_feature_bc_matrix.h5" files. The sample names (sample sub-folder names) should match the "Sample" column of the `sample_metadata.csv` file as explained below.
 
 
 
-#### Option 2: Inputting Seurat Objects: `input_seurat_obj` = T
+#### Option 2: Inputting Seurat Objects: `input_seurat_obj = T`
 
 Alternatively, the pipeline accepts Seurat objects if `input_seurat_obj` is set to TRUE. This can be useful for hashed/multiplexed samples, pre-filtered samples, or published data for which .h5 files are not easily available.
 
-Save each Seurat object as individual .rds files using the `saveRDS()` R command. Each sample should be named "SampleXYZ1.rds" and so on. The sample names should match the "Sample" column of the `sample_metadata.csv` file as explained below. The pipeline will use the "RNA" assay and the "counts" layer/slot of the Seurat objects.
+Save each Seurat object as individual .rds files using the `saveRDS()` R command or .qs2 files using the "qs2" library: `qs2::qs_save()`. Each sample should be named "SampleXYZ1.rds" and so on. The sample names should match the "Sample" column of the `sample_metadata.csv` file as explained below. The pipeline will use the "RNA" assay and the "counts" layer/slot of the Seurat objects.
 
-For [hashed](https://cite-seq.com/cell-hashing/) or [multiplexed](https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/running-pipelines/cr-3p-multi) inputs, this option can also be used. We recommended splitting all of the samples apart into separate Seurat objects even if they are from the same hash / CMO pool.
+For [hashed](https://cite-seq.com/cell-hashing/) or [multiplexed](https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/running-pipelines/cr-3p-multi) inputs, this option can also be used. We recommend splitting all of the samples apart into separate Seurat objects even if they are from the same hash / CMO pool, thus, batch correction occurs 
 
-Note that as of v1.3.1 (released mid May 2025), you can now pre-compute QC-related metrics like "percent.mito", "percent.hemoglobin" or "Phase" in the input Seurat objects, thus allowing you to pass these to the automated QC steps if using Seurat objects as input. Useful for when running organisms besides human/mouse.
+Additionally, as of v1.3.1 (released mid May 2025), you can now pre-compute QC-related metrics like "percent.mito", "percent.hemoglobin" or "Phase" in the input Seurat objects, thus allowing you to pass these to the automated QC steps if using Seurat objects as input. This is useful for working with organisms besides human/mouse (for which the pipeline will auto-detect gene symbols for mitochondrial and hemoglobin genes).
 
 <br />
 
 ### 2. `sample_metadata`: sample information
 
-For worked examples of comparative designs (Wilcox, pseudobulk EdgeR/DESeq2, multi-condition, covariates, interactions, and Dream pairing), see [Comparative_Designs.md](Comparative_Designs.md).
-
 The parameter `sample_metadata` is a path to a .csv file that looks like this:
-
-
 
 ```
 Sample,Condition,Code
@@ -69,23 +63,24 @@ SampleJKL1,KO2,KO2_1
 SampleJKL2,KO2,KO2_1
 ```
 
-The Sample column here must match the folder names in `datadir` if `input_seurat_obj` is set to FALSE (Cellranger input). For example, `datadir` is a path to a folder with some sub-folders called SampleXYZ1, SampleXYZ2, etc. Or, they must match the names of the Seurat objects if `input_seurat_obj`. If so, `datadir` will instead be a path to a folder containing Seurat objects saved like SampleXYZ1.rds, SampleXYZ2.rds, etc.
+The **Sample** column here must correspond to either of the following:
+1) Each Sample must match some folder names in `datadir` if `input_seurat_obj` is set to FALSE (Cellranger input). For example, `datadir` is a path to a folder with some sub-folders called SampleXYZ1, SampleXYZ2, etc. Each selected folders will be searched for a"filtered_feature_bc_matrix.h5" file.
+2) Or, each Sample must match the names of the Seurat objects if `input_seurat_obj`. If so, `datadir` will instead be a path to a folder containing Seurat objects saved like SampleXYZ1.rds, SampleXYZ2.rds, etc.
 
-The Code column is optional and can be used to give nicknames to samples if the sample names are ugly. If not provided, "Code" will be set to "Sample_Condition", ie SampleXYZ1_Control in the example above.
+The **Condition** column denotes which experimental or biological "conditions" of particular interest in comparative analysis the samples belong to. These can be used to setup comparisons as per the `comps` file explained further below.
 
-The order of the samples in this file will determine the plotting order in the report.
+The **Code** column is optional and can be used to give nicknames to samples if the sample names are ugly. If not provided, "Code" will be set to "Sample_Condition", ie SampleXYZ1_Control in the example above.
 
-You can use the bash/zsh command `nano` to quickly create and save this file as well as the `comps.csv` file if working in a unix shell context.
+The order of the sample rows in this file will determine the plotting order of samples and condition levels in the report.
 
-Excel “Save As CSV” is fine. If the file has no trailing newline (common with Excel), the pipeline still parses the last row and prints a warning; re-save as UTF-8 CSV to silence it. A UTF-8 BOM and trailing blank rows from Excel are also handled.
+As of v2.0.0, you can also pass other biological or technical variables as additional columns, in order to account for these in comparative analysis, as defined by the comps file.
+
 
 
 <br />
 
 
 ### 3. `comps`: tell the pipeline which cross-condition comparisons to perform
-
-Full recipes for each comparison type (including `scRNAseq_pipeline_runner()` calls) are in [Comparative_Designs.md](Comparative_Designs.md).
 
 The parameter `comps` leads to a .csv file that looks like this:
 
@@ -95,111 +90,18 @@ Control,KO1
 Control,KO2
 KO1,KO2
 ```
+This is used to tell the pipeline which conditions to compare. Each row sets up a comparison with **c1** (test, positive LogFC) vs **c0** (reference, negative LogFC). Positive logFC means higher expression or cell-type proportion in c1. (Legacy, pre-v2 files with `c1,c2` still work with `c2` renamed to `c0`.)
 
-Optional columns: `formula` (default `~ Condition`), `contrast`, `label`. Legacy files with `c1,c2` still work (`c2` is renamed to `c0`).
+Optional columns: `formula` (default `~ Condition`), `contrast`, `label`. 
 
-`contrast` grammar depends on `DE_test`: EdgeR / EdgeR-LRT / EdgeR-QLF / Dream use design-coefficient expressions (e.g. `ConditionKO - ConditionControl` or `ConditionA:BatchB`); DESeq2 / DESeq2-LRT use `Factor;num;denom` or `name=ResultsName`. Blank contrast auto-fills for the active style. See [Comparative_Designs.md](Comparative_Designs.md) (includes a short EdgeR-QLF vs EdgeR-LRT pros/cons note).
+`contrast` grammar depends on `DE_test`: EdgeR / EdgeR-LRT / EdgeR-QLF / Dream use design-coefficient expressions (e.g. `ConditionKO - ConditionControl` or `ConditionA:BatchB`); DESeq2 / DESeq2-LRT use `Factor;num;denom` or `name=ResultsName`. Blank contrast auto-fills for the active style.
 
-This is used to tell the pipeline which conditions to compare. Each row sets up a comparison with **c1** (test) vs **c0** (reference). Positive log2FC means higher expression or cell-type proportion in c1.
-
-For batch-adjusted analyses, add covariates to `sample_metadata` and set `formula`, e.g. `~ Condition + Batch` on each row (same formula can be repeated across rows with different c0/c1 pairs).
-
-For **paired** analyses (matched donors / patients across conditions), include an intercept random effect in `formula` and set `DE_test = "Dream"` (requires Bioconductor package `variancePartition`):
-
-```csv
-c0,c1,formula,label
-Control,Treatment,~ Condition + (1|Patient),Treatment_vs_Control_paired
-```
-
-`sample_metadata` must include the block column (here `Patient`). Compositional analysis automatically uses blocked Propeller (`duplicateCorrelation` + `lmFit`) when the formula contains `(1|Patient)`. EdgeR/DESeq2 cannot parse `(1|var)`; use Dream for paired pseudobulk DE.
-
-
-
-
-
+For worked examples of comparative designs (Wilcox, pseudobulk EdgeR/DESeq2, multi-condition, covariates, interactions, and Dream pairing), see [Comparative_Designs.md](Comparative_Designs.md).
 
 
 
 <br />
 <br />
-
-
-
-## Upgrading from v1.3
-
-If you used scDAPP v1.3.x, review these **v2.0** changes before re-running or updating downstream scripts. See also the [Changelog](Changelog.md).
-
-### `comps.csv`
-
-- Columns are **`c0`** (reference) and **`c1`** (test). Positive log2FC means higher expression or proportion in c1.
-- Legacy files with `c1,c2` still work: `c2` is renamed to `c0`.
-- Optional columns: `formula` (default `~ Condition`), `contrast`, `label` for covariate-aware pseudobulk DE and propeller compositional tests.
-- Paired designs: use `formula` with `(1|Patient)` (or similar) and `DE_test = "Dream"`; propeller uses the same random-effect term for blocked testing.
-- Use `normalize_comps()` when loading or building comparison tables programmatically.
-
-### `Integrated_RISC` assay (RISC integration)
-
-- Batch-corrected expression is stored in Seurat assay **`Integrated_RISC`** (formerly `"RISC"`).
-- Set `DefaultAssay(sobj) <- "Integrated_RISC"` for plotting and Wilcox DE on RISC-integrated objects.
-- Downstream tools (e.g. ShinyCell) should use `gex.assay = 'Integrated_RISC'` instead of `'RISC'`.
-
-### MSigDB pathway cache
-
-- Prepared pathway tables are cached on disk (user/XDG/R cache, or `{outdir}/msigdbr_cache` fallback), **not** in `multisample_integration/pathwayanalysis_crosscondition/msigdb_pathways.rds`.
-- For re-analysis, call `preppathways_pathwayanalysis_crosscondition_module()` or inspect paths with `resolve_msigdbr_cache_dir()` / `msigdbr_cache_path()`. See [MSigDB pathway cache](#msigdb-pathway-cache) below.
-
-### `cluster_unfiltered`
-
-- Default is **`FALSE`**. Pre-filter SCT+Louvain clustering and `Unfiltered-SeuratObject-*` outputs run only when `cluster_unfiltered = TRUE`. The extension follows `saving_algorithm` (`.qs2` by default). The `individualsample_analysis/unfiltered_Seurat_objects/` folder is created only in that case.
-
-### Module return types (programmatic use)
-
-Cross-condition modules now return **flat tables** instead of deeply nested lists:
-
-| Module | Return field | Subset helper |
-|--------|--------------|---------------|
-| `de_across_conditions_module()` | `de_results` | `de_results_by_cluster()` |
-| `compositional_analysis_module()` | `composition_results` | `composition_results_by_comparison()` |
-| `pathwayanalysis_crosscondition_module()` | `pathway_results` | `pathway_results_by_cluster()` |
-| `ORA_crosscondition_module()` | `ora_results` | `ora_results_by_cluster()` |
-
-See the [subclustering vignette](downstream_postpipeline/Subclustering_and_ComparativeModule_Vignette.md) for `subset_module()`.
-
-### Subset module
-
-`subset_module()` keeps the clusters or cells you pass from an integrated Seurat object, reclusters that subset, and runs the cross-condition analyses on the new clusters.
-
-Composition uses propeller when `Pseudobulk_mode = TRUE` and a chi-square test otherwise. Differential expression uses `DE_test`, the same choices as `de_across_conditions_module()`. Leave `DE_test` unset for `EdgeR-LRT` in pseudobulk mode and `wilcox` otherwise. Pseudobulk tests are `DESeq2`, `DESeq2-LRT`, `EdgeR`, `EdgeR-LRT`, `EdgeR-QLF`, and `Dream` (`Dream` needs `variancePartition` and `(1|var)` in `comps$formula`). Single-cell tests are any `Seurat::FindMarkers` `test.use` value except `roc`. Pathway GSEA runs by default. Milo runs when pseudobulk mode is on. ORA runs only when `run_ora = TRUE`. If the object has a `predictions` assay, label-transfer scores are summarized on the new clusters. The HTML report is `subset_module_report.html` in `outdir`.
-
-Reclustering follows the parent integration. RISC, by default, keeps the existing `Integrated_RISC` assay and recomputes variable genes, scaling, and PCA on that assay. Harmony, CCA, RPCA, and SCT re-integrate the subset. `reintegrate = TRUE` re-integrates a RISC subset as well. `pcs_int` or `res_int = "auto"` selects the PC count and resolution by bootstrap.
-
-```r
-sub <- scDAPP::subset_module(
-  sobjint = sobjint,
-  sample_metadata = sample_metadata,
-  comps = comps,
-  outdir = "subset_cluster1",
-  clusters = "1",
-  cluster_column = "seurat_clusters",
-  Pseudobulk_mode = TRUE,
-  pcs_int = "auto",
-  res_int = "auto",
-  species = "Homo sapiens"
-)
-sub$sobj
-sub$cluster_column
-```
-
-The new cluster column is `RISC_subset_npc{pcs}_res{res}` for a RISC re-embed, or the usual integrated column name after re-integration. Sample and condition columns default to `Code` and `Condition`. If your object uses other names, pass `sample_column` and `condition_column`.
-
-### `integration_method`
-
-- Default remains **`RISC`**. Seurat v5 backends (`CCAIntegration`, `RPCAIntegration`, `HarmonyIntegration`, `*_SCT`) are opt-in via `integration_method`. See [Integration method dependencies](#integration-method-dependencies) and [Integration assays and reductions](#integration-assays-and-reductions).
-
-
-<br />
-<br />
-
 
 # Running the pipeline
 
@@ -211,22 +113,24 @@ We will invoke the pipeline from the unix terminal as below.
 # test packages (attach_scDAPP_pipeline_libraries + version table)
 scDAPP::r_package_test()
 
-
 # run pipeline with options
 scDAPP::scRNAseq_pipeline_runner(
                datadir = 'path/to/cellranger/outputs',
                outdir = 'path/to/output/folder',
                sample_metadata = 'path/to/sample_metadata.csv',
                comps = 'path/to/comps.csv',
-               Pseudobulk_mode = T, #set to F if not replicates
+               Pseudobulk_mode = T, #set to F if no replicates
 
                use_labeltransfer = F,
                refdatapath = 'path/to/reference/Seuratobject_SCTnormalized.rds',
                m_reference = 'path/to/reference/reference_FindAllMarkers.rds',
 
-               species = 'Mus musculus',
+               species = 'Homo sapiens', # this is for pathway analysis and celltype annotation; see msigdbr::msigdbr_species()
 
-               workernum = 1,
+               # integration_method = 'RISC',  # or CCAIntegration, HarmonyIntegration, etc.
+               # run_msigdb_celltype_ora = TRUE,  # requires clusterProfiler (default TRUE)
+
+               workernum = 1, # set to number of samples or less
                input_seurat_obj = F
                )
 
@@ -246,16 +150,16 @@ It will produce a log file called `pipeline_runner.Rout`, which you can monitor,
 
 ### Running on HPC systems
 
-On HPC, it works by submitting a job, which runs the R script “pipeline_runner.R”, which in turn runs the .Rmd file.
+On HPC, it can work by submitting a job, which runs the R script “pipeline_runner.R”, which in turn runs the .Rmd file.
 
 
-Here is an example HPC submission script.
+Below is an example SLURM HPC submission script.
 
 Note fields you may want to edit related to cores, time and memory requests of the job. See the bottom of this page for resource requirement estimation for cores, memory, and time.
-- `cpus-per-task`: number of cores for parallelization. Set this equal to `workernum` in the pipeline_runner.R file. If `pcs_int` or `res_int` is `"auto"`, request at least `max(workernum, stability_workernum)` CPUs (when `stability_workernum` is omitted, it defaults to `workernum`).
+- `cpus-per-task`: number of cores for parallelization. Set this equal to `workernum` in the pipeline_runner.R file.
 - `t`: the time you are requesting for the job.
 - `mem`: how much RAM the job should be given.
-- `p`: the name of the SLURM partition you are submitting to. This will vary based on your HPC - see your HPC's guides or ask the admins for advice for how to pick this, based on the requested resources above.
+- `p`: the name of the SLURM partition you are submitting to. This will vary based on your HPC. See your HPC's guides or ask the admins for advice for how to pick this, based on the requested resources above.
 
 ```
 #!/bin/bash
@@ -315,9 +219,11 @@ nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 <br />
 <br />
 
-## Key options: Cell type prediction with Label Transfer, and manual RISC reference selection
+## Key options:
 
-### 1. Cell type prediction with Label Transfer
+scDAPP has some complex but very useful analysis modes which may greatly facilitate / affect interpretation of the results, which are detailed below.
+
+### 1. `use_labeltransfer` Cell type prediction with Label Transfer
 
 Label transfer from a single-cell RNA-seq dataset to guess the cell types detected in your data is supported in the pipeline as an option. To use it, you need two files:
 
@@ -329,7 +235,14 @@ Once you have these, set `use_labeltransfer = T` and provide the paths with the 
 To select a label transfer reference, it is recommended to use a tissue as similar as possible, from the same species. There are "atlas" databases such as Tabula Muris or Human Cell Atlas that may have the tissue you need. Alternatively, you can search for published datasets from papers, but you need to make sure these provide information about cell type in their metadata, or else you need to redefine it yourself using the paper's markers. **Make sure to carefully interrogate all label transfer results, you should view them as data-driven suggestions rather than definitive cell type annotations.**
 
 
-### 2. RISC reference selection (`integration_method = "RISC"` only)
+### 2. `integration_method`: Which integration method to pick
+
+As of v2.0, we have added the ability to select from a suite of intergration methods: `RISC` is the default.
+
+For `HarmonyIntegration`, `CCAIntegration`, `RPCAIntegration`, `CCAIntegration_SCT`, and `RPCAIntegration_SCT`, integration uses Seurat v5 `IntegrateLayers` on a merged object (no RISC reference sample). Batch-corrected signal is stored in **reductions**, not a merged `integrated` expression assay; see [Integration assays and reductions](#integration-assays-and-reductions). **Read [Integration runtime expectations](#integration-runtime-expectations) before choosing RPCA methods** — they can be extremely slow compared to CCA or Harmony.
+
+
+#### `risc_reference` RISC reference selection (`integration_method = "RISC"` only)
 
 When using RISC integration, the pipeline runs the ["Robust Integration of Single Cell RNA-seq" (RISC)](https://www.nature.com/articles/s41587-021-00859-x) workflow via the [RISC R package](https://github.com/bioinfoDZ/RISC).
 
@@ -339,19 +252,19 @@ RISC requires a reference sample: RPCI uses that sample's gene eigenvectors as t
 - `"auto"` (alias `"autoV1"`) — legacy heuristic: size-weighted Seurat cluster count times cluster-moderated expression variance. Kept for reproducing older runs; it does not apply the KS veto.
 - A sample `Code` or `Sample` name — that sample is used as the reference. An unmatched name is an error (no silent fallback).
 
-The chosen sample is selected **once on the full data** and then **frozen** for the PC/res stability bootstrap (when `pcs_int` or `res_int` is `"auto"`) and for the final `scMultiIntegrate` run.
-
 The HTML report still shows InPlot. If the starred sample is not the one you would pick from those three panels, set `risc_reference` to that sample's `Code` and re-run.
 
-### 3. Sample integration (Seurat methods)
+### 3. Stability-based selection of integrated clustering parameters
 
-For `CCAIntegration`, `RPCAIntegration`, `HarmonyIntegration`, `CCAIntegration_SCT`, and `RPCAIntegration_SCT`, integration uses Seurat v5 `IntegrateLayers` on a merged object (no RISC reference sample). Batch-corrected signal is stored in **reductions**, not a merged `integrated` expression assay; see [Integration assays and reductions](#integration-assays-and-reductions). **Read [Integration runtime expectations](#integration-runtime-expectations) before choosing RPCA methods** — they can be extremely slow compared to CCA or Harmony.
+In v2.0, we introduced a data-driven approach for the selection of key parameters that affect the final integrated clustering.
+
+Clustering uses `pcs_int` principal components (default 30) and `res_int` Louvain resolution (default 0.5). Set either argument, or both, to "auto" to run a bootstrap stability sweep before the final integration. 
+
+Each candidate is clustered on the full data and on repeated subsamples (50 replicates of 80% of cells, by default). The winning setting is the one with the highest combined score, an equal-weight average of the mean adjusted Rand index and the mean per-cluster Jaccard index. The PC grid is `stability_sweep_maxPCs` (5, 10, 15, 20, 25, 30, 40, 50) and the resolution grid is `stability_sweep_res` (0.1 to 1.5 in steps of 0.2). `stability_numreps` and `stability_propcells.perrep` change the bootstrap, and `stability_workernum` sets the cores for the sweep (default workernum). Scores, plots, and the selected parameters are written under "multisample_integration/cluster_stability" and summarized in the HTML report under section "Automated integration parameter sweep". Those selected parameters are then used for the final clustering and downstream analysis. The full default grid can take many hours to run.
+
+**This method has limitations.** There is no general way to select the "optimal" number of clusters. This criterion tends to favor fewer, larger clusters, because small clusters are less reproducible under subsampling. Nevertheless, it is still a useful check on parameters that would otherwise be chosen by hand, or arbitrarily. If you want a different resolution for biological reasons, sort the per-parameter table by "combinedscore" and compare "nClust_Ref" for the top-scoring rows, or use the cluster-count plot, which shows the full grid.
 
 
-
-
-
-All other parameters will be explained below.
 
 
 <br />
@@ -362,10 +275,11 @@ All other parameters will be explained below.
 
 # All pipeline parameters
 
+All parameters will be explained below.
 
 ## Key input/output parameters
 
-These parameters are required to run the pipeline and tell it where the data is and where to save the report
+These parameters are required to run the pipeline and tell it where the data is and where to save the report.
 
 - `datadir` string, path to folder containing Cellranger output folders for each sample
 - `outdir` string, path to output folder, will be created if doesn't already exist
