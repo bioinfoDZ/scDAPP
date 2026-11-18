@@ -2,6 +2,11 @@
 
 This cookbook shows how to set up cross-condition comparisons. Parameter lists are in [Usage.md](Usage.md).
 
+Comparative analyses in scDAPP include: 
+- Differential expression (DE) testing via pseudobulk methods with replicates or Seurat FindMarkers wthout
+- Compositional analysis (comparing proportions) via Propeller or 2-proportion Z-tests
+- Optionally (for replicate-aware analyses only), differential neighborhood composition testing via Milo.
+
 ## The two metadata files
 
 `sample_metadata.csv` has one row per sample. `Sample` matches the Cell Ranger folder or the Seurat file name. `Condition` is the group. `Code` is an optional short name; if you omit it, the pipeline uses `Condition_Sample`. Add columns such as `Batch` or `Patient` only when a comparison uses them.
@@ -185,7 +190,7 @@ Use `EdgeR-LRT`, `EdgeR-QLF`, or a DESeq2 test here. `EdgeR` exactTest only fits
 
 Fit `~ Condition * Genotype` (that is `Condition + Genotype + Condition:Genotype`). A blank contrast is the Condition c1 versus c0 main effect. Set `contrast` to the interaction coefficient when that term is the result you want.
 
-A main-effect contrast still reports `PropMean_c1` and `PropMean_c0`. An interaction-coefficient contrast reports the coefficient test and leaves those mean columns empty.
+A main-effect contrast still reports `PropMean_c1` and `PropMean_c0` in the Propeller compositonal analysis. An interaction-coefficient contrast reports the coefficient test and leaves those mean columns empty.
 
 ### `sample_metadata.csv`
 
@@ -205,7 +210,9 @@ A main-effect contrast still reports `PropMean_c1` and `PropMean_c0`. An interac
 Below the rows show contrasts passed according to EdgeR-like or DESeq2-like notation. 
 - The first row in each gets you the condition "main effect"
 - The second row gets you the genotype "main effect"
-- the third row is how you could get the interaction coeffients per-gene (usually the most relevant in an interaction model).
+- The third row is how you could get the interaction coeffients per-gene (usually the most relevant in an interaction model). Note that you do not need to include the other two rows if you are just interested in this.
+
+
 The `label` values in the tables are optional.
 
 | c0      | c1        | formula                  | contrast                              | label                                 |
@@ -229,11 +236,10 @@ Coefficient names depend on factor levels. Check `colnames(model.matrix(...))` o
 
 ## 6. Paired samples (Dream)
 
-**When to use:** The same patient or animal is in both conditions.
+**When to use:** The same patient or animal is in both conditions; repeated sampling, time-course studies
 
-`sample_metadata` needs the block column (`Patient` here). `formula` needs `(1|Patient)`. `DE_test` must be `"Dream"` (Bioconductor `variancePartition`). EdgeR and DESeq2 reject random effects. Propeller uses the same `(1|var)` term for a blocked test, whether or not DE is Dream.
+`sample_metadata` needs the block column (`Patient` here). `formula` needs `(1|Patient)`. `DE_test` must be `"Dream"` (Bioconductor `variancePartition`). Propeller uses the same `(1|var)` term for a blocked test, whether or not DE is Dream.
 
-Leave `contrast` blank for Condition c1 versus c0. One row does not need `label`. The formula is not `~ Condition`, so the name is `Treatment_vs_Control__formula_Condition_plus_re_Patient`.
 
 ### `sample_metadata.csv`
 
@@ -268,31 +274,7 @@ scDAPP::scRNAseq_pipeline_runner(
 <br />
 
 
-## 7. Neighbourhood abundance (Milo)
 
-**When to use:** `run_MILO = TRUE` and `Pseudobulk_mode = TRUE`. Milo tests overlapping neighborhoods on the integrated embedding. It uses the same `comps` rows as pseudobulk DE. A blank contrast is still Condition c1 versus c0. Set `contrast` to the interaction coefficient when that term is the result you want.
-
-**Install:** Bioconductor `miloR`.
-
-**k:** `milo_k = "auto"` uses `min(5 * n_samples, milo_k_max, n_cells - 1)` with `milo_k_max = 100`. An integer `milo_k` replaces that formula.
-
-**Significance:** SpatialFDR below `milo_spatial_fdr` (default 0.1). The report prints the top 20 significant neighborhoods, plus an alluvial plot and a two-way heatmap of those 20 against the integrated clusters when that overlap table is non-empty. Tables are under `multisample_integration/differential_abundance_Milo/`.
-
-**Paired formulas:** a `(1|var)` term is fit with Milo's mixed model and `force = TRUE`. That model only returns the last fixed coefficient. A contrast that is not that coefficient is fit without the random effect, and the report says so. If the mixed model errors, the fit is repeated with `(1|var)` removed.
-
-```r
-scDAPP::scRNAseq_pipeline_runner(
-  datadir = "path/to/datadir",
-  outdir = "path/to/outdir",
-  sample_metadata = "path/to/sample_metadata.csv",
-  comps = "path/to/comps.csv",
-  Pseudobulk_mode = TRUE,
-  DE_test = "EdgeR-LRT",
-  run_MILO = TRUE
-)
-```
-
----
 
 ## `DE_test` and contrast grammar
 
