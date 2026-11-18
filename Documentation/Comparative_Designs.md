@@ -2,7 +2,25 @@
 
 This cookbook shows how to set up cross-condition comparisons. Parameter lists are in [Usage.md](Usage.md).
 
-Before a long run, check the comparison with `preflight_comparisons()`. Pass `sample_metadata` and `comps` as data frames or CSV paths, plus `Pseudobulk_mode` and `DE_test`. It runs the same checks the pipeline runs before integration: the allowed test, installed packages, labels, formulas, contrasts, and the propeller design when pseudobulk mode is on. The first problem stops the function with the pipeline's message. A passing check returns the comps table with labels and default contrasts filled in. A cluster that is too sparse to estimate a contrast is still skipped later, during differential expression.
+## The two metadata files
+
+`sample_metadata.csv` has one row per sample. `Sample` matches the Cell Ranger folder or the Seurat file name. `Condition` is the group. `Code` is an optional short name; if you omit it, the pipeline uses `Condition_Sample`. Add columns such as `Batch` or `Patient` only when a comparison uses them.
+
+`comps.csv` has one row per comparison.
+
+- `c0` is the reference. `c1` is the test. Positive log2 fold change means higher in **c1**.
+- `formula`, `contrast`, and `label` are optional. Leave them out for a plain A versus B test. A blank formula is `~ Condition`. A blank contrast is Condition c1 versus c0.
+- Legacy files with `c2` still run: `c2` is renamed to `c0`.
+
+`formula` and `contrast` are used by pseudobulk DE and by propeller (`Pseudobulk_mode = TRUE`). They are ignored by Wilcoxon and by `prop.test()`.
+
+`Condition` levels follow first appearance in `sample_metadata`. Put Control (or whichever group should be the intercept) in the first rows. Other covariate columns read from the CSV become factors in alphabetical order. Pairwise `c0` and `c1` still name the two levels you want, whatever the intercept is.
+
+<br />
+
+## Preflight tests
+
+Before a long run, you can check the comparison with `preflight_comparisons()`. Pass `sample_metadata` and `comps` as data frames or CSV paths, plus `Pseudobulk_mode` and `DE_test`. It runs the same checks the pipeline runs before integration: the allowed test, installed packages, labels, formulas, contrasts, and the propeller design when pseudobulk mode is on. The first problem stops the function with the pipeline's message. A passing check returns the comps table with labels and default contrasts filled in. A cluster that is too sparse to estimate a contrast can still be skipped without errors later, during differential expression testing.
 
 ```r
 comps <- scDAPP::preflight_comparisons(
@@ -13,24 +31,8 @@ comps <- scDAPP::preflight_comparisons(
 )
 ```
 
-## The two metadata files
-
-`sample_metadata.csv` has one row per sample. `Sample` matches the Cell Ranger folder or the Seurat file name. `Condition` is the group. `Code` is an optional short name; if you omit it, the pipeline uses `Condition_Sample`. Add columns such as `Batch` or `Patient` only when a comparison uses them.
-
-`comps.csv` has one row per comparison.
-
-- `c0` is the reference. `c1` is the test. Positive log2 fold change means higher in **c1**.
-- `formula`, `contrast`, and `label` are optional. Leave them out for a plain A versus B test. A blank formula is `~ Condition`. A blank contrast is Condition c1 versus c0.
-- `label` names the comparison in the report and in output folders. It is not used in the model. If you leave it blank, the name is `{c1}_vs_{c0}` (for example `Treatment_vs_Control`). A formula other than `~ Condition`, and a contrast you set, are added to that name, so two rows that share `c0` and `c1` do not write the same folder. Duplicate labels stop the run in preflight. A label cannot contain `/` or `\`. Two labels that would become the same folder name are also an error. Automatic names replace characters that are unsafe in a path.
-- Legacy files with `c2` still run: `c2` is renamed to `c0`.
-
-`formula` and `contrast` are used by pseudobulk DE and by propeller (`Pseudobulk_mode = TRUE`). They are ignored by Wilcoxon and by `prop.test()`.
-
-`Condition` levels follow first appearance in `sample_metadata`. Put Control (or whichever group should be the intercept) in the first rows. Other covariate columns read from the CSV become factors in alphabetical order. Pairwise `c0` and `c1` still name the two levels you want, whatever the intercept is.
 
 <br />
-
-
 
 ## 1. Single-cell 1v1 (Wilcox / FindMarkers)
 
@@ -112,6 +114,8 @@ The comparison is named `Treatment_vs_Control`. A formula other than `~ Conditio
 
 **When to use:** Three or more conditions with replicates. Each row is one pairwise test. Leave `contrast` blank on each row.
 
+Each row of comps denotes a specific comparison. As of v2.0, all samples are normalized together, and gene dispersions are estimated jointly.
+
 ### `sample_metadata.csv`
 
 | Sample      | Condition | Code        |
@@ -142,7 +146,7 @@ Each row has a different `c0`/`c1` pair, so the automatic names (`Treatment_vs_C
 
 Add the covariate to `sample_metadata`. Put it in `formula`. Leave `contrast` blank for Condition c1 versus c0 adjusted for that covariate. Set `contrast` to pull out another term, such as batch adjusted for condition.
 
-Both rows below are Control versus Treatment. The `label` values in the tables are optional short names. Leave `label` blank and the automatic names differ, because the contrasts differ. Duplicate labels stop the run.
+
 
 ### `sample_metadata.csv`
 
@@ -152,6 +156,9 @@ Both rows below are Control versus Treatment. The `label` values in the tables a
 | Control_2   | Control   | Control_2   | BatchB |
 | Treatment_1 | Treatment | Treatment_1 | BatchA |
 | Treatment_2 | Treatment | Treatment_2 | BatchB |
+
+Below the rows show contrasts passed according to EdgeR-like or DESeq2-like notation. The first row in each gets you the condition comparison, adjusted by batch (most common); the second row is how you could get the Batch A vs Batch B comparison, adjusted by condition (less common). The `label` values in the tables are optional.
+
 
 ### `comps.csv` — EdgeR-LRT / EdgeR-QLF
 
@@ -174,9 +181,9 @@ Use `EdgeR-LRT`, `EdgeR-QLF`, or a DESeq2 test here. `EdgeR` exactTest only fits
 
 ## 5. Interactions
 
-**When to use:** You want the condition effect to differ by a second factor. Prefer at least two samples in each Condition by factor cell.
+**When to use:** the Condition effect differs by a second factor. Prefer at least two samples in each Condition by factor cell.
 
-Fit `~ Condition * Genotype` (that is `Condition + Genotype + Condition:Genotype`). A blank contrast is the Condition c1 versus c0 main effect. Set `contrast` to the interaction coefficient when that term is the result you want. Leave `label` blank and the automatic names differ, because the contrasts differ. The short names in the tables are optional. Duplicate labels stop the run.
+Fit `~ Condition * Genotype` (that is `Condition + Genotype + Condition:Genotype`). A blank contrast is the Condition c1 versus c0 main effect. Set `contrast` to the interaction coefficient when that term is the result you want.
 
 A main-effect contrast still reports `PropMean_c1` and `PropMean_c0`. An interaction-coefficient contrast reports the coefficient test and leaves those mean columns empty.
 
@@ -194,6 +201,12 @@ A main-effect contrast still reports `PropMean_c1` and `PropMean_c0`. An interac
 | Treatment_KO_2 | Treatment | Treatment_KO_2 | KO       |
 
 ### `comps.csv` — EdgeR-LRT / EdgeR-QLF / Dream
+
+Below the rows show contrasts passed according to EdgeR-like or DESeq2-like notation. 
+- The first row in each gets you the condition "main effect"
+- The second row gets you the genotype "main effect"
+- the third row is how you could get the interaction coeffients per-gene (usually the most relevant in an interaction model).
+The `label` values in the tables are optional.
 
 | c0      | c1        | formula                  | contrast                              | label                                 |
 | ------- | --------- | ------------------------ | ------------------------------------- | ------------------------------------- |
