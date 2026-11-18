@@ -334,79 +334,6 @@ These parameters allow for control of sophisticated analysis methods.
 - `milo_k_max` - positive integer, default 100. Used only when `milo_k` is `"auto"`. If 5 times the sample count is larger, k is capped and the report says so. Pass an integer `milo_k` to go higher. Milo does not treat 50 as a maximum.
 - `milo_spatial_fdr` - numeric, default 0.1. Neighborhoods with SpatialFDR below this cutoff are reported as significant. SpatialFDR is a false-discovery rate that gives less weight to neighborhoods that share cells.
 
-
-
-
-
-## Integration method dependencies
-
-Optional packages (`harmony`, `mclust`) are listed in `DESCRIPTION` Suggests; install them when you use the corresponding `integration_method` or `pcs_int`/`res_int = "auto"`. `check_integration_dependencies()` runs at **pipeline start** (before QC) and again inside `run_integration()`, so a missing package fails immediately.
-
-| `integration_method` | Required installs |
-|----------------------|-------------------|
-| `RISC` | `RISC` (see Installation) |
-| `RPCAIntegration`, `CCAIntegration` | Seurat ≥ 5 (package import) |
-| `RPCAIntegration_SCT`, `CCAIntegration_SCT` | Seurat ≥ 5; optional `glmGamPoi` for faster merged `SCTransform` (per-sample SCT in the pipeline is for individual QC only) |
-| `HarmonyIntegration` | CRAN: `harmony` ([immunogenomics/harmony](https://github.com/immunogenomics/harmony)); called by Seurat as `harmony::RunHarmony()` |
-
-Example install for Harmony:
-
-```r
-install.packages("harmony")
-```
-
-## Integration assays and reductions
-
-Seurat v5 `IntegrateLayers` methods store batch-corrected coordinates in **reductions**, not in a merged `integrated` expression assay. After every integration method, the pipeline attaches a joined **`RNA`** assay with raw **`counts`** from per-sample matrices (for pseudobulk DE).
-
-| `integration_method` | Cluster reduction | UMAP reduction | Default / plot assay | Integrated expression |
-|----------------------|-------------------|----------------|----------------------|------------------------|
-| `RISC` | `pca` | `umap` | `Integrated_RISC` | `Integrated_RISC` assay (log-normalized) |
-| `CCAIntegration` | `integrated.cca` | `umap.cca` | `RNA` | reductions only |
-| `RPCAIntegration` | `integrated.dr` | `umap.dr` | `RNA` | reductions only |
-| `HarmonyIntegration` | `harmony` | `umap.harmony` | `RNA` | reductions only |
-| `CCAIntegration_SCT` | `integrated.cca` | `umap.cca` | `SCT` | reductions on SCT PCA |
-| `RPCAIntegration_SCT` | `integrated.dr` | `umap.dr` | `SCT` | reductions on SCT PCA |
-
-Integrated cluster column names follow the pattern `{prefix}_npc{pcs_int}_res{res_int}` (for example `RISC_Louvain_npc30_res0.5` or `Integrated_CCA_npc30_res0.5`).
-
-## Cross-condition DE and integration method
-
-Cross-condition DE uses the integrated cluster column and assay settings from `resolve_integration_config()` (see `?scDAPP::resolve_integration_config`).
-
-**Pseudobulk** (`Pseudobulk_mode = TRUE`): always **`RNA` assay, `counts` layer** — raw UMI counts from the concatenated per-sample matrix. This is the same for every `integration_method`; batch correction does not replace count data used by EdgeR or DESeq2.
-
-**Wilcox** (`Pseudobulk_mode = FALSE`): expression assay and slot depend on `integration_method`:
-
-| `integration_method` | Wilcox assay / slot |
-|----------------------|---------------------|
-| `RISC` | `Integrated_RISC` / `data` |
-| `CCAIntegration`, `RPCAIntegration`, `HarmonyIntegration` | `RNA` / `data` |
-| `CCAIntegration_SCT`, `RPCAIntegration_SCT` | `SCT` / `data` |
-
-Integrated **cluster markers** use the `plot_assay` for each method. For SCT-based integration, the pipeline calls `PrepSCTFindMarkers()` before `FindAllMarkers()`, as recommended by Seurat.
-
-See also `DE_test`, `crossconditionDE_padj_thres`, and `crossconditionDE_lfc_thres` under advanced parameters below.
-
-## Integration runtime expectations
-
-**Warning:** `RPCAIntegration` and especially `RPCAIntegration_SCT` can be **extremely slow** on Seurat v5 compared with CCA or Harmony. Timings below are from local smoke tests on the GeneSymbols fixture (2 samples, ~500 cells each); runtime scales up quickly with more samples.
-
-| Method | Typical speed (2-sample smoke test) |
-|--------|-------------------------------------|
-| `CCAIntegration`, `HarmonyIntegration` | Fast (seconds to low minutes) |
-| `RPCAIntegration` | **Very slow** (~18 minutes observed) |
-| `CCAIntegration_SCT` | Moderate (merged `SCTransform` + CCA; much faster than RPCA SCT) |
-| `RPCAIntegration_SCT` | **Extremely slow** (~50 minutes observed) |
-| `RISC` | Fast (~1 minute for 2 samples) |
-
-**Why RPCA is slow on Seurat v5:** Unlike the v4 object-list workflow, v5 `IntegrateLayers` with `RPCAIntegration` rebuilds per-layer `ScaleData` and `RunPCA` inside the integration step, while `CCAIntegration` can reuse precomputed `scale.data` on split RNA layers. On few small samples, CCA is therefore often **much faster** than RPCA. RPCA is still recommended for many batches, same platform, and more conservative alignment when those goals matter ([RPCA vignette](https://satijalab.org/seurat/articles/integration_rpca)).
-
-For quick integration checks, use `CCAIntegration` or `HarmonyIntegration`. When running local integration smoke checks, set `SCDAPP_INT_SKIP_SCT=1` to skip slow SCT methods.
-
-**Seurat `future` / UMAP:** The pipeline HTML report sets `options(future.globals.maxSize = 15000 * 1024^2)` (15 GB). Large integrated objects (especially SCT) may fail during `RunUMAP` with the default 500 MiB `future` limit if this option is not set in your own scripts.
-
-
 ## QC filtering parameters
 
 We apply an automated filtering approach to remove low-quality / dead cells.
@@ -427,7 +354,7 @@ Finally, we use [DoubletFinder](https://github.com/chris-mcginnis-ucsf/DoubletFi
 - `cluster_unfiltered` - T/F, default is F. If TRUE, run SCT and Louvain clustering (resolution 0.1) on the full unfiltered matrix before autofilter, enabling cluster-level QC diagnostics (alluvial plots, two-way table heatmaps, pre-filter marker heatmaps), and save `Unfiltered-SeuratObject-*` files under `individualsample_analysis/unfiltered_Seurat_objects/` (`.qs2` by default, `.rds` when `saving_algorithm = "RDS"`). When FALSE (default), autofilter runs on QC metadata only, skips pre-filter clustering for faster runs, and does not create `unfiltered_Seurat_objects/` or write unfiltered Seurat objects (QC summary PDFs and filtered objects are still produced).
 
 
-Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now possible to pre-calculate some QC values and store them in the Seurat object metadata. These include `percent.mito`, `percent.hemoglobin`, and `Phase` (cell cycle phase). These can be calculated however you wish (such as with `Seurat::AddModuleScore()` or `Seurat::CellCycleScoring()`) and stored with these exact column names in the input Seurat object metadata. This can be useful if working with less common species, where gene names may differ a lot from typical human/mouse symbols for these QC metrics. Make sure to set `input_seurat_obj` to TRUE to use this. Note however that MSIGDBR has a limited set of compatible species with pathway genes. You can run `msigdbr::msigdbr_species()` in R to check the available species. If your species of interest is not on the list, you may consider still using the pipeline and selecting the species / taxon closest to your subject of study, but then using the pipeline outputs to run your own pathway analysis using the DEGs.
+Please note, as of v1.3.0 (after ~Jan 3 2025), it is now possible to pre-calculate some QC values and store them in the Seurat object metadata. These include `percent.mito`, `percent.hemoglobin`, and `Phase` (cell cycle phase). These can be calculated however you wish (such as with `Seurat::AddModuleScore()` or `Seurat::CellCycleScoring()`) and stored with these exact column names in the input Seurat object metadata. This can be useful if working with less common species, where gene names may differ a lot from typical human/mouse symbols for these QC metrics. Make sure to set `input_seurat_obj` to TRUE to use this. Note however that MSIGDBR has a limited set of compatible species with pathway genes. You can run `msigdbr::msigdbr_species()` in R to check the available species. If your species of interest is not on the list, you may consider still using the pipeline and selecting the species / taxon closest to your subject of study, but then using the pipeline outputs to run your own pathway analysis using the DEGs.
 
 
 
@@ -444,30 +371,6 @@ Please note, as of v1.3.0 (update pushed around Jan 3 2025 to dev), it is now po
 - `stability_sweep_res` resolutions tested when `res_int = "auto"` (default `seq(0.1, 1.5, by = 0.2)`).
 - `stability_propcells.perrep` fraction of cells per bootstrap (default 0.8).
 
-**Auto tuning runtime:** Full defaults (50 bootstraps × the full PC/res grid) are accurate but can take many hours, especially for `RISC` and `RPCAIntegration_SCT`. Requires CRAN package `mclust`. Results are written under `stability_outdir` and summarized in the HTML report.
-
-**Stability plots:** When auto tuning runs, `cluster_stability_sweep()` calls `integration_stability_plots_module()` and saves PDFs under `{stability_outdir}/plots/`:
-
-- `stability_combinedscore_bar.pdf` — ranked `params_i` (Y) vs combined score (winner highlighted)
-- `stability_combinedscore_heatmap.pdf` — PC × resolution heatmap
-- `stability_ari_jaccard_scatter.pdf` — mean ARI vs mean Jaccard (selected point drawn on top in red; top 10 labeled)
-- `stability_bootstrap_ari.pdf` — bootstrap ARI boxplots with `params_i` on the Y axis
-- `stability_nclust_ref.pdf` — reference cluster counts with `params_i` on the Y axis
-- `stability_perclust_jaccard.pdf` — per-cluster Jaccard heatmap for the selected combination only (tile values annotated; fill scale fixed 0–1)
-
-The HTML report renders these under **Automated integration parameter sweep** (only when `pcs_int` or `res_int` is `"auto"`), with a short interpretation for each figure and per-plot figure sizes from `plot_dims`. Rebuild plots from saved CSVs with `integration_stability_plots_module(stability_dir = ...)`.
-
-**Plot PDF/HTML sizing (full grid):** Combined-score bar, bootstrap ARI, and cluster-count plots keep parameter labels on the Y axis (`PCN / res R`) with height capped at 10 in and a minimum Y-axis font of 8 pt so HTML downscaling stays readable. The PC×resolution heatmap scales width and height with the number of resolutions and PCs (capped at 16×14 in). The ARI vs Jaccard scatter stays 10×7 in. Per-cluster Jaccard width scales with cluster count for the winner only. For the default 64-combo grid (8 PCs × 8 resolutions), expect roughly 10×10 in bar/box figures.
-
-**Checkpoint cleanup:** After a successful sweep, `cluster_stability_sweep(remove_rawouts = TRUE)` deletes `RawOuts/` (large per-param and bootstrap RDS checkpoints). CSV summaries, `plots/`, and `logs/` are kept. Failed runs retain `RawOuts/` for resume.
-
-**RISC count matrices (`input_seurat_obj = TRUE`):** Per-sample RDS/h5 under `datadir` is read **once** at pipeline start. At integration, `prepare_integration_inputs()` builds `matlist` with `GetAssayData(sobj, assay = "RNA", layer = "counts")`, saves `.concatmatrix.rds`, and writes QC objects to `outdir_indi/.tmp_Seurat_objects/`. `run_risc_integration()` loads that matrix file only (no second read from `datadir`). RISC auto-stability bootstraps subset the saved matlist, not `datadir`.
-
-**Parallelism (two worker settings):**
-
-- `workernum` — workers for final RISC integration (`InPlot`, per-sample prep, `scMultiIntegrate`) and Dream pseudobulk DE.
-- `stability_workernum` — optional; parallel workers for the **stability sweep** only (`foreach` over global PC/res clustering, bootstrap replicates, and metric aggregation). If omitted (`NULL`), defaults to `workernum`.
-- When `stability_workernum > 1`, RISC calls inside sweep workers use one core to avoid `stability_workernum × workernum` CPU oversubscription. The final RISC run still uses `workernum`.
 
 - `RISC_louvain_neighbors` integer, default = 10; number of nearest neighbors to consider during clustering; see `RISC::scCluster()`
 
@@ -479,20 +382,12 @@ The HTML report renders these under **Automated integration parameter sweep** (o
 
 
 
+**Parallelism:**
+
+- `workernum` — workers for final RISC integration (`InPlot`, per-sample prep, `scMultiIntegrate`) and Dream pseudobulk DE.
+
 ## Computing Resource Allocation
 
-
-### Optional packages (parallelism and features)
-
-The default conda env [conda_env/2026_scdappv2.yml](../conda_env/2026_scdappv2.yml) includes `harmony`, `mclust`, and `clusterProfiler`. If you are not using that env, install them in R when needed; see [Installation — Optional packages (v2.0)](Installation.md#optional-packages-v20).
-
-| Package | When needed |
-|---------|-------------|
-| `harmony` | `integration_method = "HarmonyIntegration"` |
-| `mclust` | `pcs_int` or `res_int = "auto"` (cluster-stability ARI) |
-| `clusterProfiler` | `run_msigdb_celltype_ora = TRUE` (default) or `run_ORA = TRUE` |
-
-The pipeline calls `set_parallel_blas_threads()` at startup (and in parallel workers). It sets `OMP_NUM_THREADS` and related env vars to 1, and calls `RhpcBLASctl::blas_set_num_threads(1)` so each worker does not start its own BLAS thread pool.
 
 
 ### CPUs: parallelization to increase speed
@@ -534,8 +429,70 @@ For 150GB over 10 CPUs, ask for 15GB for each CPU.
 ```
 
 
+<br />
 
+## Pipeline resume
 
+Re-running the pipeline into an **existing** `outdir` can skip expensive stages when inputs match:
+
+1. **Per-sample QC / processing** (including DoubletFinder, SCT, clustering, optional label transfer)
+2. **Cluster-stability auto-tuning** (when `pcs_int` / `res_int` is `"auto"`)
+3. **Integration** (loads saved Seurat / RISC objects and InPlot when present)
+
+Caches live under `{outdir}/.scdapp_resume/` and are gated by fingerprints of `sample_metadata` (Sample/Code/Condition) plus QC, per-sample, and integration parameters. **`comps` and DE/pathway/ORA settings are not part of the fingerprint** — comparative modules always re-run so HTML stays current. Changing a fingerprinted parameter invalidates that stage and all downstream stages. Stale stability `RawOuts/` are removed when the stability fingerprint no longer matches.
+
+Copying a previous run into a new `outdir` (including `.scdapp_resume/`) also resumes matching stages. Sample-stage fingerprints do **not** include `integration_method`, so you can skip QC/label-transfer compute and redo integration (e.g. RISC → Harmony). Label-transfer **plots** still run: they reuse cached predictions and `m_reference`. To force a full recompute, use a **new empty** `outdir` or delete `{outdir}/.scdapp_resume/` (and optionally `multisample_integration/cluster_stability/RawOuts/` if present).
+
+<br />
+
+## Integration assays and reductions
+
+Seurat v5 `IntegrateLayers` methods store batch-corrected coordinates in **reductions**, not in a merged `integrated` expression assay. After every integration method, the pipeline attaches a joined **`RNA`** assay with raw **`counts`** from per-sample matrices (for pseudobulk DE).
+
+| `integration_method` | Cluster reduction | UMAP reduction | Default / plot assay | Integrated expression |
+|----------------------|-------------------|----------------|----------------------|------------------------|
+| `RISC` | `pca` | `umap` | `Integrated_RISC` | `Integrated_RISC` assay (log-normalized) |
+| `CCAIntegration` | `integrated.cca` | `umap.cca` | `RNA` | reductions only |
+| `RPCAIntegration` | `integrated.dr` | `umap.dr` | `RNA` | reductions only |
+| `HarmonyIntegration` | `harmony` | `umap.harmony` | `RNA` | reductions only |
+| `CCAIntegration_SCT` | `integrated.cca` | `umap.cca` | `SCT` | reductions on SCT PCA |
+| `RPCAIntegration_SCT` | `integrated.dr` | `umap.dr` | `SCT` | reductions on SCT PCA |
+
+Integrated cluster column names follow the pattern `{prefix}_npc{pcs_int}_res{res_int}` (for example `RISC_Louvain_npc30_res0.5` or `Integrated_CCA_npc30_res0.5`).
+
+## Cross-condition DE and integration method
+
+Cross-condition DE uses the integrated cluster column and assay settings from `resolve_integration_config()` (see `?scDAPP::resolve_integration_config`).
+
+**Pseudobulk** (`Pseudobulk_mode = TRUE`): always **`RNA` assay, `counts` layer** — raw UMI counts from the concatenated per-sample matrix. This is the same for every `integration_method`; batch correction does not replace count data used by EdgeR or DESeq2.
+
+**Wilcox** (`Pseudobulk_mode = FALSE`): expression assay and slot depend on `integration_method`:
+
+| `integration_method` | Wilcox assay / slot |
+|----------------------|---------------------|
+| `RISC` | `Integrated_RISC` / `data` |
+| `CCAIntegration`, `RPCAIntegration`, `HarmonyIntegration` | `RNA` / `data` |
+| `CCAIntegration_SCT`, `RPCAIntegration_SCT` | `SCT` / `data` |
+
+Integrated **cluster markers** use the `plot_assay` for each method. For SCT-based integration, the pipeline calls `PrepSCTFindMarkers()` before `FindAllMarkers()`, as recommended by Seurat.
+
+<br />
+
+## Integration runtime expectations
+
+**Warning:** `RPCAIntegration` and especially `RPCAIntegration_SCT` can be **extremely slow** on Seurat v5 compared with CCA or Harmony. Timings below are from local smoke tests on the GeneSymbols fixture (2 samples, ~500 cells each); runtime scales up quickly with more samples.
+
+| Method | Typical speed (2-sample smoke test) |
+|--------|-------------------------------------|
+| `CCAIntegration`, `HarmonyIntegration` | Fast (seconds to low minutes) |
+| `RPCAIntegration` | **Very slow** (~18 minutes observed) |
+| `CCAIntegration_SCT` | Moderate (merged `SCTransform` + CCA; much faster than RPCA SCT) |
+| `RPCAIntegration_SCT` | **Extremely slow** (~50 minutes observed) |
+| `RISC` | Fast (~1 minute for 2 samples) |
+
+**Why RPCA is slow on Seurat v5:** Unlike the v4 object-list workflow, v5 `IntegrateLayers` with `RPCAIntegration` rebuilds per-layer `ScaleData` and `RunPCA` inside the integration step, while `CCAIntegration` can reuse precomputed `scale.data` on split RNA layers. On few small samples, CCA is therefore often **much faster** than RPCA. RPCA is still recommended for many batches, same platform, and more conservative alignment when those goals matter ([RPCA vignette](https://satijalab.org/seurat/articles/integration_rpca)).
+
+For quick integration checks, use `CCAIntegration` or `HarmonyIntegration`.
 
 <br />
 <br />
