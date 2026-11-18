@@ -788,8 +788,9 @@ apear_plot_cluster <- function(apear_input_list,
     }
     
     if(!is.null(color_mapping)){
-      tmp_Hgroup <- sapply(strsplit(names(apear_input_list),"_vs_"),`[`,1)[x]
-      tmp_Lgroup <- sapply(strsplit(names(apear_input_list),"_vs_"),`[`,2)[x]
+      tmp_Hgroup <- sapply(strsplit(names(apear_input_list), "_vs_", fixed = TRUE), `[`, 1)[x]
+      tmp_Lgroup <- sapply(strsplit(names(apear_input_list), "_vs_", fixed = TRUE), `[`, 2)[x]
+      tmp_Lgroup <- sub("__.*$", "", tmp_Lgroup)
       Hcolor <- get_color(tmp_Hgroup)
       Lcolor <- get_color(tmp_Lgroup)
     }else{

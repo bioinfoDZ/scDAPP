@@ -77,7 +77,7 @@ Comparative DE always re-runs. Delete \verb{.scdapp_resume/} or use a new outdir
 
 \item{sample_metadata}{string, path to a .csv file containing at least two columns: "Sample", matching exactly the sample names in \code{datadir}, and "Condition", giving the experiment status of that sample, such as WT or KO, Case vs Control, etc. Optionally, can provide a third column "Code" giving a nickname for each sample; this is set to "Sample_Condition" for each sample if not.}
 
-\item{comps}{string, path to a .csv file with columns c0 (reference), c1 (test), and optional formula, contrast, label. Legacy c2 is accepted as alias for c0. Multiple comparisons are supported.}
+\item{comps}{string, path to a .csv file with columns c0 (reference), c1 (test), and optional formula, contrast, label. A blank label is filled from the row and is not used in the model. Duplicate labels stop preflight. Legacy c2 is accepted as alias for c0. Multiple comparisons are supported.}
 
 \item{Pseudobulk_mode}{T/F. Sets the cross-conditional analysis mode. TRUE uses pseudobulk EdgeR (or Dream) for DE testing and propeller for compositional analysis. FALSE uses single-cell wilcox test within Seurat for DE testing and 2-prop Z test within the \code{prop.test()} function for compositional analysis.}
 

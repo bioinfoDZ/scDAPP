@@ -495,16 +495,12 @@ for (i in seq_len(nrow(comps))) {
 }
 
 ## Preflight formulas/contrasts vs DE_test style (EdgeR expr vs DESeq2 triple/name=)
-scDAPP:::.preflight_comps_design(
+comps <- scDAPP::preflight_comparisons(
   sample_metadata = sample_metadata,
   comps = comps,
-  DE_test = DE_test,
-  Pseudobulk_mode = Pseudobulk_mode
+  Pseudobulk_mode = Pseudobulk_mode,
+  DE_test = DE_test
 )
-if (isTRUE(Pseudobulk_mode)) {
-  scDAPP:::.preflight_propeller_comps(sample_metadata, comps, DE_test)
-}
-comps <- scDAPP:::.apply_contrast_defaults(comps, DE_test)
 
 
 

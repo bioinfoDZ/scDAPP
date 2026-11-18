@@ -18,7 +18,7 @@ compositional_analysis_module(
 \arguments{
 \item{sobjint}{integrated Seurat object. Metadata should have two columns: "Condition" corresponding to the A vs B conditions to compare across, and "Code" corresponding to sample / replicate names. A third column for clusters or celltypes should also be in the metadata and the name of that column will be passed to the \code{grouping_variable} parameter.}
 
-\item{comps}{data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See \code{normalize_comps()}. Formulas with \code{(1|var)} enable paired / blocked propeller.}
+\item{comps}{data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See \code{normalize_comps()}. A blank label is filled from the row and is not used in the model. Duplicate labels stop preflight. Formulas with \code{(1|var)} enable paired / blocked propeller.}
 
 \item{sample_metadata}{data.frame with Sample, Condition, Code, and any covariates (including random-effect block columns) in \code{comps$formula}.}
 

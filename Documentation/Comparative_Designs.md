@@ -2,6 +2,17 @@
 
 This cookbook shows how to set up cross-condition comparisons. Parameter lists are in [Usage.md](Usage.md).
 
+Before a long run, check the comparison with `preflight_comparisons()`. Pass `sample_metadata` and `comps` as data frames or CSV paths, plus `Pseudobulk_mode` and `DE_test`. It runs the same checks the pipeline runs before integration: the allowed test, installed packages, labels, formulas, contrasts, and the propeller design when pseudobulk mode is on. The first problem stops the function with the pipeline's message. A passing check returns the comps table with labels and default contrasts filled in. A cluster that is too sparse to estimate a contrast is still skipped later, during differential expression.
+
+```r
+comps <- scDAPP::preflight_comparisons(
+  sample_metadata = "path/to/sample_metadata.csv",
+  comps = "path/to/comps.csv",
+  Pseudobulk_mode = TRUE,
+  DE_test = "EdgeR-LRT"
+)
+```
+
 ## The two metadata files
 
 `sample_metadata.csv` has one row per sample. `Sample` matches the Cell Ranger folder or the Seurat file name. `Condition` is the group. `Code` is an optional short name; if you omit it, the pipeline uses `Condition_Sample`. Add columns such as `Batch` or `Patient` only when a comparison uses them.
@@ -10,7 +21,7 @@ This cookbook shows how to set up cross-condition comparisons. Parameter lists a
 
 - `c0` is the reference. `c1` is the test. Positive log2 fold change means higher in **c1**.
 - `formula`, `contrast`, and `label` are optional. Leave them out for a plain A versus B test. A blank formula is `~ Condition`. A blank contrast is Condition c1 versus c0.
-- `label` names the comparison in the report and in output folders. If you leave it blank, the name is `{c1}_vs_{c0}` (for example `Treatment_vs_Control`). Set `label` when two rows share the same `c0` and `c1`. Those rows would otherwise write the same folder under pathways, composition, and Milo, and the second row would overwrite the first. Section 4 is the example.
+- `label` names the comparison in the report and in output folders. It is not used in the model. If you leave it blank, the name is `{c1}_vs_{c0}` (for example `Treatment_vs_Control`). A formula other than `~ Condition`, and a contrast you set, are added to that name, so two rows that share `c0` and `c1` do not write the same folder. Duplicate labels stop the run in preflight. A label cannot contain `/` or `\`. Two labels that would become the same folder name are also an error. Automatic names replace characters that are unsafe in a path.
 - Legacy files with `c2` still run: `c2` is renamed to `c0`.
 
 `formula` and `contrast` are used by pseudobulk DE and by propeller (`Pseudobulk_mode = TRUE`). They are ignored by Wilcoxon and by `prop.test()`.
@@ -92,7 +103,7 @@ scDAPP::scRNAseq_pipeline_runner(
 )
 ```
 
-The comparison is named `Treatment_vs_Control`.
+The comparison is named `Treatment_vs_Control`. A formula other than `~ Condition`, or a contrast you set, is added to that name.
 
 <br />
 
@@ -120,7 +131,7 @@ The comparison is named `Treatment_vs_Control`.
 | Control   | Other     |
 | Treatment | Other     |
 
-Each row has a different `c0`/`c1` pair, so the automatic names (`Treatment_vs_Control`, `Other_vs_Control`, `Other_vs_Treatment`) do not collide.
+Each row has a different `c0`/`c1` pair, so the automatic names (`Treatment_vs_Control`, `Other_vs_Control`, `Other_vs_Treatment`) do not collide. A formula other than `~ Condition`, or a contrast you set, is also part of the automatic name, so those rows do not collide either.
 
 <br />
 
@@ -131,7 +142,7 @@ Each row has a different `c0`/`c1` pair, so the automatic names (`Treatment_vs_C
 
 Add the covariate to `sample_metadata`. Put it in `formula`. Leave `contrast` blank for Condition c1 versus c0 adjusted for that covariate. Set `contrast` to pull out another term, such as batch adjusted for condition.
 
-Both rows below are Control versus Treatment, so each row needs its own `label`.
+Both rows below are Control versus Treatment. The `label` values in the tables are optional short names. Leave `label` blank and the automatic names differ, because the contrasts differ. Duplicate labels stop the run.
 
 ### `sample_metadata.csv`
 
@@ -165,7 +176,7 @@ Use `EdgeR-LRT`, `EdgeR-QLF`, or a DESeq2 test here. `EdgeR` exactTest only fits
 
 **When to use:** You want the condition effect to differ by a second factor. Prefer at least two samples in each Condition by factor cell.
 
-Fit `~ Condition * Genotype` (that is `Condition + Genotype + Condition:Genotype`). A blank contrast is the Condition c1 versus c0 main effect. Set `contrast` to the interaction coefficient when that term is the result you want. The same `label` rule as section 4 applies: both rows are Control versus Treatment.
+Fit `~ Condition * Genotype` (that is `Condition + Genotype + Condition:Genotype`). A blank contrast is the Condition c1 versus c0 main effect. Set `contrast` to the interaction coefficient when that term is the result you want. Leave `label` blank and the automatic names differ, because the contrasts differ. The short names in the tables are optional. Duplicate labels stop the run.
 
 A main-effect contrast still reports `PropMean_c1` and `PropMean_c0`. An interaction-coefficient contrast reports the coefficient test and leaves those mean columns empty.
 
@@ -207,7 +218,7 @@ Coefficient names depend on factor levels. Check `colnames(model.matrix(...))` o
 
 `sample_metadata` needs the block column (`Patient` here). `formula` needs `(1|Patient)`. `DE_test` must be `"Dream"` (Bioconductor `variancePartition`). EdgeR and DESeq2 reject random effects. Propeller uses the same `(1|var)` term for a blocked test, whether or not DE is Dream.
 
-Leave `contrast` blank for Condition c1 versus c0. One row does not need `label`; the name is `Treatment_vs_Control`.
+Leave `contrast` blank for Condition c1 versus c0. One row does not need `label`. The formula is not `~ Condition`, so the name is `Treatment_vs_Control__formula_Condition_plus_re_Patient`.
 
 ### `sample_metadata.csv`
 
@@ -237,7 +248,7 @@ scDAPP::scRNAseq_pipeline_runner(
 )
 ```
 
-`~ Condition * Genotype + (1|Patient)` is allowed. Use EdgeR-style contrasts as in section 5, and set `label` if more than one row shares `c0` and `c1`.
+`~ Condition * Genotype + (1|Patient)` is allowed. Use EdgeR-style contrasts as in section 5. Leave `label` blank unless you want a shorter name. Rows that share `c0` and `c1` get different automatic names when the formula or contrast differs. Duplicate labels stop the run.
 
 <br />
 
@@ -290,7 +301,7 @@ All samples are fit together, by cluster. Each comps row extracts one contrast f
 
 `Factor;numerator;denominator` is the string form of `contrast = c(Factor, numerator, denominator)` passed to `DESeq2::results()`.
 
-Preflight checks formulas and contrasts before the long run. A cluster that cannot estimate a DE contrast is skipped with a warning. A contrast that cannot be mapped onto the propeller design stops the run.
+Preflight checks formulas, contrasts, and that labels are unique before the long run. A cluster that cannot estimate a DE contrast is skipped with a warning. A contrast that cannot be mapped onto the propeller design stops the run.
 
 ---
 
@@ -302,8 +313,8 @@ Preflight checks formulas and contrasts before the long run. A cluster that cann
 | Simple A vs B | `TRUE` | `EdgeR-LRT` / `EdgeR-QLF` | blank, or `Condition{c1} - Condition{c0}` |
 | Simple A vs B | `TRUE` | `DESeq2` / `DESeq2-LRT` | blank, or `Condition;{c1};{c0}` |
 | A vs B vs C | `TRUE` | EdgeR* / DESeq2* | blank per row |
-| Confounders | `TRUE` | `EdgeR-LRT` / `EdgeR-QLF` / DESeq2* | Condition or Batch `A - B`, or a DESeq2 triple. Set `label`. |
-| Interaction term | `TRUE` | `EdgeR-LRT` / `EdgeR-QLF` | `ConditionL1:GenotypeL2`. Set `label`. |
-| Interaction term | `TRUE` | DESeq2* | `name=ConditionL1.GenotypeL2`. Set `label`. |
+| Confounders | `TRUE` | `EdgeR-LRT` / `EdgeR-QLF` / DESeq2* | Condition or Batch `A - B`, or a DESeq2 triple. Label optional; duplicates stop the run. |
+| Interaction term | `TRUE` | `EdgeR-LRT` / `EdgeR-QLF` | `ConditionL1:GenotypeL2`. Label optional; duplicates stop the run. |
+| Interaction term | `TRUE` | DESeq2* | `name=ConditionL1.GenotypeL2`. Label optional; duplicates stop the run. |
 | Paired | `TRUE` | `Dream` | blank, or an EdgeR-style Condition contrast |
 | Milo | `TRUE` | same test as DE | same contrast; `run_MILO = TRUE` |

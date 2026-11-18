@@ -28,8 +28,11 @@ de_across_conditions_module(
 
 \item{comps}{data.frame defining comparisons. Required: \code{c0} (reference) and
 \code{c1} (test; log2FC is c1 vs c0). Optional: \code{formula} (default
-\code{~ Condition}), \code{contrast}, and \code{label} (default
-\code{c1_vs_c0}). For paired pseudobulk DE with \code{DE_test = "Dream"}, include
+\code{~ Condition}), \code{contrast}, and \code{label}. A blank \code{label}
+is filled from \code{c1}, \code{c0}, and, when they are not the defaults,
+\code{formula} and \code{contrast}. The label names output folders and
+result tables. It is not used in the model. Duplicate labels stop preflight.
+For paired pseudobulk DE with \code{DE_test = "Dream"}, include
 an intercept random effect such as \code{~ Condition + (1|Patient)}. Deprecated
 \code{c2} is renamed to \code{c0}.}
 

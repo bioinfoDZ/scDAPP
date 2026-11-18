@@ -5,7 +5,106 @@
 # Used for comps parsing, design matrices, contrasts, and result formatting.
 # =============================================================================
 
+# Filesystem-safe token for condition levels. Hyphens stay; they are legal in folder names.
+.comp_level_slug <- function(x) {
+  x <- trimws(as.character(x)[1])
+  x <- gsub("[^A-Za-z0-9._-]+", "_", x)
+  x <- gsub("_+", "_", x)
+  x <- gsub("^_|_$", "", x)
+  if (!nzchar(x)) "level" else x
+}
+
+# Formula or contrast text for an automatic label. Operators stay distinct.
+.comp_expr_slug <- function(x) {
+  x <- trimws(as.character(x)[1])
+  x <- gsub(
+    "\\(\\s*1\\s*\\|\\s*([A-Za-z.][A-Za-z0-9_.]*)\\s*\\)",
+    " re_\\1 ",
+    x,
+    perl = TRUE
+  )
+  x <- gsub("*", " by ", x, fixed = TRUE)
+  x <- gsub(":", " int ", x, fixed = TRUE)
+  x <- gsub("+", " plus ", x, fixed = TRUE)
+  x <- gsub("-", " minus ", x, fixed = TRUE)
+  x <- gsub("=", " ", x, fixed = TRUE)
+  x <- gsub(";", " ", x, fixed = TRUE)
+  x <- gsub("~", " ", x, fixed = TRUE)
+  x <- gsub("[^A-Za-z0-9._-]+", "_", x)
+  x <- gsub("_+", "_", x)
+  x <- gsub("^_|_$", "", x)
+  if (!nzchar(x)) "term" else x
+}
+
+# TRUE for ~ Condition only. A random effect or any other term is not the default.
+.is_default_comp_formula <- function(formula_entry) {
+  f <- .parse_comp_formula(formula_entry)
+  if (.formula_has_random_effect(f)) return(FALSE)
+  .is_simple_condition_design(f)
+}
+
+# Blank label: {c1}_vs_{c0}, plus formula and contrast only when they are not defaults.
+.comp_auto_label <- function(c0, c1, formula, contrast) {
+  parts <- paste0(.comp_level_slug(c1), "_vs_", .comp_level_slug(c0))
+  if (!.is_default_comp_formula(formula)) {
+    parts <- paste0(parts, "__formula_", .comp_expr_slug(formula))
+  }
+  if (!.is_blank_contrast(contrast)) {
+    parts <- paste0(parts, "__contrast_", .comp_expr_slug(contrast))
+  }
+  parts
+}
+
+# Labels name folders and result tables. They are not model inputs.
+# Stop on duplicate names, path characters, or Milo directory-stub collisions.
+.assert_unique_comp_labels <- function(comps) {
+  comps <- .normalize_comps(comps)
+  labs <- trimws(as.character(comps$label))
+  bad_path <- grepl("[/\\\\]", labs) | labs %in% c(".", "..")
+  if (any(bad_path)) {
+    idx <- which(bad_path)
+    stop(
+      "comps$label is an output folder name, so it cannot contain '/' or '\\' ",
+      "and cannot be '.' or '..'. ",
+      paste0("row ", idx, ": '", labs[idx], "'", collapse = "; "),
+      call. = FALSE
+    )
+  }
+  if (anyDuplicated(labs)) {
+    dups <- unique(labs[duplicated(labs) | duplicated(labs, fromLast = TRUE)])
+    bits <- vapply(dups, function(d) {
+      rows <- which(labs == d)
+      paste0("'", d, "' on rows ", paste(rows, collapse = ", "))
+    }, character(1))
+    stop(
+      "Duplicate comps labels. Labels name output folders and result tables and must be unique. ",
+      paste(bits, collapse = "; "),
+      ". Leave label blank to auto-name a row, or set a distinct label.",
+      call. = FALSE
+    )
+  }
+  stubs <- vapply(labs, .milo_file_stub, character(1))
+  if (anyDuplicated(stubs)) {
+    dups <- unique(stubs[duplicated(stubs) | duplicated(stubs, fromLast = TRUE)])
+    bits <- vapply(dups, function(d) {
+      rows <- which(stubs == d)
+      paste0(
+        paste0("'", labs[rows], "'", collapse = " and "),
+        " (rows ", paste(rows, collapse = ", "),
+        ") both become directory '", d, "'"
+      )
+    }, character(1))
+    stop(
+      "comps labels collide as output directory names. ",
+      paste(bits, collapse = "; "),
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
 # Standardize comps columns (c0/c1, formula, contrast, label) and backward-compat c2 -> c0.
+# A label the user set is trimmed and kept. A blank label is filled and is not replaced later.
 .normalize_comps <- function(comps) {
   comps <- as.data.frame(comps, stringsAsFactors = FALSE)
   cn <- colnames(comps)
@@ -20,15 +119,19 @@
   if (!"contrast" %in% colnames(comps)) comps$contrast <- NA_character_
   if (!"label" %in% colnames(comps)) comps$label <- NA_character_
   for (i in seq_len(nrow(comps))) {
-    if (is.na(comps$formula[i]) || !nzchar(trimws(comps$formula[i]))) {
+    if (is.na(comps$formula[i]) || !nzchar(trimws(as.character(comps$formula[i])))) {
       comps$formula[i] <- "~ Condition"
     } else {
       f <- trimws(as.character(comps$formula[i]))
       if (!startsWith(f, "~")) f <- paste("~", f)
       comps$formula[i] <- f
     }
-    if (is.na(comps$label[i]) || !nzchar(trimws(comps$label[i]))) {
-      comps$label[i] <- paste0(comps$c1[i], "_vs_", comps$c0[i])
+    if (is.na(comps$label[i]) || !nzchar(trimws(as.character(comps$label[i])))) {
+      comps$label[i] <- .comp_auto_label(
+        comps$c0[i], comps$c1[i], comps$formula[i], comps$contrast[i]
+      )
+    } else {
+      comps$label[i] <- trimws(as.character(comps$label[i]))
     }
   }
   comps$labels <- comps$label
@@ -188,9 +291,12 @@
 #'
 #' Validates that design variables exist, Condition covers c0/c1, contrasts parse
 #' for the active DE_test style, Dream/(1|var) rules hold, and (when possible)
-#' the fixed design is full rank on the full metadata. Per-cluster failures are
-#' still soft-skipped later in DE. Propeller uses `.preflight_propeller_comps()`
-#' on its cell-means design (not this treatment-coded DE design).
+#' the fixed design is full rank on the full metadata. Blank labels are filled
+#' first. Duplicate labels, labels that contain a slash or backslash, and labels
+#' that collapse to the same output directory stop the run. The label is not
+#' used in the model. Per-cluster failures are still soft-skipped later in DE.
+#' Propeller uses `.preflight_propeller_comps()` on its cell-means design
+#' (not this treatment-coded DE design).
 #'
 #' @param sample_metadata data.frame with Condition/Code and design columns
 #' @param comps comps data.frame (will be normalized)
@@ -204,6 +310,7 @@
                                     Pseudobulk_mode = TRUE,
                                     check_de_formula_rules = TRUE) {
   comps <- .normalize_comps(comps)
+  .assert_unique_comp_labels(comps)
   style <- .contrast_style(DE_test)
   md <- as.data.frame(sample_metadata, stringsAsFactors = FALSE)
 
@@ -323,7 +430,9 @@
 # Fail-fast check that each comps row maps onto propeller's cell-means design.
 # Does not apply to 2-prop z-test (chisq); that path uses c0/c1 only.
 .preflight_propeller_comps <- function(sample_metadata, comps, DE_test) {
-  comps <- .apply_contrast_defaults(.normalize_comps(comps), DE_test)
+  comps <- .normalize_comps(comps)
+  .assert_unique_comp_labels(comps)
+  comps <- .apply_contrast_defaults(comps, DE_test)
   style <- .contrast_style(DE_test)
   md <- as.data.frame(sample_metadata, stringsAsFactors = FALSE)
 
@@ -1718,8 +1827,11 @@ plot_crosscondition_design_heatmaps <- function(de_table,
 #' @param sample_metadata data.frame with three columns called Sample, Condition, Code.
 #' @param comps data.frame defining comparisons. Required: \code{c0} (reference) and
 #'   \code{c1} (test; log2FC is c1 vs c0). Optional: \code{formula} (default
-#'   \code{~ Condition}), \code{contrast}, and \code{label} (default
-#'   \code{c1_vs_c0}). For paired pseudobulk DE with \code{DE_test = "Dream"}, include
+#'   \code{~ Condition}), \code{contrast}, and \code{label}. A blank \code{label}
+#'   is filled from \code{c1}, \code{c0}, and, when they are not the defaults,
+#'   \code{formula} and \code{contrast}. The label names output folders and
+#'   result tables. It is not used in the model. Duplicate labels stop preflight.
+#'   For paired pseudobulk DE with \code{DE_test = "Dream"}, include
 #'   an intercept random effect such as \code{~ Condition + (1|Patient)}. Deprecated
 #'   \code{c2} is renamed to \code{c0}.
 #' @param grouping_variable string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters". It is not mandatory, but will use factor level ordering of this variable in the meta.data to control analysis order, and if not will sort by alphanumeric order (cluster 1, then 2, cluster A, then B, etc)
@@ -1959,7 +2071,7 @@ de_across_conditions_module <- function(sobjint,
             comps$contrast[compidx], comps$c1[compidx], comps$c0[compidx]
           )
         }, character(1))
-        dream_coef_names <- make.names(comps$label[row_idx], unique = TRUE)
+        dream_coef_names <- paste0("contrast_", seq_along(row_idx))
         names(dream_contrast_exprs) <- dream_coef_names
       }
       
@@ -2119,8 +2231,12 @@ de_across_conditions_module <- function(sobjint,
           if (fitobj$type == "dream") {
             coef_use <- dream_coef
             if (is.null(coef_use) || !(coef_use %in% colnames(fitobj$fit$coefficients))) {
-              # fall back to first contrast column if naming drifted
-              coef_use <- colnames(fitobj$fit$coefficients)[1]
+              warning(
+                "Dream coefficient ", coef_use, " not in the fit for cluster ",
+                clust, " (", lab, "); skipping.",
+                call. = FALSE
+              )
+              return(NULL)
             }
             res <- as.data.frame(
               variancePartition::topTable(
@@ -2783,7 +2899,137 @@ de_across_conditions_module <- function(sobjint,
   pres
 }
 
+# Same DE_test allow-list and package checks as scRNAseq_pipeline_runner().
+.check_de_test_and_packages <- function(DE_test, Pseudobulk_mode) {
+  if (Pseudobulk_mode == TRUE) {
+    if (!DE_test %in% c("EdgeR", "EdgeR-LRT", "EdgeR-QLF", "DESeq2", "DESeq2-LRT", "Dream")) {
+      stop(
+        "With 'Pseudobulk_mode' set to T, DE_test must be one of: 'EdgeR', 'EdgeR-LRT', 'EdgeR-QLF', 'DESeq2', 'DESeq2-LRT', 'Dream'; value ",
+        DE_test, " was passed"
+      )
+    }
+  }
+  if (Pseudobulk_mode == FALSE) {
+    if (!DE_test %in% c("wilcox", "wilcox_limma", "bimod", "t", "negbinom", "poisson", "LR", "MAST", "DESeq2")) {
+      stop(
+        "With 'Pseudobulk_mode' set to F, DE_test must be one of: 'wilcox' , 'wilcox_limma', 'bimod', 't', 'negbinom', 'poisson', 'LR', 'MAST', 'DESeq2'; value ",
+        DE_test, " was passed"
+      )
+    }
+  }
+  if (DE_test == "MAST") {
+    if (!("MAST" %in% rownames(utils::installed.packages()))) {
+      stop("DE_test is set to \"MAST\". Please install MAST first.")
+    }
+  }
+  if (DE_test == "DESeq2" | DE_test == "DESeq2-LRT") {
+    if (!("DESeq2" %in% rownames(utils::installed.packages()))) {
+      stop("DE_test is set to \"DESeq2\". Please install DESeq2 first")
+    }
+  }
+  if (identical(DE_test, "Dream")) {
+    if (!requireNamespace("variancePartition", quietly = TRUE)) {
+      stop(
+        "DE_test is set to \"Dream\". Please install variancePartition first ",
+        "(BiocManager::install(\"variancePartition\"))."
+      )
+    }
+  }
+  invisible(TRUE)
+}
+
+.as_preflight_table <- function(x, what) {
+  if (is.character(x) && length(x) == 1L && !is.na(x)) {
+    return(.read_user_csv(x))
+  }
+  if (is.data.frame(x)) {
+    return(as.data.frame(x, stringsAsFactors = FALSE))
+  }
+  stop(what, " must be a data.frame or a path to a CSV file.", call. = FALSE)
+}
+
+# Match the report: Condition levels follow first appearance, and a missing Code
+# is Condition_Sample. This does not write the user's file.
+.prepare_preflight_metadata <- function(sample_metadata) {
+  md <- .as_preflight_table(sample_metadata, "sample_metadata")
+  if (!"Condition" %in% colnames(md)) {
+    stop("Please set sample_metadata, path to csv file with Sample column and Condition column")
+  }
+  md$Condition <- factor(md$Condition, levels = unique(as.character(md$Condition)))
+  if (!"Code" %in% colnames(md)) {
+    if (!"Sample" %in% colnames(md)) {
+      stop("Please set sample_metadata, path to csv file with Sample column and Condition column")
+    }
+    md$Code <- paste0(as.character(md$Condition), "_", md$Sample)
+  }
+  md
+}
+
+#' Check comparison setup before running the pipeline
+#'
+#' Runs the same checks [scRNAseq_pipeline_runner()] runs before integration.
+#' Pass `sample_metadata` and `comps` as data frames or CSV paths. The first
+#' problem stops the function with the pipeline's message. A passing check
+#' returns the comps table with blank labels and default contrasts filled in.
+#'
+#' A cluster that is too sparse to estimate a contrast is still skipped later,
+#' during differential expression. This function does not load counts.
+#' Integration packages are checked separately by
+#' [check_integration_dependencies()].
+#'
+#' @param sample_metadata data.frame, or a path to `sample_metadata.csv`, with
+#'   `Sample` and `Condition`. `Code` is filled as `Condition_Sample` when omitted.
+#' @param comps data.frame, or a path to `comps.csv`, with `c0` and `c1`.
+#'   Optional columns are `formula`, `contrast`, and `label`. See [normalize_comps()].
+#' @param Pseudobulk_mode logical. `TRUE` checks pseudobulk formulas, contrasts,
+#'   and the propeller design. `FALSE` checks `c0`/`c1` and labels only.
+#' @param DE_test DE method. `NULL` uses `EdgeR-LRT` when `Pseudobulk_mode` is
+#'   `TRUE` and `wilcox` when it is `FALSE`.
+#' @return The normalized comps data.frame, invisibly.
+#' @export
+#' @examples
+#' \dontrun{
+#' comps <- preflight_comparisons(
+#'   sample_metadata = "path/to/sample_metadata.csv",
+#'   comps = "path/to/comps.csv",
+#'   Pseudobulk_mode = TRUE,
+#'   DE_test = "EdgeR-LRT"
+#' )
+#' }
+preflight_comparisons <- function(sample_metadata, comps,
+                                   Pseudobulk_mode = TRUE, DE_test = NULL) {
+  if (is.null(DE_test)) {
+    DE_test <- if (isTRUE(Pseudobulk_mode)) "EdgeR-LRT" else "wilcox"
+  }
+  .check_de_test_and_packages(DE_test, Pseudobulk_mode)
+  md <- .prepare_preflight_metadata(sample_metadata)
+  if (is.null(comps)) {
+    stop("Please set comps, path to csv file with c0 and c1 columns defining comparisons of conditions to use")
+  }
+  comps <- .normalize_comps(.as_preflight_table(comps, "comps"))
+  .preflight_comps_design(
+    sample_metadata = md,
+    comps = comps,
+    DE_test = DE_test,
+    Pseudobulk_mode = Pseudobulk_mode
+  )
+  if (isTRUE(Pseudobulk_mode)) {
+    .preflight_propeller_comps(md, comps, DE_test)
+  }
+  comps <- .apply_contrast_defaults(comps, DE_test)
+  message(
+    "Comparison preflight passed. Labels: ",
+    paste(comps$label, collapse = ", ")
+  )
+  invisible(comps)
+}
+
 #' Normalize comps for cross-condition DE and compositional modules
+#'
+#' Fills a blank formula with \code{~ Condition}. Fills a blank label with a
+#' filesystem-safe name from \code{c1}, \code{c0}, and any non-default formula
+#' or contrast that was set. A label you set is trimmed and kept. The label
+#' names outputs only and is not used in the model.
 #'
 #' @param comps data.frame with c0, c1, and optional formula, contrast, label
 #' @return normalized comps data.frame
@@ -4905,7 +5151,7 @@ ORA_crosscondition_module <- function(de_results,
 #' This is a modular component of the scDAPP scRNAseq pipeline. Perform compositional analysis across conditions to compare the proportion of cell types. Supports multiple condtions (A vs B vs C). Supports "pseudobulk" replicate-aware analysis as implemented in the propeller test with arcsin transformation, as recommended by Simmons 2022 (https://doi.org/10.1101/2022.02.04.479123). When \code{comps$formula} includes an intercept random effect such as \code{(1|Patient)}, paired testing uses limma \code{duplicateCorrelation} with blocked \code{lmFit}. Alternatively supports old-school, non-replicate aware chisq test as implemented by the `prop.test()` function.
 #'
 #' @param sobjint integrated Seurat object. Metadata should have two columns: "Condition" corresponding to the A vs B conditions to compare across, and "Code" corresponding to sample / replicate names. A third column for clusters or celltypes should also be in the metadata and the name of that column will be passed to the `grouping_variable` parameter.
-#' @param comps data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See `normalize_comps()`. Formulas with \code{(1|var)} enable paired / blocked propeller.
+#' @param comps data.frame with c0 (reference), c1 (test), and optional formula, contrast, label columns. See `normalize_comps()`. A blank label is filled from the row and is not used in the model. Duplicate labels stop preflight. Formulas with \code{(1|var)} enable paired / blocked propeller.
 #' @param sample_metadata data.frame with Sample, Condition, Code, and any covariates (including random-effect block columns) in `comps$formula`.
 #' @param outdir_int string, path to save results to. Will create a sub-directory called "compositional_proportion_analysis" and save inside of there.
 #' @param grouping_variable string, column name of identity in Seurat object meta.data to stratify DE by. For example, clusters or celltype. Will perform A vs B DE in each of these groupings. Default is "seurat_clusters"

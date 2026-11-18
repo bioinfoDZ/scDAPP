@@ -53,7 +53,7 @@ r_package_test <- function() {
 #' @param refdatapath string, path to a Seurat object .rds file for labe latransfer, pre-processed with `Seurat::SCTransform()`, with a column called "Celltype" in its meta.data. Ignored if `use_labeltransfer` = F.
 #' @param m_reference string, path to .rds file containing output of `Seurat::FindAllMarkers` run on the reference object specified above. Ignored if `use_labeltransfer` = F
 #' @param sample_metadata string, path to a .csv file containing at least two columns: "Sample", matching exactly the sample names in `datadir`, and "Condition", giving the experiment status of that sample, such as WT or KO, Case vs Control, etc. Optionally, can provide a third column "Code" giving a nickname for each sample; this is set to "Sample_Condition" for each sample if not.
-#' @param comps string, path to a .csv file with columns c0 (reference), c1 (test), and optional formula, contrast, label. Legacy c2 is accepted as alias for c0. Multiple comparisons are supported.
+#' @param comps string, path to a .csv file with columns c0 (reference), c1 (test), and optional formula, contrast, label. A blank label is filled from the row and is not used in the model. Duplicate labels stop preflight. Legacy c2 is accepted as alias for c0. Multiple comparisons are supported.
 #' @param risc_reference string; RISC reference sample. Default `"autoV2"` ranks samples by the product of InPlot cluster score, Stv, and inverse mean KS after a KS outlier veto. Use `"auto"` (alias `"autoV1"`) for the legacy size-weighted cluster-variance heuristic. Set to a sample `Code` or `Sample` name to force that reference (used for both the PC/res stability sweep and the final integration). `NULL` is the same as `"autoV2"`. RISC integration only.
 #' @param min_num_UMI numeric, default is 500, if no filter is desired set to -Inf
 #' @param min_num_Feature numeric, default is 200, if no filter is desired set to -Inf
@@ -323,50 +323,10 @@ scRNAseq_pipeline_runner <- function(  datadir,
   
   
   
-  #### write some exceptions 
-  
-  #DE tests must be in a set of tests
-  if(Pseudobulk_mode == T){
-    
-    if(!DE_test %in% c('EdgeR', 'EdgeR-LRT', 'EdgeR-QLF', 'DESeq2', 'DESeq2-LRT', 'Dream')){
-      stop("With 'Pseudobulk_mode' set to T, DE_test must be one of: 'EdgeR', 'EdgeR-LRT', 'EdgeR-QLF', 'DESeq2', 'DESeq2-LRT', 'Dream'; value ", DE_test, " was passed")
-    }
-    
-  }
-  
-  #DE tests must be in a set of tests
-  if(Pseudobulk_mode == F){
-    
-    if(!DE_test %in% c('wilcox' , 'wilcox_limma', 'bimod', 't', 'negbinom', 'poisson', 'LR', 'MAST', 'DESeq2' )){
-      stop("With 'Pseudobulk_mode' set to F, DE_test must be one of: 'wilcox' , 'wilcox_limma', 'bimod', 't', 'negbinom', 'poisson', 'LR', 'MAST', 'DESeq2'; value ", DE_test, " was passed")
-    }
-    
-  }
-  
-  
-  
-  
-  # make sure DE packages are installed
-  if(DE_test == 'MAST'){
-    if(!('MAST' %in% rownames(installed.packages()))){
-      stop('DE_test is set to "MAST". Please install MAST first.')
-    }
-  }
-  
-  if(DE_test == 'DESeq2' | DE_test == 'DESeq2-LRT'){
-    if(!('DESeq2' %in% rownames(installed.packages()))){
-      stop('DE_test is set to "DESeq2". Please install DESeq2 first')
-    }
-  }
+  #### write some exceptions
 
-  if (identical(DE_test, "Dream")) {
-    if (!requireNamespace("variancePartition", quietly = TRUE)) {
-      stop(
-        'DE_test is set to "Dream". Please install variancePartition first ',
-        "(BiocManager::install(\"variancePartition\"))."
-      )
-    }
-  }
+  # DE_test allow-list and required packages (same helper as preflight_comparisons())
+  .check_de_test_and_packages(DE_test, Pseudobulk_mode)
 
   # Paired formulas (1|var) must match DE_test
   if (isTRUE(Pseudobulk_mode) && !is.null(comps)) {

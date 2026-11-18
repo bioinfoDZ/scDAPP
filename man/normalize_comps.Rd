@@ -13,5 +13,8 @@ normalize_comps(comps)
 normalized comps data.frame
 }
 \description{
-Normalize comps for cross-condition DE and compositional modules
+Fills a blank formula with \code{~ Condition}. Fills a blank label with a
+filesystem-safe name from \code{c1}, \code{c0}, and any non-default formula
+or contrast that was set. A label you set is trimmed and kept. The label
+names outputs only and is not used in the model.
 }

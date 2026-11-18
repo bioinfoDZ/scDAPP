@@ -30,8 +30,11 @@ invisible TRUE
 \description{
 Validates that design variables exist, Condition covers c0/c1, contrasts parse
 for the active DE_test style, Dream/(1|var) rules hold, and (when possible)
-the fixed design is full rank on the full metadata. Per-cluster failures are
-still soft-skipped later in DE. Propeller uses \code{.preflight_propeller_comps()}
-on its cell-means design (not this treatment-coded DE design).
+the fixed design is full rank on the full metadata. Blank labels are filled
+first. Duplicate labels, labels that contain a slash or backslash, and labels
+that collapse to the same output directory stop the run. The label is not
+used in the model. Per-cluster failures are still soft-skipped later in DE.
+Propeller uses \code{.preflight_propeller_comps()} on its cell-means design
+(not this treatment-coded DE design).
 }
 \keyword{internal}

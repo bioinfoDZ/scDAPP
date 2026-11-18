@@ -494,7 +494,9 @@
 #'
 #' @param sobjint Integrated Seurat object with \code{Code} and the cluster column.
 #' @param comps Comparison table (\code{c0}, \code{c1}, optional \code{formula},
-#'   \code{contrast}, \code{label}). See \code{normalize_comps()}.
+#'   \code{contrast}, \code{label}). A blank label is filled from the row and
+#'   is not used in the model. Duplicate labels stop the run. See
+#'   \code{normalize_comps()}.
 #' @param sample_metadata Sample table with \code{Code}, \code{Condition}, and
 #'   any covariates named in \code{comps$formula}.
 #' @param outdir_int Integrated output directory. Results are written to
@@ -542,6 +544,7 @@ milo_neighbourhood_da_module <- function(
     stop("cluster_reduction and umap_reduction are required.", call. = FALSE)
   }
   comps <- .apply_contrast_defaults(.normalize_comps(comps), DE_test)
+  .assert_unique_comp_labels(comps)
   style <- .contrast_style(DE_test)
   sample_metadata <- as.data.frame(sample_metadata, stringsAsFactors = FALSE)
   if (!"Code" %in% colnames(sample_metadata)) {

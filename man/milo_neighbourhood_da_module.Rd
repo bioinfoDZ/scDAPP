@@ -25,7 +25,9 @@ milo_neighbourhood_da_module(
 \item{sobjint}{Integrated Seurat object with \code{Code} and the cluster column.}
 
 \item{comps}{Comparison table (\code{c0}, \code{c1}, optional \code{formula},
-\code{contrast}, \code{label}). See \code{normalize_comps()}.}
+\code{contrast}, \code{label}). A blank label is filled from the row and
+is not used in the model. Duplicate labels stop the run. See
+\code{normalize_comps()}.}
 
 \item{sample_metadata}{Sample table with \code{Code}, \code{Condition}, and
 any covariates named in \code{comps$formula}.}
