@@ -3,30 +3,42 @@
 For all changes, please update changelog and use Year-Month-Day
 
 ## 2.0.0
-2026.11.17
+2026.11.18
 
-- Add `conda_env/2026_scdappv2.yml`: R >= 4.5, Seurat >= 5, and the v2 feature packages that are on conda (`harmony`, `mclust`, `clusterProfiler`, `variancePartition`, `miloR`, `DESeq2`, `presto`). `2025scdapp.yml` remains for existing environments. `RISC` and `DoubletFinder` are still installed from GitHub.
+#### Comparative analysis v2
 
-2026.11.13
+- Pseudobulk DE now supports more complex contrasts, ie adjusting for confounders, studying interactions, or handling paired designs: `EdgeR`, `EdgeR-LRT`, `EdgeR-QLF`, `DESeq2`, `DESeq2-LRT`, and `Dream` (`(1|Patient)`); EdgeR-style vs DESeq2-style contrasts; blank contrast defaults to Condition c1 vs c0; early preflight (comps/design and integration packages) and soft-skip for sparse clusters.
+- Cross-condition API: `comps` uses `c0`/`c1` (legacy `c2` → `c0`) with optional `formula`, `contrast`, and `label`; DE / compositional / pathway / ORA modules return flat tables.
+- Propeller compositional analysis follows the same formulas/contrasts (covariates, interactions, blocked pairing).
+- DE now performs joint normalization and gene dispersion estimation of all samples (instead of just per-A vs B comparison)
+- New comparative designs cookbook ([Comparative_Designs.md](Comparative_Designs.md)) and Usage updates.
+- DE visalization for every design, including plain `~ Condition`: one pseudobulk heatmap per cluster (columns are samples, annotations are the formula variables), and a second heatmap only when that cluster has more than 50 significant genes.
+- Pathway report: one summary dot plot with positive and negative NES together, plus a leading-edge mean heatmap per cluster using the same sample annotations. `pathwayanalysis_crosscondition_legacy()` keeps the previous up/down plots.
+- Optional Milo neighbourhood differential abundance (`run_MILO`, `milo_k`, `milo_k_max`). Saved under `multisample_integration/differential_abundance_Milo/`. The report shows the top 20 significant neighbourhoods. Paired formulas use Milo's mixed model with `force = TRUE`, and drop `(1|var)` with a warning if that fit fails or the contrast is not the last fixed coefficient.
 
-- `saving_algorithm` selects `qs2` (default) or `RDS` for pipeline object files. `qs2` saves large objects faster. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.
-- The HTML report Run time section lists wall-clock time for each code chunk in the order it ran, then the total hours for the whole report.
+#### Integration methods and stability selection v2
+
 - Multi-backend integration via `integration_method` (RISC default, plus Seurat CCA/RPCA/Harmony and SCT variants); integrated RISC assay renamed to `Integrated_RISC`.
 - Cluster-stability auto-tuning: `pcs_int` / `res_int` can be `"auto"` (bootstrap ARI + Jaccard) before the final integration.
-- Cross-condition API: `comps` uses `c0`/`c1` (legacy `c2` → `c0`) with optional `formula`, `contrast`, and `label`; DE / compositional / pathway / ORA modules return flat tables.
-- Pseudobulk DE: `EdgeR`, `EdgeR-LRT`, `EdgeR-QLF`, `DESeq2`, `DESeq2-LRT`, and `Dream` (`(1|Patient)`); EdgeR-style vs DESeq2-style contrasts; blank contrast defaults to Condition c1 vs c0; early preflight (comps/design and integration packages) and soft-skip for sparse clusters.
-- Propeller compositional analysis follows the same formulas/contrasts (covariates, interactions, blocked pairing).
-- MSigDB pathway cache; cell-type marker ORA; DEG bar/dot plots; per-sample QC modules and `attach_scDAPP_pipeline_libraries()`.
-- New comparative designs cookbook ([Comparative_Designs.md](Comparative_Designs.md)) and Usage updates.
-- Apptainer-friendly pipeline render: copy Rmd to outdir before knitting; remove the copy on successful exit.
-- Safe pipeline resume: fingerprint-gated caches under `{outdir}/.scdapp_resume/` for per-sample QC/processing, stability auto-tuning, and integration (including saved InPlot); comps/DE always re-run. Force a full recompute with a new outdir or by deleting `.scdapp_resume/`.
 - RISC reference default `"autoV2"` (product of InPlot cluster × Stv / mean KS, after a KS outlier veto); chosen sample is frozen for the stability sweep and final integration (`"auto"` / `"autoV1"` keeps the legacy heuristic).
-- Propeller multivariable/interaction tables stay one row per cluster; preflight also checks the propeller design and pairing.
+
+
+#### Additional pipeline updates
 - Combined per-sample cluster-marker and MSigDB cell-type ORA CSVs (`all_samples_clustermarkers.csv`, `all_samples_ora_results.csv`).
-- Optional Milo neighbourhood differential abundance (`run_MILO`, `milo_k`, `milo_k_max`). Saved under `multisample_integration/differential_abundance_Milo/`. The report shows the top 20 significant neighbourhoods. Paired formulas use Milo's mixed model with `force = TRUE`, and drop `(1|var)` with a warning if that fit fails or the contrast is not the last fixed coefficient.
-- DE report figures for every design, including plain `~ Condition`: one pseudobulk heatmap per cluster (columns are samples, annotations are the formula variables), and a second heatmap only when that cluster has more than 50 significant genes. The per-cluster dot plot puts genes on the Y axis and samples on the X axis. The old c1-versus-c0 split heatmap and the comparison-wide pooled dot plot are removed.
-- Pathway report: one summary dot plot with positive and negative NES together, plus a leading-edge mean heatmap per cluster using the same sample annotations. `pathwayanalysis_crosscondition_legacy()` keeps the previous up/down plots.
 - `subset_module()` subsets an integrated object, reclusters, then runs composition, DE, GSEA, optional Milo, and writes `subset_module_report.html`. RISC re-embeds `Integrated_RISC` and can bootstrap PCs and resolution. Harmony, CCA, RPCA, and SCT re-integrate.
+
+#### Performance and efficiency updates
+- Safe pipeline resume: fingerprint-gated caches under `{outdir}/.scdapp_resume/` for per-sample QC/processing, stability auto-tuning, and integration (including saved InPlot); comps/DE always re-run. Force a full recompute with a new outdir or by deleting `.scdapp_resume/`.
+- `saving_algorithm` selects `qs2` (default) or `RDS` for pipeline object files. `qs2` saves large objects faster. Sample, reference, and marker inputs may be either `.rds` or `.qs2`.
+- The HTML report Run time section lists wall-clock time for each code chunk in the order it ran, then the total hours for the whole report.
+- Add `conda_env/2026_scdappv2.yml`: R >= 4.5, Seurat >= 5, and the v2 feature packages that are on conda (`harmony`, `mclust`, `clusterProfiler`, `variancePartition`, `miloR`, `DESeq2`, `presto`). `2025scdapp.yml` remains for existing environments. `RISC` and `DoubletFinder` are still installed from GitHub.
+- MSigDB pathway cache; cell-type marker ORA; DEG bar/dot plots; per-sample QC modules and `attach_scDAPP_pipeline_libraries()`.
+
+
+
+<br />
+<br />
+
 
 ## 1.3.1
 2025.05.14
