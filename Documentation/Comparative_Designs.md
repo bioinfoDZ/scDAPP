@@ -211,6 +211,7 @@ The `label` values in the tables are optional.
 | c0      | c1        | formula                  | contrast                              | label                                 |
 | ------- | --------- | ------------------------ | ------------------------------------- | ------------------------------------- |
 | Control | Treatment | `~ Condition * Genotype` | ConditionTreatment - ConditionControl | Treatment_vs_Control_main             |
+| Control | Treatment | `~ Condition * Genotype` | GenotypeKO - GenotypeWT               | KO_vs_WT_main                         |
 | Control | Treatment | `~ Condition * Genotype` | ConditionTreatment:GenotypeKO         | Treatment_x_Genotype                  |
 
 ### `comps.csv` — DESeq2 / DESeq2-LRT
@@ -218,6 +219,7 @@ The `label` values in the tables are optional.
 | c0      | c1        | formula                  | contrast                           | label                     |
 | ------- | --------- | ------------------------ | ---------------------------------- | ------------------------- |
 | Control | Treatment | `~ Condition * Genotype` | Condition;Treatment;Control        | Treatment_vs_Control_main |
+| Control | Treatment | `~ Condition * Genotype` | Genotype;KO;WT                     | KO_vs_WT_main             |
 | Control | Treatment | `~ Condition * Genotype` | name=ConditionTreatment.GenotypeKO | Treatment_x_Genotype      |
 
 Coefficient names depend on factor levels. Check `colnames(model.matrix(...))` or `DESeq2::resultsNames(dds)` if a contrast does not match.
