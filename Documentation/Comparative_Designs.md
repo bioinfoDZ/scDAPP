@@ -210,7 +210,7 @@ A main-effect contrast still reports `PropMean_c1` and `PropMean_c0` in the Prop
 Below the rows show contrasts passed according to EdgeR-like or DESeq2-like notation. 
 - The first row in each gets you the condition "main effect"
 - The second row gets you the genotype "main effect"
-- The third row is how you could get the interaction coeffients per-gene (usually the most relevant in an interaction model). Note that you do not need to include the other two rows if you are just interested in this.
+- The third row is how you could get the interaction coeffients per-gene.
 
 
 The `label` values in the tables are optional.
@@ -238,7 +238,7 @@ Coefficient names depend on factor levels. Check `colnames(model.matrix(...))` o
 
 **When to use:** The same patient or animal is in both conditions; repeated sampling, time-course studies
 
-`sample_metadata` needs the block column (`Patient` here). `formula` needs `(1|Patient)`. `DE_test` must be `"Dream"` (Bioconductor `variancePartition`). Propeller uses the same `(1|var)` term for a blocked test, whether or not DE is Dream.
+`sample_metadata` needs the block column (`Patient` here). `formula` needs `(1|Patient)`. `DE_test` must be `"Dream"` (Bioconductor `variancePartition`). Propeller uses the same `(1|var)` term for a blocked test
 
 
 ### `sample_metadata.csv`
@@ -268,9 +268,10 @@ scDAPP::scRNAseq_pipeline_runner(
 )
 ```
 
-`~ Condition * Genotype + (1|Patient)` is allowed. Use EdgeR-style contrasts as in section 5. Leave `label` blank unless you want a shorter name. Rows that share `c0` and `c1` get different automatic names when the formula or contrast differs. Duplicate labels stop the run.
-
-The same three contrasts, with pairing. Each patient is in both conditions, and genotype stays the same within a patient.
+`~ Condition * Genotype + (1|Patient)` is also allowed. Use EdgeR-style contrasts as in section 5. Below the comps rows show contrasts passed according to EdgeR-like notation, but with pairing, which can only be done with Dream. 
+- The first row in each gets you the condition "main effect"
+- The second row gets you the genotype "main effect"
+- The third row is how you could get the interaction coeffients per-gene.
 
 ### `sample_metadata.csv`
 
@@ -294,8 +295,8 @@ The same three contrasts, with pairing. Each patient is in both conditions, and 
 | Control | Treatment | `~ Condition * Genotype + (1\|Patient)` | ConditionTreatment:GenotypeKO         | Treatment_x_Genotype      |
 
 <br />
-
-
+<br />
+<br />
 
 
 ## `DE_test` and contrast grammar
@@ -322,7 +323,8 @@ All samples are fit together, by cluster. Each comps row extracts one contrast f
 
 Preflight checks formulas, contrasts, and that labels are unique before the long run. A cluster that cannot estimate a DE contrast is skipped with a warning. A contrast that cannot be mapped onto the propeller design stops the run.
 
----
+<br />
+<br />
 
 ## Summary
 
