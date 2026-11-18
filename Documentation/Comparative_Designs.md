@@ -252,10 +252,9 @@ Coefficient names depend on factor levels. Check `colnames(model.matrix(...))` o
 
 ### `comps.csv`
 
-```csv
-c0,c1,formula
-Control,Treatment,~ Condition + (1|Patient)
-```
+| c0      | c1        | formula                        |
+| ------- | --------- | ------------------------------ |
+| Control | Treatment | `~ Condition + (1\|Patient)`   |
 
 ```r
 scDAPP::scRNAseq_pipeline_runner(
@@ -270,6 +269,29 @@ scDAPP::scRNAseq_pipeline_runner(
 ```
 
 `~ Condition * Genotype + (1|Patient)` is allowed. Use EdgeR-style contrasts as in section 5. Leave `label` blank unless you want a shorter name. Rows that share `c0` and `c1` get different automatic names when the formula or contrast differs. Duplicate labels stop the run.
+
+The same three contrasts, with pairing. Each patient is in both conditions, and genotype stays the same within a patient.
+
+### `sample_metadata.csv`
+
+| Sample          | Condition | Code            | Genotype | Patient |
+| --------------- | --------- | --------------- | -------- | ------- |
+| Control_WT_P1   | Control   | Control_WT_P1   | WT       | P1      |
+| Treatment_WT_P1 | Treatment | Treatment_WT_P1 | WT       | P1      |
+| Control_WT_P2   | Control   | Control_WT_P2   | WT       | P2      |
+| Treatment_WT_P2 | Treatment | Treatment_WT_P2 | WT       | P2      |
+| Control_KO_P3   | Control   | Control_KO_P3   | KO       | P3      |
+| Treatment_KO_P3 | Treatment | Treatment_KO_P3 | KO       | P3      |
+| Control_KO_P4   | Control   | Control_KO_P4   | KO       | P4      |
+| Treatment_KO_P4 | Treatment | Treatment_KO_P4 | KO       | P4      |
+
+### `comps.csv`
+
+| c0      | c1        | formula                                 | contrast                              | label                     |
+| ------- | --------- | --------------------------------------- | ------------------------------------- | ------------------------- |
+| Control | Treatment | `~ Condition * Genotype + (1\|Patient)` | ConditionTreatment - ConditionControl | Treatment_vs_Control_main |
+| Control | Treatment | `~ Condition * Genotype + (1\|Patient)` | GenotypeKO - GenotypeWT               | KO_vs_WT_main             |
+| Control | Treatment | `~ Condition * Genotype + (1\|Patient)` | ConditionTreatment:GenotypeKO         | Treatment_x_Genotype      |
 
 <br />
 
