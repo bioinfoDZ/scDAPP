@@ -1,6 +1,6 @@
 # scDAPP downstream, prior to v2: manual sub-clustering and comparative modules
 
-This is the workflow from before v2. It subsets and reclusters by hand, then calls the comparative modules one at a time. For a current analysis, use [`subset_module()`](Subclustering_and_ComparativeModule_Vignette.md).
+This is the workflow from before v2. It subsets and reclusters by hand, then calls the comparative modules one at a time. For a current analysis, use [`comparative_module()`](Subclustering_and_ComparativeModule_Vignette.md) on existing groups, or [`subset_module()`](Subclustering_and_ComparativeModule_Vignette.md) when you need to recluster a subset.
 
 Sometimes, comparative analyses such as compositional, differential expression, or pathway analyses need to be re-run. For example, we may subset the object to remove cells or samples, re-cluster the object, call cell types, or even run these analyses on cell type sub-clusters.
 

@@ -1,0 +1,194 @@
+---
+title: "scDAPP comparative report"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    df_print: kable
+params:
+  report_rds: NULL
+---
+
+```{css toc-float-horizontal, echo=FALSE}
+/* Keep the floating TOC in the left column: stick on vertical scroll, not on
+   horizontal pan. Overrides jquery.tocify's position:fixed. Same rule as
+   inst/rmd/scRNAseq_clustering_integration.Rmd. */
+@media (min-width: 768px) {
+  .container-fluid.main-container > .row {
+    display: flex;
+    align-items: stretch;
+  }
+  div.tocify {
+    position: sticky !important;
+    top: 1rem;
+    left: auto !important;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-height: calc(100vh - 2rem);
+  }
+}
+.toc-content {
+  overflow-x: auto;
+  max-width: 100%;
+}
+```
+
+```{r setup, echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width = 8, fig.height = 6)
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(knitr)
+})
+if (requireNamespace("ComplexHeatmap", quietly = TRUE)) {
+  suppressPackageStartupMessages(library(ComplexHeatmap))
+}
+if (is.null(params$report_rds) || !nzchar(params$report_rds) || !file.exists(params$report_rds)) {
+  stop("comparative report is missing report_rds.")
+}
+report <- readRDS(params$report_rds)
+
+print_plot <- function(x) {
+  if (is.null(x)) return(invisible(NULL))
+  if (inherits(x, "gg") || inherits(x, "Heatmap") || inherits(x, "patchwork")) {
+    print(x)
+    return(invisible(NULL))
+  }
+  if (inherits(x, "HeatmapList")) {
+    ComplexHeatmap::draw(x)
+    return(invisible(NULL))
+  }
+  invisible(NULL)
+}
+```
+
+# Comparison
+
+```{r comparison-definition, results='asis'}
+cat(sprintf(
+  "Parent method: **%s**. Cells are grouped by `%s` (%s groups). The object has %s cells from %s samples. Pseudobulk mode: %s.\n",
+  report$method,
+  report$grouping_variable,
+  report$n_groups,
+  report$n_cells,
+  report$n_samples,
+  if (isTRUE(report$pseudobulk)) "yes" else "no"
+))
+```
+
+# Embedding
+
+```{r dimplots, fig.width=8, fig.height=6}
+if (!is.null(report$dimplots$clusters)) {
+  print_plot(report$dimplots$clusters)
+}
+if (!is.null(report$dimplots$condition)) {
+  print_plot(report$dimplots$condition)
+}
+if (!is.null(report$dimplots$code)) {
+  print_plot(report$dimplots$code)
+}
+```
+
+# Composition
+
+```{r composition, fig.width=8, fig.height=7}
+comp <- report$composition
+if (!is.null(comp$globalcomposition$hmprop)) {
+  print_plot(comp$globalcomposition$hmprop)
+}
+if (!is.null(comp$composition_plots)) {
+  for (nm in names(comp$composition_plots)) {
+    print_plot(comp$composition_plots[[nm]])
+  }
+}
+```
+
+```{r composition-table, results='asis'}
+comp <- report$composition
+if (is.data.frame(comp$composition_results) && nrow(comp$composition_results)) {
+  print(knitr::kable(utils::head(comp$composition_results, 30)))
+}
+```
+
+# Differential expression
+
+```{r de-table, results='asis'}
+de <- report$de_top
+if (is.null(de) || !is.data.frame(de) || !nrow(de)) {
+  cat("Differential expression returned no genes.\n")
+} else {
+  cat("Top genes per group by absolute log fold change.\n\n")
+  cols <- intersect(
+    c("label", "cluster", "gene_symbol", "gene", "logFC", "avg_log2FC", "PValue", "p_val", "FDR", "p_val_adj"),
+    colnames(de)
+  )
+  show <- if (length(cols)) de[, cols, drop = FALSE] else de
+  print(knitr::kable(utils::head(show, 40)))
+}
+```
+
+# Milo
+
+```{r milo, results='asis', fig.width=8, fig.height=6}
+milo <- report$milo
+if (is.null(milo)) {
+  cat("Milo was not run.\n")
+} else {
+  print_plot(milo$size_plot)
+  if (is.list(milo$comparisons)) {
+    for (nm in names(milo$comparisons)) {
+      one <- milo$comparisons[[nm]]
+      cat("\n\n## ", nm, "\n\n", sep = "")
+      if (isTRUE(one$skipped)) {
+        cat("Skipped: ", one$skip_reason, "\n", sep = "")
+      } else {
+        print_plot(one$beeswarm)
+        print_plot(one$graph)
+        print_plot(one$ma)
+      }
+    }
+  }
+}
+```
+
+# Pathways
+
+```{r pathways, results='asis', fig.width=9, fig.height=7}
+pw <- report$pathways
+if (is.null(pw)) {
+  cat("Pathway analysis was not run.\n")
+} else if (is.data.frame(pw$pathway_results)) {
+  cat("GSEA summary dot plots. Per-cluster tables are written under the pathway output directory.\n\n")
+  plots <- pw$pathwaysummplots_comps
+  if (is.list(plots)) {
+    for (lab in names(plots)) {
+      cat("\n\n## ", lab, "\n\n", sep = "")
+      cats <- plots[[lab]]
+      if (inherits(cats, "gg")) {
+        print_plot(cats)
+      } else if (is.list(cats)) {
+        for (cat_name in names(cats)) {
+          cat("\n\n### ", cat_name, "\n\n", sep = "")
+          print_plot(cats[[cat_name]])
+        }
+      }
+    }
+  }
+}
+```
+
+# ORA
+
+```{r ora, results='asis'}
+ora <- report$ora
+if (is.null(ora)) {
+  cat("ORA was not run.\n")
+} else if (is.data.frame(ora) && nrow(ora)) {
+  print(knitr::kable(utils::head(ora, 30)))
+} else {
+  cat("ORA returned no rows.\n")
+}
+```

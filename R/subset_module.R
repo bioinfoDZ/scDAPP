@@ -1040,116 +1040,29 @@ subset_module <- function(
     )
   }
 
-  if (verbose) message("Composition")
-  comp_test <- if (isTRUE(Pseudobulk_mode)) "propeller" else "chisq"
-  comp_de_test <- if (!is.null(DE_test)) {
-    DE_test
-  } else if (isTRUE(Pseudobulk_mode)) {
-    "EdgeR-LRT"
-  } else {
-    "wilcox"
-  }
-  composition <- compositional_analysis_module(
-    sobjint = obj,
-    comps = comps,
-    sample_metadata = sample_metadata,
-    outdir_int = outdir,
-    grouping_variable = cluster_col,
-    compositional_test = comp_test,
-    DE_test = comp_de_test
-  )
-
-  if (verbose) message("Differential expression")
-  if (isTRUE(Pseudobulk_mode)) {
-    de_assay <- cfg$de_pseudobulk_assay
-    de_slot <- cfg$de_pseudobulk_slot
-  } else {
-    de_assay <- cfg$de_wilcox_assay
-    de_slot <- cfg$de_wilcox_slot
-  }
-  de_args <- list(
-    sobjint = obj,
+  comparative <- .run_comparative_stack(
+    obj = obj,
     sample_metadata = sample_metadata,
     comps = comps,
+    outdir = outdir,
     grouping_variable = cluster_col,
+    cfg = cfg,
     Pseudobulk_mode = Pseudobulk_mode,
-    outdir_int = outdir,
-    assay = de_assay,
-    slot = de_slot,
-    cluster_prefix = FALSE,
-    workernum = workernum
+    DE_test = DE_test,
+    species = species,
+    run_pathways = run_pathways,
+    run_ora = run_ora,
+    run_milo = run_milo,
+    milo_d = as.integer(pcs_use)[1],
+    workernum = workernum,
+    verbose = verbose,
+    saving_algorithm = saving_algorithm
   )
-  if (!is.null(DE_test)) de_args$DE_test <- DE_test
-  de_results <- do.call(de_across_conditions_module, de_args)
-
-  pathways <- NULL
-  if (isTRUE(run_pathways)) {
-    if (is.null(species) || !nzchar(as.character(species)[1])) {
-      stop("species is required when run_pathways = TRUE.", call. = FALSE)
-    }
-    if (!is.data.frame(de_results) || !nrow(de_results)) {
-      warning("Skipping pathways because DE returned no genes.", call. = FALSE)
-    } else {
-      if (verbose) message("Pathways")
-      pathway_sets <- preppathways_pathwayanalysis_crosscondition_module(
-        species = species,
-        outdir_int = outdir,
-        nthreads = workernum,
-        saving_algorithm = saving_algorithm
-      )
-      pathways <- pathwayanalysis_crosscondition_module(
-        de_results = de_results,
-        pathways = pathway_sets,
-        sample_metadata = sample_metadata,
-        comps = comps,
-        workernum = workernum,
-        outdir_int = outdir,
-        saving_algorithm = saving_algorithm,
-        nthreads = workernum
-      )
-    }
-  }
-
-  ora <- NULL
-  if (isTRUE(run_ora)) {
-    if (is.null(pathways) && isTRUE(run_pathways)) {
-      warning("Skipping ORA because pathway preparation did not run.", call. = FALSE)
-    } else {
-      if (verbose) message("ORA")
-      if (!exists("pathway_sets", inherits = FALSE)) {
-        pathway_sets <- preppathways_pathwayanalysis_crosscondition_module(
-          species = species,
-          outdir_int = outdir,
-          nthreads = workernum,
-          saving_algorithm = saving_algorithm
-        )
-      }
-      ora <- ORA_crosscondition_module(
-        de_results = de_results,
-        pathways = pathway_sets,
-        sample_metadata = sample_metadata,
-        comps = comps,
-        workernum = workernum,
-        outdir_int = outdir
-      )
-    }
-  }
-
-  milo <- NULL
-  if (isTRUE(run_milo)) {
-    if (verbose) message("Milo")
-    milo <- milo_neighbourhood_da_module(
-      sobjint = obj,
-      comps = comps,
-      sample_metadata = sample_metadata,
-      outdir_int = outdir,
-      grouping_variable = cluster_col,
-      cluster_reduction = cfg$cluster_reduction,
-      umap_reduction = cfg$umap_reduction,
-      d = as.integer(pcs_use)[1],
-      DE_test = comp_de_test
-    )
-  }
+  composition <- comparative$composition
+  de_results <- comparative$de_results
+  pathways <- comparative$pathways
+  ora <- comparative$ora
+  milo <- comparative$milo
 
   reduction <- if (!reintegrate) "umap" else cfg$umap_reduction
   dimplots <- tryCatch(

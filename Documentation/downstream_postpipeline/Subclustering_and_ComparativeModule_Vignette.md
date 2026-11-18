@@ -1,6 +1,8 @@
-# scDAPP downstream: subclustering with `subset_module()`
+# scDAPP downstream: cell types and subclustering
 
-`subset_module()` takes an integrated Seurat object from a finished scDAPP run, keeps the clusters or cells you pass, reclusters that subset, and runs composition, differential expression, pathway GSEA, and a short HTML report.
+Two wrappers run composition, differential expression, pathway GSEA, and optional Milo on an integrated object from a finished scDAPP run.
+
+`comparative_module()` keeps the clusters you already have and groups cells by a metadata column, such as called cell types. `subset_module()` keeps the clusters or cells you pass, reclusters that subset, and runs the same analyses on the new clusters.
 
 Comparisons use the same `comps` table as the original run. See the [comparative designs cookbook](../Comparative_Designs.md).
 
@@ -20,9 +22,52 @@ comps <- read.csv("PATH/TO/comps.csv")
 
 `read_scdapp_object()` reads `.qs2` or `.rds`. The default pipeline save is `.qs2`. Pass `load_risc = FALSE` when the parent integration was not RISC.
 
-The object needs `Code` and `Condition`. If your columns have other names, pass `sample_column` and `condition_column`. `cluster_column` defaults to `seurat_clusters`. Use the integrated column from the parent run when that is the grouping you want to subset, for example `RISC_Louvain_npc40_res0.1`.
+The object needs `Code` and `Condition`. If your columns have other names, pass `sample_column` and `condition_column`.
 
-## Run it
+`Pseudobulk_mode = TRUE` uses propeller, pseudobulk DE (EdgeR-LRT unless you set `DE_test`), and Milo. `FALSE` uses a chi-square composition test and Wilcoxon, and skips Milo. GSEA runs by default. ORA stays off unless `run_ora = TRUE`. Both wrappers use these arguments the same way.
+
+## Cell types without reclustering
+
+To compare called cell types on the clusters you already have, add a metadata column and pass it as `grouping_variable` to `comparative_module()`. This does not recluster.
+
+```r
+sobjint$Celltype <- plyr::mapvalues(
+  sobjint$seurat_clusters,
+  from = levels(sobjint$seurat_clusters),
+  to = c("NK", "B", "Myeloid", "T")
+)
+
+cmp <- scDAPP::comparative_module(
+  sobjint = sobjint,
+  sample_metadata = sample_metadata,
+  comps = comps,
+  outdir = "celltype_comparisons",
+  grouping_variable = "Celltype",
+  Pseudobulk_mode = TRUE,
+  species = "Homo sapiens"
+)
+cmp$de_results
+cmp$composition
+```
+
+Files go in `outdir`, using the same folder names as `multisample_integration/` in a pipeline run:
+
+- `comparative_module_report.html`
+- `compositional_proportion_analysis/`
+- `differentialexpression_crosscondition/`
+- `pathwayanalysis_crosscondition/`
+- `differential_abundance_Milo/` when Milo runs
+- `overrepresentation_pathway_analysis/` when `run_ora = TRUE`
+
+The return value holds the object, the grouping column, and the module results (`cmp$de_results`, `cmp$composition`, `cmp$pathways`, `cmp$milo`).
+
+## Subclustering with `subset_module()`
+
+`subset_module()` keeps the clusters or cells you pass, reclusters that subset, and runs the same comparative analyses on the new clusters.
+
+`cluster_column` defaults to `seurat_clusters`. Use the integrated column from the parent run when that is the grouping you want to subset, for example `RISC_Louvain_npc40_res0.1`.
+
+### Run it
 
 ```r
 sub <- scDAPP::subset_module(
@@ -43,9 +88,7 @@ sub$cluster_column
 
 `clusters` is matched against `cluster_column`. Pass `cells` instead when you already have a vector of cell names. Do not pass both.
 
-`Pseudobulk_mode = TRUE` uses propeller, pseudobulk DE (EdgeR-LRT unless you set `DE_test`), and Milo. `FALSE` uses a chi-square composition test and Wilcoxon, and skips Milo. GSEA runs by default. ORA stays off unless `run_ora = TRUE`.
-
-## How the subset is reclustered
+### How the subset is reclustered
 
 The parent method is read from `sobjint@misc$scDAPP$integration_method`. You can pass `integration_method` if that slot is missing.
 
@@ -57,7 +100,7 @@ Pass `reintegrate = TRUE` to split the subset back into samples and run RISC aga
 
 **Harmony, CCA, RPCA, and both SCT methods.** The subset is split by sample and passed through `run_integration()`. `pcs_int` or `res_int = "auto"` uses that method's integration stability sweep. `reintegrate = FALSE` is only allowed for RISC.
 
-## What is written
+### What is written
 
 Files go in `outdir`, using the same folder names as `multisample_integration/` in a pipeline run:
 
@@ -71,31 +114,6 @@ Files go in `outdir`, using the same folder names as `multisample_integration/` 
 - `overrepresentation_pathway_analysis/` when `run_ora = TRUE`
 
 The return value also holds the subset object, the new cluster column, and the module results (`sub$de_results`, `sub$composition`, `sub$pathways`, `sub$milo`).
-
-## Cell types without reclustering
-
-To compare called cell types on the clusters you already have, add a metadata column and pass it as `grouping_variable` to the comparative modules. You do not need `subset_module()`.
-
-```r
-sobjint$Celltype <- plyr::mapvalues(
-  sobjint$seurat_clusters,
-  from = levels(sobjint$seurat_clusters),
-  to = c("NK", "B", "Myeloid", "T")
-)
-
-de_results <- scDAPP::de_across_conditions_module(
-  sobjint = sobjint,
-  grouping_variable = "Celltype",
-  sample_metadata = sample_metadata,
-  comps = comps,
-  Pseudobulk_mode = TRUE,
-  assay = "RNA",
-  slot = "counts",
-  outdir_int = "celltype_comparisons"
-)
-```
-
-`compositional_analysis_module()`, `pathwayanalysis_crosscondition_module()`, and `milo_neighbourhood_da_module()` take the same `grouping_variable`. Details are in `?de_across_conditions_module` and the [cookbook](../Comparative_Designs.md).
 
 ## Earlier guide
 
