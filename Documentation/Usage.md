@@ -223,7 +223,9 @@ nohup R CMD BATCH --no-save --no-restore pipeline_runner.R &
 
 scDAPP has some complex but very useful analysis modes which may greatly facilitate / affect interpretation of the results, which are detailed below.
 
-### 1. `use_labeltransfer` Cell type prediction with Label Transfer
+<br />
+
+### 1. `use_labeltransfer`: Cell type prediction with Label Transfer
 
 Label transfer from a single-cell RNA-seq dataset to guess the cell types detected in your data is supported in the pipeline as an option. To use it, you need two files:
 
@@ -234,15 +236,16 @@ Once you have these, set `use_labeltransfer = T` and provide the paths with the 
 
 To select a label transfer reference, it is recommended to use a tissue as similar as possible, from the same species. There are "atlas" databases such as Tabula Muris or Human Cell Atlas that may have the tissue you need. Alternatively, you can search for published datasets from papers, but you need to make sure these provide information about cell type in their metadata, or else you need to redefine it yourself using the paper's markers. **Make sure to carefully interrogate all label transfer results, you should view them as data-driven suggestions rather than definitive cell type annotations.**
 
+<br />
 
 ### 2. `integration_method`: Which integration method to pick
 
-As of v2.0, we have added the ability to select from a suite of intergration methods: `RISC` is the default.
+scDAPP v2.0 allows you to select from a suite of intergration methods: `RISC` is the default.
 
 For `HarmonyIntegration`, `CCAIntegration`, `RPCAIntegration`, `CCAIntegration_SCT`, and `RPCAIntegration_SCT`, integration uses Seurat v5 `IntegrateLayers` on a merged object (no RISC reference sample). Batch-corrected signal is stored in **reductions**, not a merged `integrated` expression assay; see [Integration assays and reductions](#integration-assays-and-reductions). **Read [Integration runtime expectations](#integration-runtime-expectations) before choosing RPCA methods** — they can be extremely slow compared to CCA or Harmony.
 
 
-#### `risc_reference` RISC reference selection (`integration_method = "RISC"` only)
+#### `risc_reference`: RISC reference selection (`integration_method = "RISC"` only)
 
 When using RISC integration, the pipeline runs the ["Robust Integration of Single Cell RNA-seq" (RISC)](https://www.nature.com/articles/s41587-021-00859-x) workflow via the [RISC R package](https://github.com/bioinfoDZ/RISC).
 
@@ -254,17 +257,28 @@ RISC requires a reference sample: RPCI uses that sample's gene eigenvectors as t
 
 The HTML report still shows InPlot. If the starred sample is not the one you would pick from those three panels, set `risc_reference` to that sample's `Code` and re-run.
 
-### 3. Stability-based selection of integrated clustering parameters
+<br />
+
+### 3. `pcs_int` and `res_int` = "auto": Stability-based selection of integrated clustering parameters
 
 In v2.0, we introduced a data-driven approach for the selection of key parameters that affect the final integrated clustering.
 
 Clustering uses `pcs_int` principal components (default 30) and `res_int` Louvain resolution (default 0.5). Set either argument, or both, to "auto" to run a bootstrap stability sweep before the final integration. 
 
-Each candidate is clustered on the full data and on repeated subsamples (50 replicates of 80% of cells, by default). The winning setting is the one with the highest combined score, an equal-weight average of the mean adjusted Rand index and the mean per-cluster Jaccard index. The PC grid is `stability_sweep_maxPCs` (5, 10, 15, 20, 25, 30, 40, 50) and the resolution grid is `stability_sweep_res` (0.1 to 1.5 in steps of 0.2). `stability_numreps` and `stability_propcells.perrep` change the bootstrap, and `stability_workernum` sets the cores for the sweep (default workernum). Scores, plots, and the selected parameters are written under "multisample_integration/cluster_stability" and summarized in the HTML report under section "Automated integration parameter sweep". Those selected parameters are then used for the final clustering and downstream analysis. The full default grid can take many hours to run.
+Each candidate is clustered on the full data and on repeated subsamples (50 replicates of 80% of cells, by default). The winning setting is the one with the highest combined score, an equal-weight average of the mean adjusted Rand index and the mean per-cluster Jaccard index. The PC grid is `stability_sweep_maxPCs` (5, 10, 15, 20, 25, 30, 40, 50) and the resolution grid is `stability_sweep_res` (0.1 to 1.5 in steps of 0.2). `stability_numreps` and `stability_propcells.perrep` change the bootstrap, and `stability_workernum` sets the cores for the sweep (default `workernum`). Scores, plots, and the selected parameters are written under "multisample_integration/cluster_stability" and summarized in the HTML report under section "Automated integration parameter sweep". Those selected parameters are then used for the final clustering and downstream analysis. The full default grid can take many hours to run.
 
-**This method has limitations.** There is no general way to select the "optimal" number of clusters. This criterion tends to favor fewer, larger clusters, because small clusters are less reproducible under subsampling. Nevertheless, it is still a useful check on parameters that would otherwise be chosen by hand, or arbitrarily. If you want a different resolution for biological reasons, sort the per-parameter table by "combinedscore" and compare "nClust_Ref" for the top-scoring rows, or use the cluster-count plot, which shows the full grid.
+This criterion tends to favor fewer, larger clusters, because small clusters are less reproducible under subsampling. Nevertheless, it is still a useful check on parameters that would otherwise be chosen by hand, or arbitrarily. If you want a different resolution for biological reasons, sort the per-parameter table by "combinedscore" and compare "nClust_Ref" for the top-scoring rows, or use the cluster-count plot, which shows the full grid.
 
 
+<br />
+
+### 4. `run_msigdb_celltype_ora`: map cluster markers to published celltypes
+
+Annotating clusters to biological celltypes is the main bottleneck of single-cell trancriptomics. In addition to label transfer (detailled above), we have introduced a second strategy to guide you through this step.
+
+`run_msigdb_celltype_ora` (default TRUE) tests per-sample and integrated cluster markers for enrichment in [MSigDB C8 cell-type signatures](https://www.gsea-msigdb.org/gsea/msigdb/human/collections.jsp#C8). Each cluster contributes markers with p_val_adj below `msigdb_celltype_ora_marker_padj_thres` (default 0.05), ranked by marker score, up to `msigdb_celltype_ora_top_markers genes` (default 100). A cluster is skipped if fewer than 7 genes remain. "clusterProfiler::enricher()" keeps signatures whose q-value is below pathway_padj_thres (default 0.1; the same cutoff used for cross-condition pathway tests). Gene sets come from the species in `species` (default "Homo sapiens"), using the cached MSigDB table in `msigdbr_cache_dir`. Set `run_msigdb_celltype_ora` = FALSE to skip the step. It requires clusterProfiler, and marker gene IDs need to be the same symbols msigdbr uses. Tables and a summary dot plot (up to 5 signatures per cluster) are written under individualsample_analysis/celltype_marker_prediction/ and multisample_integration/celltype_marker_prediction/. Per-sample results are also combined in individualsample_analysis/celltype_marker_prediction/all_samples_ora_results.csv. The HTML report prints the dot plots. 
+
+These results are signature enrichments of the marker lists, not a definitive cell-type assignment.
 
 
 <br />
@@ -301,37 +315,27 @@ These parameters allow for control of sophisticated analysis methods.
 - `risc_reference` - string; RISC reference (RISC integration only). Default `"autoV2"` (product of InPlot cluster × Stv / mean KS, after a KS veto). `"auto"` / `"autoV1"` is the legacy heuristic. A `Code` or `Sample` name forces that reference for the stability sweep and the final integration.
 
 - `Pseudobulk_mode` - T/F. Sets the cross-conditional analysis mode: TRUE is replicate-aware, FALSE is non-replicate aware.
-- `DE_test` - a string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. Can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" for pseudobulk, or most of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see ?Seurat::FindMarkers for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 may require installation.
+- `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. For pseudobulk can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" (paired mixed models via `variancePartition`; requires `(1|var)` in `comps$formula`). `EdgeR-QLF` uses the same comps/contrasts as `EdgeR-LRT` (quasi-likelihood F-test; see [Comparative_Designs.md](Comparative_Designs.md) §2). For single-cell mode, most of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 or variancePartition may require installation.
 
 
-- `species` string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis, see `msigdbr::msigdbr_species()`
+- `species` string, for example 'Homo sapiens' or 'Mus musculus', default = 'Homo sapiens'; this is for pathway analysis and marker-based cell annotation. Supported species for ortholog mapping are listed in `msigdbr::msigdbr_species()`. If your study organism is not listed, you may still run the pipeline using the closest available species for pathway gene symbols, but interpret pathway results accordingly.
 
 - `msigdbr_cache_dir` optional string; directory for cached MSigDB pathway tables (prepared subset used by GSEA/ORA). Default `NULL` uses, in order: `XDG_CACHE_HOME/scDAPP` when that environment variable is set; otherwise `tools::R_user_dir("scDAPP", "cache")` (on macOS typically `~/Library/Caches/R/scDAPP`). An empty `XDG_CACHE_HOME` is normal on macOS. If none of those locations are writable, the pipeline falls back to `{outdir}/msigdbr_cache` with a warning.
 
-## MSigDB pathway cache
-
-Pathway analysis loads gene sets via the [msigdbr](https://cran.r-project.org/package=msigdbr) package. The first run for a given species downloads MSigDB, normalizes column names for current msigdbr releases (v10+), filters to the default categories (Hallmark, GO BP/MF/CC, Reactome, KEGG legacy, TFT GTRD and Legacy, and **MSigDB cell-type signatures**), and saves a **prepared** table to the cache directory above. Cell-type signatures are used for cluster-marker ORA only; cross-condition GSEA/ORA still use the Hallmark/GO/Reactome/KEGG/TFT categories.
-
-| Cache file pattern | Example |
-|--------------------|---------|
-| `msigdbr_{species}_{msigdbr_pkg_version}_{MSigDB_db_version}_prepared.rds` | `msigdbr_Homo_sapiens_26.1.0_2026.1.Hs_prepared.rds` |
-
-Subsequent pipeline runs reuse the cache when the species matches. Upgrading the `msigdbr` package creates a new cache file on first use (filename includes the package version). To force a refresh when calling `preppathways_pathwayanalysis_crosscondition_module()` directly, set `refresh_msigdbr_cache = TRUE`.
-
-The pipeline **no longer** writes `multisample_integration/pathwayanalysis_crosscondition/msigdb_pathways.rds` to the output folder. For downstream re-analysis, call `preppathways_pathwayanalysis_crosscondition_module()` again (cache is reused) or inspect the cache path with `resolve_msigdbr_cache_dir()` / `msigdbr_cache_path()`.
-
-Supported species for ortholog mapping are listed in `msigdbr::msigdbr_species()`. If your study organism is not listed, you may still run the pipeline using the closest available species for pathway gene symbols, but interpret pathway results accordingly.
-
-- `DE_test` - string, default is 'EdgeR-LRT' when Pseudobulk_mode is set to True, or 'wilcox' when Pseudobulk_mode is False. For pseudobulk can be "DESeq2", "DESeq2-LRT", "EdgeR", "EdgeR-LRT", "EdgeR-QLF", or "Dream" (paired mixed models via `variancePartition`; requires `(1|var)` in `comps$formula`). `EdgeR-QLF` uses the same comps/contrasts as `EdgeR-LRT` (quasi-likelihood F-test; see [Comparative_Designs.md](Comparative_Designs.md) §2). For single-cell mode, any of the tests supported by the "test.use" argument in the FindMarkers function in Seurat; see `?Seurat::FindMarkers` for more. Note the Seurat "roc" test is not included, and some additional packages like DESeq2 or variancePartition may require installation. Dream uses `workernum` for `BiocParallel` workers.
+- `run_msigdb_celltype_ora` - T/F, default is TRUE. Whether to run marker-based cell annotation via ORA of per-sample and integrated cluster markers against MSigDB cell-type signature gene sets. Uses up to the top 100 markers per cluster (by score) with `p_val_adj` below `msigdb_celltype_ora_marker_padj_thres`. Saves CSV tables and a summary dotplot PDF under `{outdir}/individualsample_analysis/celltype_marker_prediction/` and `{outdir}/multisample_integration/celltype_marker_prediction/`. A combined per-sample table is written as `individualsample_analysis/celltype_marker_prediction/all_samples_ora_results.csv`. Requires clusterProfiler.
+- `msigdb_celltype_ora_marker_padj_thres` - numeric, default 0.05. Adjusted p-value cutoff for cluster marker genes included in MSigDB cell-type ORA.
+- `msigdb_celltype_ora_top_markers` - integer, default 100. Maximum markers per cluster (after padj filter) ranked by marker `score`.
 
 - `run_ORA` - T/F, default is F. Whether to run OverRepresentation Analysis (ORA) using fisher exact tests as implemented in `clusterProfiler::enricher()`. clusterProfiler must be installed for this. Will save table outputs.
+
+
 - `run_MILO` - T/F, default FALSE. When TRUE and `Pseudobulk_mode` is TRUE, run neighborhood differential abundance with [Milo](https://github.com/MarioniLab/miloR) after the cluster compositional section. Requires Bioconductor `miloR` (`BiocManager::install("miloR")`). The graph is built on the integrated clustering embedding. Each `comps` row is one contrast, using the same formula and contrast grammar as pseudobulk DE. Results and plots are saved under `multisample_integration/differential_abundance_Milo/`. The HTML report prints the size histogram, and for each comparison a beeswarm, a UMAP neighborhood graph, an MA plot, the top 20 neighborhoods with SpatialFDR below `milo_spatial_fdr`, a per-cluster count of all significant neighborhoods, and an alluvial plot plus two-way heatmap for those top 20 only. When `Pseudobulk_mode` is FALSE the section says Milo was skipped, because the test needs replicate samples.
 - `milo_k` - `"auto"` (default) or a positive integer. `"auto"` sets k to `min(5 * n_samples, milo_k_max, n_cells - 1)`. That 5-per-sample rule is the Milo maintainer's neighborhood-size guideline. k is not shrunk to the smallest sample.
 - `milo_k_max` - positive integer, default 100. Used only when `milo_k` is `"auto"`. If 5 times the sample count is larger, k is capped and the report says so. Pass an integer `milo_k` to go higher. Milo does not treat 50 as a maximum.
 - `milo_spatial_fdr` - numeric, default 0.1. Neighborhoods with SpatialFDR below this cutoff are reported as significant. SpatialFDR is a false-discovery rate that gives less weight to neighborhoods that share cells.
-- `run_msigdb_celltype_ora` - T/F, default is TRUE. Whether to run ORA of per-sample and integrated cluster markers against MSigDB cell-type signature gene sets. Uses up to the top 100 markers per cluster (by score) with `p_val_adj` below `msigdb_celltype_ora_marker_padj_thres`. Saves CSV tables and a summary dotplot PDF under `{outdir}/individualsample_analysis/celltype_marker_prediction/` and `{outdir}/multisample_integration/celltype_marker_prediction/`. A combined per-sample table is written as `individualsample_analysis/celltype_marker_prediction/all_samples_ora_results.csv`. Requires clusterProfiler.
-- `msigdb_celltype_ora_marker_padj_thres` - numeric, default 0.05. Adjusted p-value cutoff for cluster marker genes included in MSigDB cell-type ORA.
-- `msigdb_celltype_ora_top_markers` - integer, default 100. Maximum markers per cluster (after padj filter) ranked by marker `score`.
+
+
+
 
 
 ## Integration method dependencies
