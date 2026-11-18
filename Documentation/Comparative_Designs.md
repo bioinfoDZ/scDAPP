@@ -2,7 +2,7 @@
 
 This cookbook shows how to set up cross-condition comparisons. Parameter lists are in [Usage.md](Usage.md).
 
-## The two files
+## The two metadata files
 
 `sample_metadata.csv` has one row per sample. `Sample` matches the Cell Ranger folder or the Seurat file name. `Condition` is the group. `Code` is an optional short name; if you omit it, the pipeline uses `Condition_Sample`. Add columns such as `Batch` or `Patient` only when a comparison uses them.
 
@@ -17,20 +17,9 @@ This cookbook shows how to set up cross-condition comparisons. Parameter lists a
 
 `Condition` levels follow first appearance in `sample_metadata`. Put Control (or whichever group should be the intercept) in the first rows. Other covariate columns read from the CSV become factors in alphabetical order. Pairwise `c0` and `c1` still name the two levels you want, whatever the intercept is.
 
-## Characters
+<br />
 
-Letters, digits, and `_` are safe in every column. Hyphens in `Sample` and `Code` are fine. Those values are file and folder names, and Cell Ranger names often look like `S00033-Ja005E`.
 
-These characters cause trouble:
-
-- `/` or `\` in `Sample`, `Code`, or `label` breaks the path. Pathway and composition folders use `label` as written. Milo replaces any character outside `A-Z`, `a-z`, `0-9`, `.`, `_`, and `-` with `_`.
-- `-` in a condition or covariate **level** breaks EdgeR contrasts. The contrast parser splits on `-`, so a level `COVID-SEV` is read as subtraction. DESeq2 rewrites `-` to `_` in levels, so the contrast has to use the underscore form. Write `COVID_SEV`.
-- `:` in a level collides with interaction names such as `ConditionTreatment:GenotypeKO`.
-- Spaces, `+`, `*`, and parentheses in a level or a column name are formula syntax.
-- A column in `(1|var)` must match `[A-Za-z.][A-Za-z0-9_.]*`. Otherwise the random effect is not recognized.
-- An unquoted comma or a line break inside a CSV cell splits the row. A file that does not end with a newline (typical of Excel) is still read, with a warning.
-
----
 
 ## 1. Single-cell 1v1 (Wilcox / FindMarkers)
 
@@ -66,7 +55,8 @@ scDAPP::scRNAseq_pipeline_runner(
 
 `DE_test` may also be `wilcox_limma`, `bimod`, `t`, `negbinom`, `poisson`, `LR`, `MAST`, or `DESeq2` (Seurat `FindMarkers` tests). `roc` is not supported.
 
----
+<br />
+
 
 ## 2. Simple A vs B pseudobulk
 
@@ -104,7 +94,8 @@ scDAPP::scRNAseq_pipeline_runner(
 
 The comparison is named `Treatment_vs_Control`.
 
----
+<br />
+
 
 ## 3. A vs B vs C
 
@@ -131,7 +122,8 @@ The comparison is named `Treatment_vs_Control`.
 
 Each row has a different `c0`/`c1` pair, so the automatic names (`Treatment_vs_Control`, `Other_vs_Control`, `Other_vs_Treatment`) do not collide.
 
----
+<br />
+
 
 ## 4. Confounders
 
@@ -166,7 +158,8 @@ Both rows below are Control versus Treatment, so each row needs its own `label`.
 
 Use `EdgeR-LRT`, `EdgeR-QLF`, or a DESeq2 test here. `EdgeR` exactTest only fits a plain `~ Condition` with two groups.
 
----
+<br />
+
 
 ## 5. Interactions
 
@@ -205,7 +198,8 @@ A main-effect contrast still reports `PropMean_c1` and `PropMean_c0`. An interac
 
 Coefficient names depend on factor levels. Check `colnames(model.matrix(...))` or `DESeq2::resultsNames(dds)` if a contrast does not match.
 
----
+<br />
+
 
 ## 6. Paired samples (Dream)
 
@@ -245,7 +239,8 @@ scDAPP::scRNAseq_pipeline_runner(
 
 `~ Condition * Genotype + (1|Patient)` is allowed. Use EdgeR-style contrasts as in section 5, and set `label` if more than one row shares `c0` and `c1`.
 
----
+<br />
+
 
 ## 7. Neighbourhood abundance (Milo)
 
