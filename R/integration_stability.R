@@ -446,10 +446,13 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
   list(risc = data0, refscore = ref_info$refscore, var0 = var0)
 }
 
-#' Global reference: integrate+cluster for one PC/res (Seurat; merged counts)
+#' Global reference: integrate once per PC, cluster every resolution (Seurat).
+#'
+#' Harmony, CCA, RPCA, and both SCT methods share this worker.
+#' \code{params_for_pc} are the grid ids at one PC count.
 #' @keywords internal
 .stability_global_ref_worker_seurat <- function(
-    params_i,
+    params_for_pc,
     path_sobj_merged_temp,
     sweep_config,
     globrefdir,
@@ -457,30 +460,33 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     saving_algorithm = "qs2"
 ) {
   scDAPP::set_parallel_blas_threads()
-  outdf <- NULL
   try({
     sobj <- read_scdapp_object(path_sobj_merged_temp, nthreads = 1L)
-    parsed <- scDAPP:::.parse_stability_param_id(params_i)
-    outdf <- scDAPP:::.seurat_stability_integrate_cluster_at(
-      sobj,
-      sweep_config,
-      parsed$pcs_int,
-      parsed$res_int
-    )
-    write_scdapp_object(
-      outdf,
-      file.path(globrefdir, params_i),
+    backend <- list(
       saving_algorithm = saving_algorithm,
-      nthreads = 1L
+      integrate_at_pcs = function(pcs) {
+        scDAPP:::.seurat_integrate_layers_at_pcs(sobj, sweep_config, pcs)
+      },
+      cluster_at_integrated = function(obj, pcs, res) {
+        scDAPP:::.seurat_stability_cluster_at(obj, sweep_config, pcs, res)
+      }
+    )
+    scDAPP:::.stability_sweep_save_params(
+      backend,
+      params_for_pc,
+      globrefdir,
+      verbose = verbose
     )
   }, silent = !verbose)
-  outdf
+  invisible(NULL)
 }
 
-#' Global reference: integrate+cluster for one PC/res (RISC; worker loads risclist)
+#' Global reference: integrate once per PC, cluster every resolution (RISC).
+#'
+#' \code{params_for_pc} are the grid ids at one PC count.
 #' @keywords internal
 .stability_global_ref_worker_risc <- function(
-    params_i,
+    params_for_pc,
     path_risclist_temp,
     sample_metadata,
     risc_reference,
@@ -491,27 +497,36 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     saving_algorithm = "qs2"
 ) {
   scDAPP::set_parallel_blas_threads()
-  outdf <- NULL
   try({
     risclist <- read_scdapp_object(path_risclist_temp, nthreads = 1L)
-    parsed <- scDAPP:::.parse_stability_param_id(params_i)
-    outdf <- scDAPP:::.risc_stability_integrate_cluster_at(
-      risclist,
-      sample_metadata,
-      parsed$pcs_int,
-      parsed$res_int,
-      risc_reference = risc_reference,
-      risc_ncore = risc_ncore,
-      RISC_louvain_neighbors = risc_louvain_neighbors
-    )
-    write_scdapp_object(
-      outdf,
-      file.path(globrefdir, params_i),
+    backend <- list(
       saving_algorithm = saving_algorithm,
-      nthreads = 1L
+      integrate_at_pcs = function(pcs) {
+        scDAPP:::.risc_stability_integrate(
+          risclist,
+          sample_metadata,
+          pcs,
+          risc_reference = risc_reference,
+          risc_ncore = risc_ncore
+        )
+      },
+      cluster_at_integrated = function(risc_state, pcs, res) {
+        scDAPP:::.risc_stability_cluster_at(
+          risc_state,
+          pcs,
+          res,
+          RISC_louvain_neighbors = risc_louvain_neighbors
+        )
+      }
+    )
+    scDAPP:::.stability_sweep_save_params(
+      backend,
+      params_for_pc,
+      globrefdir,
+      verbose = verbose
     )
   }, silent = !verbose)
-  outdf
+  invisible(NULL)
 }
 
 #' Cell ids for a Seurat stability bootstrap.
@@ -1188,8 +1203,9 @@ cluster_stability_sweep <- function(
       backend$prep_reference()
     }
 
+    pcs_to_run <- .stability_pcs_values_from_paramfield(globparamfield_run)
     ref_workers <- .stability_effective_workers(
-      length(globparamfield_run),
+      length(pcs_to_run),
       stability_workernum
     )
     if (ref_workers <= 1L) {
@@ -1218,17 +1234,18 @@ cluster_stability_sweep <- function(
           "risc_ncore",
           "risc_louvain_neighbors",
           "globrefdir",
+          "globparamfield_run",
           "verbose"
         ),
         envir = environment()
       )
       foreach::foreach(
-        params_i = globparamfield_run,
+        pcs_k = pcs_to_run,
         .packages = .stability_foreach_packages(),
         .verbose = verbose
       ) %dopar% {
         scDAPP:::.stability_global_ref_worker_risc(
-          params_i,
+          scDAPP:::.stability_params_with_pcs(globparamfield_run, pcs_k),
           path_risclist_temp,
           sample_metadata,
           risc_reference,
@@ -1250,16 +1267,22 @@ cluster_stability_sweep <- function(
       parallel::clusterEvalQ(cl, Sys.sleep(stats::runif(1, 1, 3)))
       parallel::clusterExport(
         cl,
-        c("path_sobj_merged_temp", "sweep_config", "globrefdir", "verbose"),
+        c(
+          "path_sobj_merged_temp",
+          "sweep_config",
+          "globrefdir",
+          "globparamfield_run",
+          "verbose"
+        ),
         envir = environment()
       )
       foreach::foreach(
-        params_i = globparamfield_run,
+        pcs_k = pcs_to_run,
         .packages = .stability_foreach_packages(),
         .verbose = verbose
       ) %dopar% {
         scDAPP:::.stability_global_ref_worker_seurat(
-          params_i,
+          scDAPP:::.stability_params_with_pcs(globparamfield_run, pcs_k),
           path_sobj_merged_temp,
           sweep_config,
           globrefdir,

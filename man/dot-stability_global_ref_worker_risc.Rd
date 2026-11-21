@@ -2,10 +2,10 @@
 % Please edit documentation in R/integration_stability.R
 \name{.stability_global_ref_worker_risc}
 \alias{.stability_global_ref_worker_risc}
-\title{Global reference: integrate+cluster for one PC/res (RISC; worker loads risclist)}
+\title{Global reference: integrate once per PC, cluster every resolution (RISC).}
 \usage{
 .stability_global_ref_worker_risc(
-  params_i,
+  params_for_pc,
   path_risclist_temp,
   sample_metadata,
   risc_reference,
@@ -17,6 +17,6 @@
 )
 }
 \description{
-Global reference: integrate+cluster for one PC/res (RISC; worker loads risclist)
+\code{params_for_pc} are the grid ids at one PC count.
 }
 \keyword{internal}

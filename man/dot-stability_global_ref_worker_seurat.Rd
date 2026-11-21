@@ -2,10 +2,10 @@
 % Please edit documentation in R/integration_stability.R
 \name{.stability_global_ref_worker_seurat}
 \alias{.stability_global_ref_worker_seurat}
-\title{Global reference: integrate+cluster for one PC/res (Seurat; merged counts)}
+\title{Global reference: integrate once per PC, cluster every resolution (Seurat).}
 \usage{
 .stability_global_ref_worker_seurat(
-  params_i,
+  params_for_pc,
   path_sobj_merged_temp,
   sweep_config,
   globrefdir,
@@ -14,6 +14,7 @@
 )
 }
 \description{
-Global reference: integrate+cluster for one PC/res (Seurat; merged counts)
+Harmony, CCA, RPCA, and both SCT methods share this worker.
+\code{params_for_pc} are the grid ids at one PC count.
 }
 \keyword{internal}
