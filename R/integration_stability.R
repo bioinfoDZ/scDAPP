@@ -514,6 +514,20 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
   outdf
 }
 
+#' Cell ids for a Seurat stability bootstrap.
+#'
+#' \code{merge()} renames colliding barcodes (\code{AAAC..._1}, \code{AAAC..._2})
+#' and leaves the \code{Barcode} column as the pre-merge name. Subsetting with
+#' that column matches no cells. Use metadata rownames, which are the names
+#' stored on the merged object. RISC keeps \code{.stability_subsample_cells()}
+#' on \code{Barcode} because each sample matrix still uses the original ids.
+#' @keywords internal
+.stability_seurat_bootstrap_cells <- function(sobj, samplecolumn, propcells.perrep) {
+  meta <- sobj@meta.data
+  meta$Barcode <- NULL
+  .stability_subsample_cells(meta, samplecolumn, propcells.perrep)
+}
+
 #' Bootstrap replicate worker (Seurat): integrate per PC, cluster all res at that PC
 #' @keywords internal
 .stability_bootstrap_worker_seurat <- function(
@@ -536,8 +550,8 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     if (downsize_seurat) {
       sobj <- scDAPP:::.stability_downsize_seurat_counts(sobj)
     }
-    subcells <- scDAPP:::.stability_subsample_cells(
-      sobj@meta.data,
+    subcells <- scDAPP:::.stability_seurat_bootstrap_cells(
+      sobj,
       samplecolumn,
       propcells.perrep
     )
@@ -1468,6 +1482,12 @@ cluster_stability_sweep <- function(
   })
   names(repres_flat) <- bootstrapreps_run_full_df$Filename
   repres_flat <- repres_flat[lengths(repres_flat) > 0L]
+  if (nrow(bootstrapreps_run_full_df) > 0L && !length(repres_flat)) {
+    stop(
+      "Stability bootstrap wrote no clusterings.",
+      call. = FALSE
+    )
+  }
 
   bsindex <- bootstrapreps_run_full_df[
     bootstrapreps_run_full_df$Filename %in% names(repres_flat),
