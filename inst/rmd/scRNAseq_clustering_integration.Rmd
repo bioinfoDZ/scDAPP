@@ -3645,16 +3645,21 @@ predictionmats <- lapply(sample_metadata$Code, function(code){
   sobj <- scDAPP::read_scdapp_object(tmp_fp, nthreads = workernum)
   
   #subset intmd for this sample
-  intmd_sub <- intmd[intmd$Code == code,]
+  intmd_sub <- intmd[intmd$Code == code, , drop = FALSE]
   
   #get md for this sample from sobjlist (pre-int sobj)
   md <- sobj@meta.data
   
-  #make sure they match (very likely they always will...?)
-  intmd_sub <- intmd_sub[match(md$Barcode, intmd_sub$scBarcode),]
+  # Harmony/CCA/RPCA have Barcode and merged names AAAC_1. RISC joins on scBarcode.
+  # Column names below are the integrated cell names, not the original Barcode.
+  intmd_sub <- scDAPP:::.align_integrated_metadata_to_sample(
+    intmd_sub,
+    md,
+    sample_code = code
+  )
   
   #get clusters; clustname defined above
-  sobj@meta.data[,clustname] <- intmd_sub[,clustname]
+  sobj@meta.data[,clustname] <- intmd_sub[[clustname]]
   
   #save each sample obj to proc obj dir
   invisible(scDAPP::write_scdapp_object(
@@ -3665,9 +3670,12 @@ predictionmats <- lapply(sample_metadata$Code, function(code){
   ))
   
   if(use_labeltransfer == T){
-    #return prediction assay with proper risc barcodes
     predictionmat <- sobj@assays$predictions@data
-    colnames(predictionmat) <- intmd_sub$Barcode
+    predictionmat <- scDAPP:::.label_prediction_matrix(
+      predictionmat,
+      rownames(intmd_sub),
+      sample_code = code
+    )
     return(predictionmat)
   } else{
     return(code)
@@ -3692,12 +3700,11 @@ sobjint <- scDAPP::read_scdapp_object(
 #add predictions assay to integrated seurat object
 if(use_labeltransfer==T){
   
-  #combine prediction matrices and add to seurat obj
-  predmat <- as(as.matrix(dplyr::bind_cols(predictionmats)), "sparseMatrix")
-  rownames(predmat) <- rownames(predictionmats[[1]])
-  
-  #match order of barcodes
-  predmat <- predmat[,match(rownames(intmd), colnames(predmat))]
+  #combine prediction matrices in integrated cell order
+  predmat <- scDAPP:::.combine_prediction_matrices(
+    predictionmats,
+    rownames(intmd)
+  )
   
   predassay <- CreateAssayObject(data=predmat)
   

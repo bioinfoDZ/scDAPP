@@ -186,6 +186,28 @@ run_integration <- function(
     if (is.null(ip)) {
       ip <- meta$ip
     }
+    concat_stem <- file.path(outdir_int_objects, ".concatmatrix")
+    if (file.exists(paste0(concat_stem, ".rds")) || file.exists(paste0(concat_stem, ".qs2"))) {
+      message(
+        "Pipeline resume: re-attaching RNA counts with per-sample barcode alignment."
+      )
+      prev_assay <- Seurat::DefaultAssay(sobjint)
+      sobjint <- .append_concat_rna_assay(
+        sobjint,
+        outdir_int_objects,
+        sample_metadata,
+        saving_algorithm = saving_algorithm
+      )
+      if (prev_assay %in% Seurat::Assays(sobjint)) {
+        Seurat::DefaultAssay(sobjint) <- prev_assay
+      }
+      write_scdapp_object(
+        sobjint,
+        file.path(outdir_int_objects, "Seurat-object_integrated"),
+        saving_algorithm = saving_algorithm,
+        nthreads = workernum
+      )
+    }
     res <- list(
       sobjint = sobjint,
       int_clust_lab = meta$int_clust_lab,

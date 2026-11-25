@@ -419,6 +419,245 @@ check_integration_dependencies <- function(config, pcs_int = NULL, res_int = NUL
   out
 }
 
+#' Original per-sample cell ids.
+#'
+#' RISC stores these in \code{scBarcode}. Seurat \code{merge()} leaves them in
+#' \code{Barcode} and renames colliding cell names (\code{AAAC..._1}).
+#' @keywords internal
+.original_cell_ids <- function(md) {
+  if ("scBarcode" %in% colnames(md)) {
+    return(as.character(md[["scBarcode"]]))
+  }
+  if ("Barcode" %in% colnames(md)) {
+    return(as.character(md[["Barcode"]]))
+  }
+  rownames(md)
+}
+
+#' Per-sample query ids, before integration renamed cells.
+#' @keywords internal
+.sample_query_ids <- function(md) {
+  if ("Barcode" %in% colnames(md)) {
+    return(as.character(md[["Barcode"]]))
+  }
+  rownames(md)
+}
+
+.barcode_sample_label <- function(sample_code) {
+  if (is.null(sample_code) || !nzchar(as.character(sample_code)[1])) {
+    return("")
+  }
+  paste0(" (sample ", as.character(sample_code)[1], ")")
+}
+
+#' Integrated metadata rows in per-sample cell order.
+#'
+#' Matches each per-sample \code{Barcode} to integrated \code{scBarcode} when
+#' that column exists, otherwise to \code{Barcode}. Row names of the result are
+#' the integrated cell names. Stops when a hit is missing or duplicated.
+#'
+#' @param int_md Integrated metadata already restricted to one sample.
+#' @param sample_md Per-sample metadata in object cell order.
+#' @param sample_code Optional sample id used in error messages.
+#' @keywords internal
+.align_integrated_metadata_to_sample <- function(int_md, sample_md, sample_code = NULL) {
+  where <- .barcode_sample_label(sample_code)
+  query <- .sample_query_ids(sample_md)
+  keys <- .original_cell_ids(int_md)
+  if (length(query) != nrow(sample_md)) {
+    stop("Per-sample cell ids do not match the metadata rows", where, ".", call. = FALSE)
+  }
+  if (anyDuplicated(keys)) {
+    stop(
+      "Integrated metadata has duplicate original cell ids",
+      where,
+      ".",
+      call. = FALSE
+    )
+  }
+  hit <- match(query, keys)
+  if (anyNA(hit)) {
+    stop(
+      "Integrated metadata is missing ",
+      sum(is.na(hit)),
+      " of ",
+      length(query),
+      " per-sample cells",
+      where,
+      ".",
+      call. = FALSE
+    )
+  }
+  if (anyDuplicated(hit)) {
+    stop(
+      "Per-sample cell ids match the same integrated cell more than once",
+      where,
+      ".",
+      call. = FALSE
+    )
+  }
+  int_md[hit, , drop = FALSE]
+}
+
+#' Set prediction-assay column names to integrated cell names.
+#' @keywords internal
+.label_prediction_matrix <- function(predictionmat, integrated_cells, sample_code = NULL) {
+  where <- .barcode_sample_label(sample_code)
+  integrated_cells <- as.character(integrated_cells)
+  if (ncol(predictionmat) != length(integrated_cells)) {
+    stop(
+      "Prediction assay has ",
+      ncol(predictionmat),
+      " columns and ",
+      length(integrated_cells),
+      " integrated cells",
+      where,
+      ".",
+      call. = FALSE
+    )
+  }
+  if (anyDuplicated(integrated_cells)) {
+    stop("Integrated cell names are not unique", where, ".", call. = FALSE)
+  }
+  colnames(predictionmat) <- integrated_cells
+  predictionmat
+}
+
+#' Column-bind per-sample prediction assays in integrated cell order.
+#'
+#' Rows are aligned to the first assay. Column names must already be integrated
+#' cell names. Stops when an integrated cell is missing.
+#' @keywords internal
+.combine_prediction_matrices <- function(mats, integrated_cells) {
+  if (!length(mats)) {
+    stop("No prediction matrices to combine.", call. = FALSE)
+  }
+  integrated_cells <- as.character(integrated_cells)
+  if (anyDuplicated(integrated_cells)) {
+    stop("Integrated cell names are not unique.", call. = FALSE)
+  }
+  ref_rows <- rownames(mats[[1]])
+  if (is.null(ref_rows) || !length(ref_rows)) {
+    stop("Prediction assay is missing row names.", call. = FALSE)
+  }
+  mats <- lapply(mats, function(mat) {
+    rows <- rownames(mat)
+    if (is.null(rows) || !all(ref_rows %in% rows)) {
+      stop("Prediction assays do not share the same rows.", call. = FALSE)
+    }
+    if (!identical(rows, ref_rows)) {
+      mat <- mat[ref_rows, , drop = FALSE]
+    }
+    methods::as(mat, "CsparseMatrix")
+  })
+  predmat <- do.call(cbind, mats)
+  rownames(predmat) <- ref_rows
+  if (anyDuplicated(colnames(predmat))) {
+    stop("Prediction assay column names are not unique.", call. = FALSE)
+  }
+  idx <- match(integrated_cells, colnames(predmat))
+  if (length(colnames(predmat)) != length(integrated_cells) || anyNA(idx)) {
+    n_miss <- if (anyNA(idx)) sum(is.na(idx)) else length(integrated_cells)
+    stop(
+      "Prediction assay is missing ",
+      n_miss,
+      " integrated cells.",
+      call. = FALSE
+    )
+  }
+  predmat[, idx, drop = FALSE]
+}
+
+#' Place each sample's count matrix onto integrated cell names.
+#'
+#' Matches original ids (\code{scBarcode}, else \code{Barcode}) within
+#' \code{Code}. A shared 10x barcode is not looked up in the concatenated matrix.
+#' @keywords internal
+.align_concat_matlist_to_object <- function(matlist, sobjint) {
+  if (!length(matlist)) {
+    stop("concat matrix is empty.", call. = FALSE)
+  }
+  bigmat <- do.call(cbind, matlist)
+  num_nonzeros <- tabulate(bigmat@i + 1L, nbins = nrow(bigmat))
+  min_samples <- min(3L, length(matlist))
+  genes <- rownames(bigmat)[num_nonzeros >= min_samples]
+  rm(bigmat)
+  if (!length(genes)) {
+    stop("concat matrix has no genes expressed in enough cells.", call. = FALSE)
+  }
+
+  md <- sobjint@meta.data
+  if (!"Code" %in% colnames(md)) {
+    stop(
+      "Integrated object is missing Code; cannot align concat counts by sample.",
+      call. = FALSE
+    )
+  }
+  integrated_cells <- colnames(sobjint)
+  if (anyDuplicated(integrated_cells)) {
+    stop("Integrated cell names are not unique.", call. = FALSE)
+  }
+  orig <- .original_cell_ids(md)
+  if (length(orig) != length(integrated_cells)) {
+    stop("Original cell ids do not match integrated cells.", call. = FALSE)
+  }
+  codes <- as.character(md[["Code"]])
+  if (anyNA(codes) || any(!nzchar(codes))) {
+    stop("Integrated object has cells with no Code.", call. = FALSE)
+  }
+
+  pieces <- lapply(unique(codes), function(code) {
+    cells <- which(codes == code)
+    mat <- matlist[[code]]
+    if (is.null(mat)) {
+      stop("concat matrix is missing sample ", code, ".", call. = FALSE)
+    }
+    gene_hit <- match(genes, rownames(mat))
+    if (anyNA(gene_hit)) {
+      stop(
+        "concat matrix is missing ",
+        sum(is.na(gene_hit)),
+        " genes for sample ",
+        code,
+        ".",
+        call. = FALSE
+      )
+    }
+    mat <- mat[gene_hit, , drop = FALSE]
+    keys <- colnames(mat)
+    if (anyDuplicated(keys)) {
+      stop("concat matrix has duplicate cell names in sample ", code, ".", call. = FALSE)
+    }
+    query <- orig[cells]
+    if (anyDuplicated(query)) {
+      stop(
+        "Integrated metadata has duplicate original cell ids (sample ",
+        code,
+        ").",
+        call. = FALSE
+      )
+    }
+    hit <- match(query, keys)
+    if (anyNA(hit)) {
+      stop(
+        "concat matrix missing ",
+        sum(is.na(hit)),
+        " of ",
+        length(cells),
+        " cells in sample ",
+        code,
+        ". Check Barcode metadata alignment.",
+        call. = FALSE
+      )
+    }
+    mat <- mat[, hit, drop = FALSE]
+    colnames(mat) <- integrated_cells[cells]
+    mat
+  })
+  bigmat <- do.call(cbind, pieces)
+  bigmat[, integrated_cells, drop = FALSE]
+}
+
 #' Attach joined raw RNA counts assay to integrated object for pseudobulk DE.
 #' @keywords internal
 .append_concat_rna_assay <- function(
@@ -432,33 +671,8 @@ check_integration_dependencies <- function(config, pcs_int = NULL, res_int = NUL
     saving_algorithm
   )
   matlist <- read_scdapp_object(matlist_path)
-
-  bigmat <- do.call(cbind, matlist)
-  num_nonzeros <- tabulate(bigmat@i + 1L, nbins = nrow(bigmat))
-  min_samples <- min(3L, length(matlist))
-  joint_filt_genes <- rownames(bigmat)[num_nonzeros >= min_samples]
-  bigmat <- bigmat[rownames(bigmat) %in% joint_filt_genes, , drop = FALSE]
-
-  cells <- if ("scBarcode" %in% colnames(sobjint@meta.data)) {
-    as.character(sobjint@meta.data$scBarcode)
-  } else if ("Barcode" %in% colnames(sobjint@meta.data)) {
-    as.character(sobjint@meta.data$Barcode)
-  } else {
-    colnames(sobjint)
-  }
-  idx <- match(cells, colnames(bigmat))
-  if (anyNA(idx)) {
-    stop(
-      "concat matrix missing ",
-      sum(is.na(idx)),
-      " of ",
-      length(cells),
-      " integrated cells. Check Barcode metadata alignment.",
-      call. = FALSE
-    )
-  }
-  bigmat <- bigmat[, idx, drop = FALSE]
-  colnames(bigmat) <- colnames(sobjint)
+  bigmat <- .align_concat_matlist_to_object(matlist, sobjint)
+  rm(matlist)
 
   rnaassay <- Seurat::CreateAssayObject(counts = bigmat)
   sobjint[["RNA"]] <- rnaassay

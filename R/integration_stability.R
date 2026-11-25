@@ -173,7 +173,60 @@
   )
 }
 
+#' Per-sample barcodes for a bootstrap replicate.
+#'
+#' A flat \code{Barcode} set leaks across samples when the same 10x id occurs
+#' twice. Each vector here is only the cells drawn from that sample.
+#' Seurat bootstrap does not use this; it subsets by merged cell names.
+#' @keywords internal
+.stability_subsample_barcodes_by_sample <- function(meta, samplecolumn, propcells.perrep) {
+  use_barcode <- "Barcode" %in% colnames(meta)
+  codes <- unique(as.character(meta[[samplecolumn]]))
+  out <- lapply(codes, function(code) {
+    idx <- which(as.character(meta[[samplecolumn]]) == code)
+    n <- length(idx)
+    if (n < 2L) {
+      return(character(0))
+    }
+    size <- max(2L, round(n * propcells.perrep))
+    size <- min(size, n)
+    picked <- sample(idx, size = size, replace = FALSE)
+    if (use_barcode) as.character(meta$Barcode[picked]) else rownames(meta)[picked]
+  })
+  names(out) <- codes
+  out <- out[lengths(out) >= 2L]
+  if (length(out) < 2L) {
+    stop(
+      "Bootstrap subsample must retain at least two samples with >= 2 cells each.",
+      call. = FALSE
+    )
+  }
+  out
+}
+
+#' Keep metadata rows whose ids are in \code{keep}.
+#'
+#' \code{keep} is one sample's ids. It is not a global barcode set.
+#' @keywords internal
+.stability_filter_sample_metadata <- function(md, keep) {
+  if (is.null(keep)) {
+    return(md)
+  }
+  keep <- as.character(keep)
+  if (!length(keep)) {
+    return(md[0, , drop = FALSE])
+  }
+  if ("Barcode" %in% colnames(md)) {
+    return(md[as.character(md$Barcode) %in% keep, , drop = FALSE])
+  }
+  md[rownames(md) %in% keep, , drop = FALSE]
+}
+
 #' Subsample cells for bootstrap (stratified by sample); keep samples with >= 2 cells
+#'
+#' Seurat stability passes metadata with \code{Barcode} removed so the returned
+#' ids are merged cell names. RISC bootstrap uses
+#' \code{.stability_subsample_barcodes_by_sample()} instead of this flat vector.
 #' @keywords internal
 .stability_subsample_cells <- function(meta, samplecolumn, propcells.perrep) {
   use_barcode <- "Barcode" %in% colnames(meta)
@@ -314,6 +367,11 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
 # ---- Cluster stability: RISC/Seurat backends ----
 
 #' Build RISC object list from mdlist (optionally cell subset)
+#' @param cell_rownames Optional flat id set. Prefer \code{cells_by_sample} when
+#'   barcodes can collide across samples.
+#' @param cells_by_sample Named list of original barcodes to keep, one vector
+#'   per sample \code{Code}. A shared id sampled in one sample is not kept in
+#'   the others. When set, \code{cell_rownames} is ignored.
 #' @param risc_ncore Passed to \code{scMultiIntegrate}. Per-sample socket prep uses \code{min(risc_ncore, n samples)}.
 #' @keywords internal
 .risc_stability_build_risclist <- function(
@@ -324,6 +382,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
     datadir = NULL,
     matlist_path = NULL,
     cell_rownames = NULL,
+    cells_by_sample = NULL,
     input_seurat_obj = FALSE,
     risc_ncore = 1L
 ) {
@@ -344,12 +403,14 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
 
   risclist <- lapply(sample_metadata$Code, function(code) {
     md <- mdlist[[code]]
-    if (!is.null(cell_rownames)) {
-      if ("Barcode" %in% colnames(md)) {
-        md <- md[as.character(md$Barcode) %in% cell_rownames, , drop = FALSE]
-      } else {
-        md <- md[rownames(md) %in% cell_rownames, , drop = FALSE]
+    if (!is.null(cells_by_sample)) {
+      code_chr <- as.character(code)
+      if (!code_chr %in% names(cells_by_sample)) {
+        return(NULL)
       }
+      md <- .stability_filter_sample_metadata(md, cells_by_sample[[code_chr]])
+    } else if (!is.null(cell_rownames)) {
+      md <- .stability_filter_sample_metadata(md, cell_rownames)
     }
     mat0 <- matlist[[code]]
     mat0 <- mat0[rownames(mat0) %in% joint_filt_genes, , drop = FALSE]
@@ -615,7 +676,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
   bs_id <- paste0("Bootstrap-", repi)
   try({
     globmd <- read_scdapp_object(path_globmd_temp, nthreads = 1L)
-    subcells <- scDAPP:::.stability_subsample_cells(
+    cells_by_sample <- scDAPP:::.stability_subsample_barcodes_by_sample(
       globmd,
       samplecolumn,
       propcells.perrep
@@ -625,7 +686,7 @@ risc_ncore_for_sweep <- function(workernum, stability_workernum = NULL) {
       mdlist,
       sample_metadata,
       matlist = matlist,
-      cell_rownames = subcells,
+      cells_by_sample = cells_by_sample,
       risc_ncore = risc_ncore
     )
     ref_idx <- scDAPP:::.risc_reference_index_in_list(
